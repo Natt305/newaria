@@ -660,18 +660,166 @@ class RememberView(discord.ui.View):
 # Character View  (!character)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class CharacterView(discord.ui.View):
-    """Shown by !character — lets the user edit the bot's character via a modal."""
+class CharacterGalleryView(discord.ui.View):
+    """Cycling viewer for character reference images."""
 
-    def __init__(self, bot_name: str, background: str):
+    def __init__(self, image_count: int, can_remove: bool, current_index: int = 1):
+        super().__init__(timeout=180)
+        self.image_count = image_count
+        self.current_index = current_index
+        self.can_remove = can_remove
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.clear_items()
+
+        prev_btn = discord.ui.Button(
+            emoji="◀️",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.image_count <= 1 or self.current_index <= 1),
+            row=0,
+        )
+        prev_btn.callback = self._prev
+        self.add_item(prev_btn)
+
+        counter_btn = discord.ui.Button(
+            label=f"{self.current_index} / {self.image_count}",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+            row=0,
+        )
+        self.add_item(counter_btn)
+
+        next_btn = discord.ui.Button(
+            emoji="▶️",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.image_count <= 1 or self.current_index >= self.image_count),
+            row=0,
+        )
+        next_btn.callback = self._next
+        self.add_item(next_btn)
+
+        if self.can_remove:
+            remove_btn = discord.ui.Button(
+                emoji="🗑️",
+                label="移除此圖",
+                style=discord.ButtonStyle.danger,
+                row=1,
+            )
+            remove_btn.callback = self._remove
+            self.add_item(remove_btn)
+
+    def _make_file(self) -> Optional[discord.File]:
+        result = database.get_character_image(self.current_index)
+        if not result:
+            return None
+        img_data, mime = result
+        ext = mime.split("/")[-1] if "/" in mime else "png"
+        if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+            ext = "png"
+        return discord.File(io.BytesIO(img_data), filename=f"char_{self.current_index}.{ext}")
+
+    def _content(self) -> str:
+        images = database.get_character_images_meta()
+        desc = ""
+        if 1 <= self.current_index <= len(images):
+            desc = (images[self.current_index - 1].get("description") or "").strip()
+        label = f"🖼️ 外貌圖庫 — 圖片 {self.current_index} / {self.image_count}"
+        if desc:
+            label += f"\n> {desc[:200]}"
+        return label
+
+    async def send_first(self, interaction: discord.Interaction):
+        file = self._make_file()
+        if not file:
+            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            content=self._content(), file=file, view=self, ephemeral=True
+        )
+
+    async def _prev(self, interaction: discord.Interaction):
+        self.current_index = max(1, self.current_index - 1)
+        self._build_buttons()
+        file = self._make_file()
+        if not file:
+            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
+            return
+        await interaction.response.edit_message(content=self._content(), attachments=[file], view=self)
+
+    async def _next(self, interaction: discord.Interaction):
+        self.current_index = min(self.image_count, self.current_index + 1)
+        self._build_buttons()
+        file = self._make_file()
+        if not file:
+            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
+            return
+        await interaction.response.edit_message(content=self._content(), attachments=[file], view=self)
+
+    async def _remove(self, interaction: discord.Interaction):
+        success, msg = database.remove_character_image(self.current_index)
+        if not success:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+        self.image_count -= 1
+        if self.image_count == 0:
+            await interaction.response.edit_message(
+                content="🗑️ 已移除最後一張角色圖片。目前沒有外貌參考圖。",
+                attachments=[],
+                view=None,
+            )
+            return
+        self.current_index = min(self.current_index, self.image_count)
+        self._build_buttons()
+        file = self._make_file()
+        if not file:
+            await interaction.response.edit_message(
+                content=f"🗑️ 已移除圖片。剩餘 {self.image_count} 張。", attachments=[], view=self
+            )
+            return
+        await interaction.response.edit_message(
+            content=self._content(), attachments=[file], view=self
+        )
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
+class CharacterView(discord.ui.View):
+    """Shown by !character — lets the user edit the bot's character and browse appearance photos."""
+
+    def __init__(self, bot_name: str, background: str, image_count: int = 0):
         super().__init__(timeout=120)
         self.bot_name = bot_name
         self.background = background
+        self.image_count = image_count
 
-    @discord.ui.button(label="編輯角色", style=discord.ButtonStyle.primary, emoji="✏️")
-    async def edit_character(self, interaction: discord.Interaction, button: discord.ui.Button):
+        edit_btn = discord.ui.Button(
+            label="編輯角色", style=discord.ButtonStyle.primary, emoji="✏️", row=0
+        )
+        edit_btn.callback = self._edit_character
+        self.add_item(edit_btn)
+
+        if image_count > 1:
+            gallery_btn = discord.ui.Button(
+                label="外貌圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=0
+            )
+            gallery_btn.callback = self._open_gallery
+            self.add_item(gallery_btn)
+
+    async def _edit_character(self, interaction: discord.Interaction):
         modal = EditCharacterModal(self.bot_name, self.background)
         await interaction.response.send_modal(modal)
+
+    async def _open_gallery(self, interaction: discord.Interaction):
+        can_remove = (
+            interaction.guild is not None
+            and isinstance(interaction.user, discord.Member)
+            and interaction.user.guild_permissions.administrator
+        )
+        gallery = CharacterGalleryView(self.image_count, can_remove)
+        await gallery.send_first(interaction)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

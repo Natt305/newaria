@@ -7,20 +7,24 @@ from typing import Optional, List, Dict, Any
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(_SCRIPT_DIR, "data")
 
-CHARACTER_DIR  = os.path.join(DATA_DIR, "character")
-MEMORIES_DIR   = os.path.join(DATA_DIR, "memories")
-KNOWLEDGE_DIR  = os.path.join(DATA_DIR, "knowledge")
-IMAGES_DIR     = os.path.join(KNOWLEDGE_DIR, "images")
+CHARACTER_DIR        = os.path.join(DATA_DIR, "character")
+CHARACTER_IMAGES_DIR = os.path.join(CHARACTER_DIR, "images")
+MEMORIES_DIR         = os.path.join(DATA_DIR, "memories")
+KNOWLEDGE_DIR        = os.path.join(DATA_DIR, "knowledge")
+IMAGES_DIR           = os.path.join(KNOWLEDGE_DIR, "images")
 
-CHARACTER_JSON = os.path.join(CHARACTER_DIR, "profile.json")
-MEMORIES_JSON  = os.path.join(MEMORIES_DIR, "memories.json")
-COUNTER_JSON   = os.path.join(KNOWLEDGE_DIR, "_counter.json")
+CHARACTER_JSON        = os.path.join(CHARACTER_DIR, "profile.json")
+CHARACTER_IMAGES_JSON = os.path.join(CHARACTER_DIR, "images.json")
+MEMORIES_JSON         = os.path.join(MEMORIES_DIR, "memories.json")
+COUNTER_JSON          = os.path.join(KNOWLEDGE_DIR, "_counter.json")
 
 STATUS_JSON    = os.path.join(DATA_DIR, "status.json")
 SETTINGS_JSON  = os.path.join(DATA_DIR, "settings.json")
 HISTORY_DB     = os.path.join(DATA_DIR, "history.db")
 
-for _d in (CHARACTER_DIR, MEMORIES_DIR, KNOWLEDGE_DIR, IMAGES_DIR):
+MAX_CHARACTER_IMAGES = 10
+
+for _d in (CHARACTER_DIR, CHARACTER_IMAGES_DIR, MEMORIES_DIR, KNOWLEDGE_DIR, IMAGES_DIR):
     os.makedirs(_d, exist_ok=True)
 
 DEFAULT_CHARACTER = {
@@ -91,6 +95,86 @@ def _ensure_character_json():
         print(f"[DB] Created default character/profile.json")
 
 
+# ── Character images ──────────────────────────────────────────────────────────
+
+def _read_char_images() -> list:
+    if os.path.exists(CHARACTER_IMAGES_JSON):
+        try:
+            with open(CHARACTER_IMAGES_JSON, "r", encoding="utf-8") as f:
+                return json.load(f).get("images", [])
+        except Exception:
+            pass
+    return []
+
+
+def _write_char_images(images: list):
+    with open(CHARACTER_IMAGES_JSON, "w", encoding="utf-8") as f:
+        json.dump({"images": images}, f, ensure_ascii=False, indent=2)
+
+
+def get_character_image_count() -> int:
+    return len(_read_char_images())
+
+
+def get_character_images_meta() -> list:
+    """Return list of dicts: [{filename, mime, description}, ...]"""
+    return _read_char_images()
+
+
+def get_character_image(index: int) -> Optional[tuple]:
+    """1-indexed. Returns (bytes, mime) or None."""
+    images = _read_char_images()
+    if index < 1 or index > len(images):
+        return None
+    info = images[index - 1]
+    path = os.path.join(CHARACTER_IMAGES_DIR, info["filename"])
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return f.read(), info.get("mime", "image/png")
+
+
+def add_character_image(img_bytes: bytes, mime: str, description: str = "") -> tuple:
+    """Add a character reference image. Returns (success, message)."""
+    images = _read_char_images()
+    if len(images) >= MAX_CHARACTER_IMAGES:
+        return False, f"已達上限 {MAX_CHARACTER_IMAGES} 張角色圖片。"
+    ext = mime.split("/")[-1] if "/" in mime else "png"
+    if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+        ext = "png"
+    ts = int(datetime.utcnow().timestamp() * 1000)
+    filename = f"char_{ts}.{ext}"
+    path = os.path.join(CHARACTER_IMAGES_DIR, filename)
+    with open(path, "wb") as f:
+        f.write(img_bytes)
+    images.append({"filename": filename, "mime": mime, "description": description})
+    _write_char_images(images)
+    return True, f"已新增第 {len(images)} 張角色圖片。"
+
+
+def remove_character_image(index: int) -> tuple:
+    """1-indexed. Returns (success, message)."""
+    images = _read_char_images()
+    if index < 1 or index > len(images):
+        return False, "索引超出範圍。"
+    info = images.pop(index - 1)
+    path = os.path.join(CHARACTER_IMAGES_DIR, info["filename"])
+    if os.path.exists(path):
+        os.remove(path)
+    _write_char_images(images)
+    return True, "已移除圖片。"
+
+
+def update_character_image_description(index: int, description: str) -> bool:
+    """1-indexed. Returns True on success."""
+    images = _read_char_images()
+    if index < 1 or index > len(images):
+        return False
+    images[index - 1]["description"] = description
+    _write_char_images(images)
+    return True
+
+
 # ── Status ────────────────────────────────────────────────────────────────────
 
 def get_status() -> dict:
@@ -138,6 +222,7 @@ _DEFAULT_COMMAND_ROLES: Dict[str, Optional[str]] = {
     "knowledge":             "__admin__",
     "saveimage":             "__admin__",
     "addimage":              "__admin__",
+    "addcharimage":          "__admin__",
     "clear":                 "__admin__",
     "suggestions":           "__admin__",
     "setsuggestionprompt":   "__admin__",

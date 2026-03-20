@@ -33,7 +33,19 @@ def load_character() -> tuple[str, str]:
     return char["name"], char["background"]
 
 
-def build_system_prompt(name: str, background: str, kb_context: str = "", memory_context: str = "", visual_kb_context: str = "") -> str:
+def build_character_images_context() -> str:
+    """Return a numbered list of character image descriptions for the system prompt."""
+    images = database.get_character_images_meta()
+    if not images:
+        return ""
+    parts = []
+    for i, img in enumerate(images, 1):
+        desc = (img.get("description") or "").strip()
+        parts.append(f"{i}. {desc}" if desc else f"{i}. (此圖片尚無描述)")
+    return "\n".join(parts)
+
+
+def build_system_prompt(name: str, background: str, kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "") -> str:
     prompt = (
         f"You are {name}. {background}\n\n"
         f"You are NOT an AI assistant. You ARE {name} — a real person with your own personality, feelings, opinions, and way of speaking. Never break this.\n\n"
@@ -68,6 +80,17 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
         "Good example: [IMAGE: a young woman playing electric guitar on a neon-lit Tokyo street at night, cinematic lighting, vibrant colors, anime style]\n"
         "Bad example: Sure! Here you go: [IMAGE: cat]\n"
     )
+    if character_images_context:
+        lines = [l for l in character_images_context.splitlines() if l.strip()]
+        count = len(lines)
+        prompt += (
+            f"\n--- Your Appearance ({count} reference photo{'s' if count != 1 else ''} of yourself) ---\n"
+            f"{character_images_context}\n"
+            "--- End Appearance ---\n"
+            "\nThese reference photos show how YOU actually look. When describing your own appearance or when someone asks what you look like, "
+            "draw from these descriptions naturally in the first person: 'I have...', 'I usually wear...', 'My hair is...', etc. "
+            "Never say 'according to my reference photos' — just speak as if you naturally know how you look."
+        )
     if memory_context:
         prompt += (
             "\n--- Long-term Memory (Things you remember about people) ---\n"
@@ -397,6 +420,7 @@ async def process_chat(
         kb_context=kb_context,
         memory_context=memory_context,
         visual_kb_context=visual_kb_context,
+        character_images_context=build_character_images_context(),
     )
     history = get_channel_context(channel_id)
 
@@ -860,12 +884,97 @@ async def character_cmd(ctx):
     if not await check_command_role(ctx):
         return
     bot_name, background = load_character()
+    image_count = database.get_character_image_count()
+
     embed = discord.Embed(title="🎭 目前角色", color=discord.Color.gold())
     embed.add_field(name="🏷️ 名稱", value=bot_name, inline=True)
+    if image_count:
+        embed.add_field(name="🖼️ 外貌圖片", value=f"{image_count} 張", inline=True)
     embed.add_field(name="📖 背景", value=background[:1000], inline=False)
-    embed.set_footer(text="點擊下方「編輯角色」按鈕可修改角色設定。")
-    view = ui.CharacterView(bot_name, background)
-    await ctx.reply(embed=embed, view=view, mention_author=False)
+    embed.set_footer(text="點擊下方按鈕可編輯角色設定或瀏覽外貌圖庫。")
+
+    file = None
+    if image_count >= 1:
+        result = database.get_character_image(1)
+        if result:
+            img_bytes, mime = result
+            ext = mime.split("/")[-1] if "/" in mime else "png"
+            if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+                ext = "png"
+            file = discord.File(io.BytesIO(img_bytes), filename=f"char_preview.{ext}")
+            embed.set_image(url=f"attachment://char_preview.{ext}")
+
+    view = ui.CharacterView(bot_name, background, image_count=image_count)
+    if file:
+        await ctx.reply(embed=embed, file=file, view=view, mention_author=False)
+    else:
+        await ctx.reply(embed=embed, view=view, mention_author=False)
+
+
+@bot.hybrid_command(name="addcharimage", description="新增外貌參考圖片到角色設定 (最多 10 張)")
+@app_commands.describe(attachment="要新增的圖片 (斜線指令專用)")
+async def addcharimage_cmd(
+    ctx,
+    attachment: Optional[discord.Attachment] = None,
+):
+    """新增角色外貌參考圖: !addcharimage (prefix: 附上圖片; slash: 使用 attachment 參數)"""
+    if not await check_command_role(ctx):
+        return
+
+    msg_attachments = getattr(ctx.message, "attachments", []) or []
+    resolved = attachment or (msg_attachments[0] if msg_attachments else None)
+    if not resolved:
+        await ctx.reply("❌ 請附上一張圖片。", mention_author=False)
+        return
+
+    fname = resolved.filename.lower()
+    if not any(fname.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp")):
+        await ctx.reply("❌ 請附上有效的圖像格式 (PNG、JPG、GIF 或 WebP)。", mention_author=False)
+        return
+
+    current_count = database.get_character_image_count()
+    if current_count >= database.MAX_CHARACTER_IMAGES:
+        await ctx.reply(
+            f"❌ 已有 {current_count} 張角色圖片，已達上限 {database.MAX_CHARACTER_IMAGES} 張。\n"
+            "請使用 `/character` → 外貌圖庫 移除舊圖片再新增。",
+            mention_author=False,
+        )
+        return
+
+    await ctx.defer()
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(resolved.url) as resp:
+            img_bytes = await resp.read()
+
+    mime = "image/jpeg"
+    if fname.endswith(".png"):
+        mime = "image/png"
+    elif fname.endswith(".gif"):
+        mime = "image/gif"
+    elif fname.endswith(".webp"):
+        mime = "image/webp"
+
+    bot_name, _ = load_character()
+    auto_desc = await groq_ai.understand_image(
+        img_bytes, mime,
+        f"Describe this character's appearance in detail — hair, eyes, clothing, style, expression — as reference for an AI character named {bot_name}.",
+    )
+    description = auto_desc or ""
+
+    success, msg = database.add_character_image(img_bytes, mime, description)
+    if success:
+        new_count = database.get_character_image_count()
+        embed = discord.Embed(title="✅ 角色外貌圖片已新增", color=discord.Color.gold())
+        embed.add_field(name="🖼️ 圖片數量", value=f"{new_count} / {database.MAX_CHARACTER_IMAGES}", inline=True)
+        if description:
+            embed.add_field(name="📄 自動分析描述", value=description[:500] + ("..." if len(description) > 500 else ""), inline=False)
+        else:
+            embed.add_field(name="⚠️ 描述", value="視覺分析無法識別此圖像，機器人對此圖外貌的理解有限。", inline=False)
+        embed.set_footer(text="使用 /character 查看角色設定與外貌圖庫。")
+        await ctx.send(embed=embed)
+    else:
+        await ctx.reply(f"❌ {msg}", mention_author=False)
 
 
 @bot.hybrid_command(name="remember", description="保存文字到知識庫")
