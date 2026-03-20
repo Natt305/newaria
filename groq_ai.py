@@ -137,11 +137,19 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     return []
 
 
+_groq_client: Optional[AsyncGroq] = None
+_groq_client_key: str = ""
+
+
 def _client() -> Optional[AsyncGroq]:
+    global _groq_client, _groq_client_key
     key = os.environ.get("GROQ_API_KEY", "")
     if not key:
         return None
-    return AsyncGroq(api_key=key)
+    if _groq_client is None or key != _groq_client_key:
+        _groq_client = AsyncGroq(api_key=key)
+        _groq_client_key = key
+    return _groq_client
 
 
 async def understand_image(
@@ -399,6 +407,8 @@ async def generate_suggestions(
 
     try:
         text, _ = await chat(messages, system_prompt=system)
+        if not text:
+            return []
         start = text.find("[")
         end = text.rfind("]") + 1
         if start != -1 and end > start:

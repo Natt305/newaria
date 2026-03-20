@@ -643,6 +643,7 @@ def delete_entry(entry_id: int) -> bool:
 def _get_history_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(HISTORY_DB)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
@@ -852,7 +853,8 @@ def _migrate_old_sqlite():
                             json.dump(meta, f, ensure_ascii=False, indent=2)
                         img_data = row.get("image_data")
                         if img_data:
-                            img_path = _image_file_path(old_id, mime)
+                            img_filename = _new_image_filename(old_id, mime)
+                            img_path = os.path.join(IMAGES_DIR, img_filename)
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
                         max_id = max(max_id, old_id)

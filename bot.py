@@ -1233,7 +1233,7 @@ async def generate_cmd(ctx, *, prompt: str):
     if result == ("API_KEY_ERROR", ""):
         await ctx.send(
             "❌ **Cloudflare API 錯誤**: 妳的 API 金鑰無效或已過期。\n\n"
-            "修復: 從 https://dash.cloudflare.com/ 獲取新的 API 金鑰並更新妳的 `config.txt`",
+            "修復: 從 https://dash.cloudflare.com/ 獲取新的 API 金鑰並更新妳的 `tokens.txt`",
         )
     elif result == ("MODEL_ERROR", ""):
         await ctx.send(
