@@ -911,24 +911,52 @@ async def character_cmd(ctx):
         await ctx.reply(embed=embed, view=view, mention_author=False)
 
 
-@bot.hybrid_command(name="addcharimage", description="新增外貌參考圖片到角色設定 (最多 10 張)")
-@app_commands.describe(attachment="要新增的圖片 (斜線指令專用)")
+@bot.hybrid_command(name="addcharimage", description="新增外貌參考圖片到角色設定 (最多 10 張，可批量上傳)")
+@app_commands.describe(
+    attachment="圖片 1",
+    attachment2="圖片 2",
+    attachment3="圖片 3",
+    attachment4="圖片 4",
+    attachment5="圖片 5",
+    attachment6="圖片 6",
+    attachment7="圖片 7",
+    attachment8="圖片 8",
+    attachment9="圖片 9",
+    attachment10="圖片 10",
+)
 async def addcharimage_cmd(
     ctx,
     attachment: Optional[discord.Attachment] = None,
+    attachment2: Optional[discord.Attachment] = None,
+    attachment3: Optional[discord.Attachment] = None,
+    attachment4: Optional[discord.Attachment] = None,
+    attachment5: Optional[discord.Attachment] = None,
+    attachment6: Optional[discord.Attachment] = None,
+    attachment7: Optional[discord.Attachment] = None,
+    attachment8: Optional[discord.Attachment] = None,
+    attachment9: Optional[discord.Attachment] = None,
+    attachment10: Optional[discord.Attachment] = None,
 ):
-    """新增角色外貌參考圖: !addcharimage (prefix: 附上圖片; slash: 使用 attachment 參數)"""
+    """新增角色外貌參考圖 (批量): !addcharimage (prefix: 附上圖片; slash: 使用 attachment 參數)"""
     if not await check_command_role(ctx):
         return
 
+    slash_attachments = [
+        a for a in [
+            attachment, attachment2, attachment3, attachment4, attachment5,
+            attachment6, attachment7, attachment8, attachment9, attachment10,
+        ] if a is not None
+    ]
     msg_attachments = getattr(ctx.message, "attachments", []) or []
-    resolved = attachment or (msg_attachments[0] if msg_attachments else None)
-    if not resolved:
-        await ctx.reply("❌ 請附上一張圖片。", mention_author=False)
+    candidates = slash_attachments if slash_attachments else list(msg_attachments)
+
+    if not candidates:
+        await ctx.reply("❌ 請附上至少一張圖片。", mention_author=False)
         return
 
-    fname = resolved.filename.lower()
-    if not any(fname.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp")):
+    valid_exts = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+    valid_candidates = [a for a in candidates if a.filename.lower().endswith(valid_exts)]
+    if not valid_candidates:
         await ctx.reply("❌ 請附上有效的圖像格式 (PNG、JPG、GIF 或 WebP)。", mention_author=False)
         return
 
@@ -941,36 +969,61 @@ async def addcharimage_cmd(
         )
         return
 
+    slots_left = database.MAX_CHARACTER_IMAGES - current_count
+    to_process = valid_candidates[:slots_left]
+    skipped_count = len(valid_candidates) - len(to_process)
+
     await ctx.defer()
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(resolved.url) as resp:
-            img_bytes = await resp.read()
-
-    mime = "image/jpeg"
-    if fname.endswith(".png"):
-        mime = "image/png"
-    elif fname.endswith(".gif"):
-        mime = "image/gif"
-    elif fname.endswith(".webp"):
-        mime = "image/webp"
-
     bot_name, _ = load_character()
-    auto_desc = await groq_ai.understand_image(
-        img_bytes, mime,
-        f"Describe this character's appearance in detail — hair, eyes, clothing, style, expression — as reference for an AI character named {bot_name}.",
-    )
-    description = auto_desc or ""
+    added, failed = [], []
 
-    success, msg = database.add_character_image(img_bytes, mime, description)
-    if success:
-        new_count = database.get_character_image_count()
-        embed = discord.Embed(title="✅ 角色外貌圖片已新增", color=discord.Color.gold())
-        embed.add_field(name="🖼️ 圖片數量", value=f"{new_count} / {database.MAX_CHARACTER_IMAGES}", inline=True)
-        embed.set_footer(text="使用 /character 查看角色設定與外貌圖庫。")
-        await ctx.send(embed=embed)
-    else:
-        await ctx.reply(f"❌ {msg}", mention_author=False)
+    async with aiohttp.ClientSession() as session:
+        for att in to_process:
+            fname = att.filename.lower()
+            mime = "image/jpeg"
+            if fname.endswith(".png"):
+                mime = "image/png"
+            elif fname.endswith(".gif"):
+                mime = "image/gif"
+            elif fname.endswith(".webp"):
+                mime = "image/webp"
+
+            try:
+                async with session.get(att.url) as resp:
+                    img_bytes = await resp.read()
+
+                auto_desc = await groq_ai.understand_image(
+                    img_bytes, mime,
+                    f"Describe this character's appearance in detail — hair, eyes, clothing, style, expression — as reference for an AI character named {bot_name}.",
+                )
+                description = auto_desc or ""
+
+                success, msg = database.add_character_image(img_bytes, mime, description)
+                if success:
+                    added.append(att.filename)
+                else:
+                    failed.append(f"{att.filename} ({msg})")
+            except Exception as e:
+                failed.append(f"{att.filename} ({e})")
+
+    new_count = database.get_character_image_count()
+    embed = discord.Embed(
+        title="🖼️ 角色外貌圖片批量新增結果",
+        color=discord.Color.gold() if added else discord.Color.red(),
+    )
+    embed.add_field(name="📊 圖片數量", value=f"{new_count} / {database.MAX_CHARACTER_IMAGES}", inline=True)
+    embed.add_field(name="✅ 成功新增", value=str(len(added)), inline=True)
+    if failed:
+        embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
+    if skipped_count > 0:
+        embed.add_field(
+            name="⏭️ 已略過",
+            value=f"{skipped_count} 張 (已達上限 {database.MAX_CHARACTER_IMAGES} 張)",
+            inline=False,
+        )
+    embed.set_footer(text="使用 /character 查看角色設定與外貌圖庫。")
+    await ctx.send(embed=embed)
 
 
 @bot.hybrid_command(name="remember", description="保存文字到知識庫")
@@ -1078,75 +1131,130 @@ async def knowledge_cmd(ctx, *, query: str = ""):
     await ctx.reply(embed=embed, view=view, mention_author=False)
 
 
-@bot.hybrid_command(name="saveimage", description="保存圖像到知識庫 (斜線指令請使用 attachment 參數)")
+@bot.hybrid_command(name="saveimage", description="保存圖像到知識庫，可批量上傳 (斜線指令請使用 attachment 參數)")
 @app_commands.describe(
-    title="條目標題",
-    attachment="要保存的圖像檔案 (斜線指令專用)",
-    description="圖像描述 (可選，留空自動生成)",
+    title="條目標題 (多張圖片時自動編號)",
+    attachment="圖片 1",
+    attachment2="圖片 2",
+    attachment3="圖片 3",
+    attachment4="圖片 4",
+    attachment5="圖片 5",
+    attachment6="圖片 6",
+    attachment7="圖片 7",
+    attachment8="圖片 8",
+    attachment9="圖片 9",
+    attachment10="圖片 10",
+    description="圖像描述 (可選，留空自動生成；批量時套用於所有圖片)",
 )
 async def saveimage_cmd(
     ctx,
     title: str,
     attachment: Optional[discord.Attachment] = None,
+    attachment2: Optional[discord.Attachment] = None,
+    attachment3: Optional[discord.Attachment] = None,
+    attachment4: Optional[discord.Attachment] = None,
+    attachment5: Optional[discord.Attachment] = None,
+    attachment6: Optional[discord.Attachment] = None,
+    attachment7: Optional[discord.Attachment] = None,
+    attachment8: Optional[discord.Attachment] = None,
+    attachment9: Optional[discord.Attachment] = None,
+    attachment10: Optional[discord.Attachment] = None,
     *,
     description: str = "",
 ):
-    """保存圖像到知識庫: !saveimage "標題" [描述]  (prefix: attach image; slash: use attachment param)"""
+    """保存圖像到知識庫 (批量): !saveimage "標題" [描述]  (prefix: attach images; slash: use attachment params)"""
     if not await check_command_role(ctx):
         return
-    # Resolve attachment — slash command passes it as parameter; prefix reads from message
-    msg_attachments = getattr(ctx.message, "attachments", []) or []
-    resolved = attachment or (msg_attachments[0] if msg_attachments else None)
 
-    if not resolved:
-        await ctx.reply("請附上一張圖像再使用此指令。", mention_author=False)
+    slash_attachments = [
+        a for a in [
+            attachment, attachment2, attachment3, attachment4, attachment5,
+            attachment6, attachment7, attachment8, attachment9, attachment10,
+        ] if a is not None
+    ]
+    msg_attachments = getattr(ctx.message, "attachments", []) or []
+    candidates = slash_attachments if slash_attachments else list(msg_attachments)
+
+    if not candidates:
+        await ctx.reply("請附上至少一張圖像再使用此指令。", mention_author=False)
         return
 
-    fname = resolved.filename.lower()
-    if not any(fname.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp"]):
+    valid_exts = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+    valid_candidates = [a for a in candidates if a.filename.lower().endswith(valid_exts)]
+    if not valid_candidates:
         await ctx.reply("請附上有效的圖像格式 (PNG、JPG、GIF 或 WebP)。", mention_author=False)
         return
 
-    # Defer so Discord doesn't time out while we download + analyse
     await ctx.defer()
 
+    user_desc = description
+    added_entries = []
+    failed = []
+
     async with aiohttp.ClientSession() as session:
-        async with session.get(resolved.url) as resp:
-            img_bytes = await resp.read()
+        for i, att in enumerate(valid_candidates):
+            fname = att.filename.lower()
+            mime = "image/jpeg"
+            if fname.endswith(".png"):
+                mime = "image/png"
+            elif fname.endswith(".gif"):
+                mime = "image/gif"
+            elif fname.endswith(".webp"):
+                mime = "image/webp"
 
-    mime = "image/jpeg"
-    if fname.endswith(".png"):
-        mime = "image/png"
-    elif fname.endswith(".gif"):
-        mime = "image/gif"
-    elif fname.endswith(".webp"):
-        mime = "image/webp"
+            entry_title = title if len(valid_candidates) == 1 else f"{title} {i + 1}"
 
-    auto_generated = not description
-    if not description:
-        analysed = await groq_ai.understand_image(
-            img_bytes, mime,
-            "Describe this image in detail for a knowledge base entry.",
-        )
-        description = analysed or ""
+            try:
+                async with session.get(att.url) as resp:
+                    img_bytes = await resp.read()
 
-    entry_id = database.add_image_entry(title, img_bytes, mime, description)
+                auto_generated = not user_desc
+                desc = user_desc
+                if not desc:
+                    analysed = await groq_ai.understand_image(
+                        img_bytes, mime,
+                        "Describe this image in detail for a knowledge base entry.",
+                    )
+                    desc = analysed or ""
 
-    embed = discord.Embed(title="🖼️ Image 已保存到知識庫", color=discord.Color.green())
-    embed.add_field(name="🏷️ 標題", value=title, inline=True)
-    embed.add_field(name="🆔 條目編號", value=f"#{entry_id}", inline=True)
-    if auto_generated and description:
-        desc_label = "📄 Description (自動生成)"
-        desc_value = description[:500] + ("..." if len(description) > 500 else "")
-    elif auto_generated and not description:
-        desc_label = "⚠️ Description (自動生成失敗)"
-        desc_value = f"視覺分析模型無法識別此圖像。\n請使用 `/setdesc {entry_id} <描述>` 手動新增描述，否則機器人將無法在對話中使用此圖像。"
+                entry_id = database.add_image_entry(entry_title, img_bytes, mime, desc)
+                added_entries.append((entry_id, entry_title, desc, auto_generated))
+            except Exception as e:
+                failed.append(f"{att.filename} ({e})")
+
+    if len(added_entries) == 1:
+        entry_id, entry_title, desc, auto_generated = added_entries[0]
+        embed = discord.Embed(title="🖼️ Image 已保存到知識庫", color=discord.Color.green())
+        embed.add_field(name="🏷️ 標題", value=entry_title, inline=True)
+        embed.add_field(name="🆔 條目編號", value=f"#{entry_id}", inline=True)
+        if auto_generated and desc:
+            desc_label = "📄 Description (自動生成)"
+            desc_value = desc[:500] + ("..." if len(desc) > 500 else "")
+        elif auto_generated and not desc:
+            desc_label = "⚠️ Description (自動生成失敗)"
+            desc_value = f"視覺分析模型無法識別此圖像。\n請使用 `/setdesc {entry_id} <描述>` 手動新增描述，否則機器人將無法在對話中使用此圖像。"
+        else:
+            desc_label = "📄 Description (使用者提供)"
+            desc_value = desc[:500] + ("..." if len(desc) > 500 else "")
+        embed.add_field(name=desc_label, value=desc_value, inline=False)
+        if failed:
+            embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
+        view = ui.SaveImageView(entry_id, entry_title)
+        await ctx.send(embed=embed, view=view)
     else:
-        desc_label = "📄 Description (使用者提供)"
-        desc_value = description[:500] + ("..." if len(description) > 500 else "")
-    embed.add_field(name=desc_label, value=desc_value, inline=False)
-    view = ui.SaveImageView(entry_id, title)
-    await ctx.send(embed=embed, view=view)
+        embed = discord.Embed(
+            title="🖼️ 批量圖像已保存到知識庫",
+            color=discord.Color.green() if added_entries else discord.Color.red(),
+        )
+        embed.add_field(name="✅ 成功新增", value=str(len(added_entries)), inline=True)
+        embed.add_field(name="🏷️ 基礎標題", value=title, inline=True)
+        if added_entries:
+            ids_str = ", ".join(f"#{eid}" for eid, *_ in added_entries)
+            embed.add_field(name="🆔 條目編號", value=ids_str[:500], inline=False)
+        if failed:
+            embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
+        embed.set_footer(text="使用 /viewentry 查看各條目詳情。")
+        await ctx.send(embed=embed)
 
 
 @bot.hybrid_command(name="addimage", description="新增圖片到已有的圖片知識庫條目 (最多 5 張)")
