@@ -10,9 +10,13 @@ import aiohttp
 
 MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
+WIDTH = 1024
+HEIGHT = 1024
+NUM_STEPS = 8
+
 
 async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
-    """Generate an image using Cloudflare Workers AI Flux 2 model."""
+    """Generate an image using Cloudflare Workers AI Flux 1 Schnell model."""
     api_token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
 
@@ -23,17 +27,16 @@ async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{MODEL}"
     headers = {
         "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json",
     }
 
-    print(f"[Cloudflare] Sending request to: {url}")
-
-    headers["Content-Type"] = "application/json"
+    print(f"[Cloudflare] Generating image — prompt: {prompt[:120]}")
 
     payload = {
         "prompt": prompt,
-        "width": 512,
-        "height": 512,
-        "num_steps": 4,
+        "width": WIDTH,
+        "height": HEIGHT,
+        "num_steps": NUM_STEPS,
     }
 
     try:
@@ -62,29 +65,30 @@ async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
                     print(f"[Cloudflare] Unexpected status {resp.status}: {body[:300]}")
                     return None
 
+                raw = await resp.read()
+
                 if "image" in content_type:
-                    img_data = await resp.read()
-                    print(f"[Cloudflare] Got binary image, size: {len(img_data)} bytes")
-                    if img_data:
-                        return img_data, "image/png"
+                    print(f"[Cloudflare] Got binary image, size: {len(raw)} bytes")
+                    if raw:
+                        return raw, "image/png"
                     return None
 
-                raw = await resp.read()
                 print(f"[Cloudflare] Non-image response ({len(raw)} bytes): {raw[:200]}")
 
+                import json as _json
                 try:
-                    data = await resp.json(content_type=None)
-                except Exception:
-                    import json as _json
                     data = _json.loads(raw)
+                except Exception as parse_err:
+                    print(f"[Cloudflare] Could not parse response as JSON: {parse_err}")
+                    return None
 
                 print(f"[Cloudflare] JSON keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
 
-                if not data.get("success", True):
+                if isinstance(data, dict) and not data.get("success", True):
                     print(f"[Cloudflare] API errors: {data.get('errors', [])}")
                     return ("MODEL_ERROR", "")
 
-                result = data.get("result", data)
+                result = data.get("result", data) if isinstance(data, dict) else data
                 print(f"[Cloudflare] result type: {type(result)}, value preview: {str(result)[:200]}")
 
                 if isinstance(result, dict):
@@ -97,9 +101,13 @@ async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
                     b64 = None
 
                 if b64:
-                    img_data = base64.b64decode(b64)
-                    print(f"[Cloudflare] Decoded base64 image: {len(img_data)} bytes")
-                    return img_data, "image/png"
+                    try:
+                        img_data = base64.b64decode(b64)
+                        print(f"[Cloudflare] Decoded base64 image: {len(img_data)} bytes")
+                        return img_data, "image/png"
+                    except Exception as decode_err:
+                        print(f"[Cloudflare] Base64 decode failed: {decode_err}")
+                        return None
 
                 print(f"[Cloudflare] Could not extract image from response: {str(data)[:400]}")
                 return None

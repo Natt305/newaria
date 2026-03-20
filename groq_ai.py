@@ -209,10 +209,48 @@ def user_wants_image(messages: list) -> Optional[str]:
             content = msg["content"]
             for pat in IMAGE_REQUEST_PATTERNS:
                 if pat.search(content):
-                    cleaned = re.sub(r"(?i)(please\s+)?(generate|create|draw|make|show|paint|illustrate)\s+(me\s+)?(an?\s+)?", "", content).strip()
+                    cleaned = re.sub(
+                        r"(?i)(please\s+)?(generate|create|draw|make|show|paint|illustrate)\s+(me\s+)?(an?\s+)?",
+                        "", content,
+                    ).strip()
                     return cleaned if cleaned else content
             return None
     return None
+
+
+async def enhance_image_prompt(raw_prompt: str) -> str:
+    """Translate and expand a raw (possibly Chinese) prompt into a rich English
+    image-generation prompt suitable for Cloudflare Workers AI.
+
+    Returns the enhanced prompt, or the original if enhancement fails.
+    """
+    client = _client()
+    if not client:
+        return raw_prompt
+
+    system = (
+        "You are an expert image-prompt writer for AI image generators.\n"
+        "Given a user's image request (which may be in Chinese or English), "
+        "rewrite it as a single, rich English prompt for an AI image model.\n"
+        "Rules:\n"
+        "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+        "- Always write in English.\n"
+        "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
+        "- Aim for 20-50 words.\n"
+        "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
+        "Good output: vibrant cherry blossom park in Kyoto at sunset, soft golden light, "
+        "anime art style, petals drifting in the breeze, peaceful atmosphere\n"
+    )
+
+    messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
+    try:
+        enhanced, _ = await chat(messages_list, system_prompt=system, model=DEFAULT_MODEL)
+        if enhanced and len(enhanced.strip()) > 5:
+            print(f"[Groq] Prompt enhanced: {enhanced[:120]}")
+            return enhanced.strip()
+    except Exception as e:
+        print(f"[Groq] Prompt enhancement failed: {e}")
+    return raw_prompt
 
 
 async def chat(
@@ -261,6 +299,7 @@ async def chat(
             if response_declines_image(text):
                 img_prompt = user_wants_image(messages)
                 if img_prompt:
+                    img_prompt = await enhance_image_prompt(img_prompt)
                     return None, img_prompt
 
             return text, None

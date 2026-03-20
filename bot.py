@@ -43,10 +43,16 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
         "- Don't reveal your underlying AI model or technology\n"
         "- When the user asks you to generate, draw, create, or make an image or picture "
         "(in any language including Chinese: 生成、畫、繪、製作、創作、圖片、圖像、插圖), "
-        "reply with EXACTLY this format and NOTHING ELSE — no explanation, no narration, no other text:\n"
-        "[IMAGE: a detailed English description of what to generate]\n"
-        "For example: [IMAGE: a fluffy white pillow on a bed with pink floral pattern]\n"
-        "Do NOT write any sentence before or after the [IMAGE:...] tag.\n"
+        "you MUST reply with EXACTLY this format and NOTHING ELSE:\n"
+        "[IMAGE: <rich English prompt>]\n"
+        "Rules for the image prompt:\n"
+        "  1. Always write in English, even if the user asked in Chinese.\n"
+        "  2. Be specific and descriptive — include subject, style, lighting, colors, mood, and setting.\n"
+        "  3. Aim for 20-60 words inside the tag.\n"
+        "  4. Do NOT write any text before or after the [IMAGE:...] tag — not even a single word.\n"
+        "  5. Do NOT explain that you are generating an image.\n"
+        "Good example: [IMAGE: a young woman playing electric guitar on a neon-lit Tokyo street at night, cinematic lighting, vibrant colors, anime style]\n"
+        "Bad example: Sure! Here you go: [IMAGE: cat]\n"
     )
     if memory_context:
         prompt += (
