@@ -1,0 +1,16 @@
+# ================================================================
+#  少女樂團機器人 — 設定檔
+#  在等號後面填入妳的金鑰，存檔後執行 start.bat 即可啟動
+# ================================================================
+
+# Discord Bot Token（從 https://discord.com/developers/applications 獲取）
+DISCORD_BOT_TOKEN=
+
+# Groq API Key（從 https://console.groq.com/keys 獲取）
+GROQ_API_KEY=
+
+# Cloudflare API Token（從 https://dash.cloudflare.com/profile/api-tokens 獲取）
+CLOUDFLARE_API_TOKEN=
+
+# Cloudflare Account ID（在 https://dash.cloudflare.com/ 右側欄位可找到）
+CLOUDFLARE_ACCOUNT_ID=

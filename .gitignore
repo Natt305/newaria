@@ -19,5 +19,4 @@ env/
 *.log
 .DS_Store
 Thumbs.db
-tokens.txt
 python/
