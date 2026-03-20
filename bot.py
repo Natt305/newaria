@@ -114,11 +114,14 @@ async def build_knowledge_context(channel_id: str, user_query: str = "") -> str:
     parts = []
     for entry in results[:4]:
         if entry["entry_type"] == "text":
-            snippet = (entry["content"] or "")[:200]
+            snippet = (entry["content"] or "")[:400]
             parts.append(f"[{entry['title']}]: {snippet}")
         elif entry["entry_type"] == "image":
-            desc = entry.get("image_description", "")[:200]
-            parts.append(f"[Image: {entry['title']}]: {desc}")
+            desc = (entry.get("image_description") or "").strip()
+            if desc:
+                parts.append(f"[Image: {entry['title']}]: {desc[:400]}")
+            else:
+                parts.append(f"[Image: {entry['title']}]: (no description stored — the image is saved but its contents are unknown)")
     
     if not parts:
         return ""
@@ -518,6 +521,33 @@ async def on_command_error(ctx, error):
         print(f"[Bot] Command error in !{ctx.command}: {error}")
 
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """Catch all slash command errors and report them to the user instead of silently failing."""
+    import traceback
+    print(f"[Bot] Slash command error in /{interaction.command.name if interaction.command else '?'}: {error}")
+    traceback.print_exc()
+
+    msg = "❌ 執行指令時發生錯誤，請稍後再試。"
+
+    if isinstance(error, app_commands.MissingPermissions):
+        msg = "❌ 你沒有執行此指令所需的權限。"
+    elif isinstance(error, app_commands.BotMissingPermissions):
+        msg = "❌ 機器人缺少執行此指令所需的伺服器權限。"
+    elif isinstance(error, app_commands.CommandOnCooldown):
+        msg = f"⏳ 指令冷卻中，請等待 {error.retry_after:.1f} 秒後再試。"
+    elif isinstance(error, app_commands.CheckFailure):
+        msg = "❌ 你沒有使用此指令的權限。"
+
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception as e:
+        print(f"[Bot] Failed to send error message: {e}")
+
+
 @bot.event
 async def on_ready():
     bot_name, _ = load_character()
@@ -822,16 +852,16 @@ async def saveimage_cmd(
     embed = discord.Embed(title="🖼️ Image 已保存到知識庫", color=discord.Color.green())
     embed.add_field(name="🏷️ 標題", value=title, inline=True)
     embed.add_field(name="🆔 條目編號", value=f"#{entry_id}", inline=True)
-    desc_label = (
-        "📄 Description (由 Llama 4 自動生成)" if (auto_generated and description)
-        else "📄 Description (分析失敗，未填描述)" if (auto_generated and not description)
-        else "📄 Description (由使用者提供)"
-    )
-    embed.add_field(
-        name=desc_label,
-        value=(description[:500] + ("..." if len(description) > 500 else "")) if description else "（無描述）",
-        inline=False,
-    )
+    if auto_generated and description:
+        desc_label = "📄 Description (自動生成)"
+        desc_value = description[:500] + ("..." if len(description) > 500 else "")
+    elif auto_generated and not description:
+        desc_label = "⚠️ Description (自動生成失敗)"
+        desc_value = f"視覺分析模型無法識別此圖像。\n請使用 `/setdesc {entry_id} <描述>` 手動新增描述，否則機器人將無法在對話中使用此圖像。"
+    else:
+        desc_label = "📄 Description (使用者提供)"
+        desc_value = description[:500] + ("..." if len(description) > 500 else "")
+    embed.add_field(name=desc_label, value=desc_value, inline=False)
     view = ui.SaveImageView(entry_id, title)
     await ctx.send(embed=embed, view=view)
 
@@ -1566,7 +1596,6 @@ async def helpsetting_cmd(ctx):
 def main():
     if not DISCORD_TOKEN:
         print("[ERROR] DISCORD_BOT_TOKEN is not set!")
-        input("按 Enter 鍵退出...")
         return
 
     if not GROQ_API_KEY:

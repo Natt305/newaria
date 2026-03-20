@@ -10,16 +10,15 @@ import base64
 from typing import Optional
 from groq import AsyncGroq
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
-# Vision model candidates tried in order until one works
+# Vision model candidates tried in order until one works.
+# Groq model names are case-sensitive — keep these in preferred order.
 VISION_MODELS = [
     "meta-llama/llama-4-scout-17b-16e-instruct",
-    "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-    "llama-4-scout-17b-16e-instruct",
-    "meta-llama/Llama-4-Scout-17B-16E",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "llama-3.2-90b-vision-preview",
+    "llama-3.2-11b-vision-preview",
 ]
 
 FALLBACK_MODELS = [
@@ -139,9 +138,10 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
 
 
 def _client() -> Optional[AsyncGroq]:
-    if not GROQ_API_KEY:
+    key = os.environ.get("GROQ_API_KEY", "")
+    if not key:
         return None
-    return AsyncGroq(api_key=GROQ_API_KEY)
+    return AsyncGroq(api_key=key)
 
 
 async def understand_image(
@@ -186,11 +186,8 @@ async def understand_image(
         except Exception as e:
             err = str(e)
             print(f"[Groq Vision] {model} failed: {err}")
-            # If it's clearly a model-not-found error, try the next candidate
-            if any(k in err.lower() for k in ("model", "not found", "invalid", "deprecated", "does not exist")):
-                continue
-            # For other errors (rate limit, auth) skip remaining candidates
-            break
+            # Always try the next candidate regardless of error type
+            continue
 
     print("[Groq Vision] All vision model candidates exhausted — image analysis unavailable")
     return None

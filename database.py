@@ -337,14 +337,31 @@ def add_image_entry(title: str, image_bytes: bytes, mime_type: str, description:
 def search_knowledge(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     conn = get_connection()
     c = conn.cursor()
-    q = f"%{query.lower()}%"
-    c.execute("""
+
+    # Split query into individual words and search for any of them.
+    # Using the whole phrase as one LIKE pattern would almost never match.
+    words = [w.strip() for w in query.split() if len(w.strip()) > 1][:12]
+    if not words:
+        conn.close()
+        return []
+
+    conditions = []
+    params: List = []
+    for word in words:
+        q = f"%{word.lower()}%"
+        conditions.append(
+            "(LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR LOWER(image_description) LIKE ? OR LOWER(tags) LIKE ?)"
+        )
+        params.extend([q, q, q, q])
+    params.append(limit)
+
+    c.execute(f"""
         SELECT id, title, content, entry_type, image_description, tags, created_at
         FROM knowledge_entries
-        WHERE LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR LOWER(image_description) LIKE ? OR LOWER(tags) LIKE ?
+        WHERE {" OR ".join(conditions)}
         ORDER BY updated_at DESC
         LIMIT ?
-    """, (q, q, q, q, limit))
+    """, params)
     rows = c.fetchall()
     conn.close()
     return [dict(r) for r in rows]
