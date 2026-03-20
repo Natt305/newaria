@@ -222,27 +222,34 @@ async def build_visual_kb_context(image_description: str) -> str:
 
 
 async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
-    """Search KB image entries for keyword matches with the image prompt.
-
-    Appends matching image descriptions to the prompt so generation can
-    reference visual details already stored in the knowledge base.
+    """Enrich a generation prompt with KB image details ONLY when the image's
+    title is explicitly mentioned in the prompt (e.g. saved photo of 'Alice',
+    user asks to 'draw Alice').  Generic prompts (watermelon, landscape, etc.)
+    are returned unchanged so the KB never overrides the intended subject.
     Returns (enriched_prompt, matched_entries).
     """
-    matches = database.search_kb_images_by_subject(image_prompt, limit=3)
-    ref_parts = []
-    for m in matches:
-        desc = (m.get("image_description") or "").strip()
-        title = m.get("title", "")
-        if desc:
-            ref_parts.append(f"{title}: {desc[:200]}")
+    all_image_entries = database.get_all_entries(limit=200)
+    image_entries = [e for e in all_image_entries if e.get("entry_type") == "image"]
 
-    if not ref_parts:
+    prompt_lower = image_prompt.lower()
+    matched = []
+    for entry in image_entries:
+        title = (entry.get("title") or "").strip()
+        if not title:
+            continue
+        if title.lower() in prompt_lower and len(title) >= 2:
+            desc = (entry.get("image_description") or "").strip()
+            if desc:
+                matched.append((title, desc))
+
+    if not matched:
         return image_prompt, []
 
+    ref_parts = [f"{title}: {desc[:120]}" for title, desc in matched[:2]]
     refs_text = "; ".join(ref_parts)
-    enriched = f"{image_prompt}, visual reference — {refs_text}"
-    print(f"[Bot] KB image enrichment: {len(ref_parts)} match(es) applied to prompt")
-    return enriched, matches
+    enriched = f"{image_prompt}, appearance reference — {refs_text}"
+    print(f"[Bot] KB image enrichment: {len(matched)} title match(es) applied to prompt")
+    return enriched, [e for e in image_entries if (e.get("title") or "").lower() in prompt_lower]
 
 
 async def get_suggestion_topic(channel_id: str) -> str:
