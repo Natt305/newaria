@@ -378,20 +378,22 @@ async def generate_suggestions(
 
     base = (
         f"You are {bot_name}. {character_background}\n"
-        f"Generate exactly {count} follow-up questions or suggestions.\n"
+        f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
+        f"Write them as the USER speaking to you — casual, warm, and conversational, like something you'd actually type to a friend.\n"
+        f"Each should be 40–75 characters. No punctuation at the end. No quotes.\n"
         f"Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
-        f'Example: ["Can you tell me more about that", "Show me some examples of this", "What are the other options"]'
+        f'Example: ["That\'s so cool, what made you get into that", "Okay but wait, how does that actually work", "Can you show me a picture of that"]'
     )
     if guiding_prompt:
         # Custom prompt guides tone/style/length; JSON requirement is always enforced
         system = f"{guiding_prompt}\n\n{base}"
     else:
-        system = base + "\nEach suggestion should be 30–70 characters, natural and conversational, no punctuation at the end."
+        system = base
 
     if topic and topic.strip():
-        prompt = f"Context: {topic[:300]}\n\nGenerate {count} brief, punchy follow-ups."
+        prompt = f"Context of the conversation so far:\n{topic[:400]}\n\nGenerate {count} natural follow-up messages the user might send next."
     else:
-        prompt = f"Generate {count} short, interesting opening lines for {bot_name}."
+        prompt = f"Generate {count} casual opening messages someone might send to start chatting with {bot_name}."
 
     messages = [{"role": "user", "content": prompt}]
 
@@ -402,7 +404,7 @@ async def generate_suggestions(
         if start != -1 and end > start:
             arr = json.loads(text[start:end])
             if isinstance(arr, list) and len(arr) > 0:
-                # Ensure each suggestion is short enough for button labels
+                # Enforce Discord button label hard limit (80 chars)
                 clean = []
                 for s in arr[:count]:
                     s = str(s).strip().rstrip(".")
@@ -414,7 +416,7 @@ async def generate_suggestions(
         print(f"[Groq] Suggestion parse error: {e}")
 
     return [
-        f"Tell me more",
-        "What else?",
-        "Show examples",
+        "Hmm, tell me more about that",
+        "Wait, I want to know more",
+        "Okay that's interesting, go on",
     ]
