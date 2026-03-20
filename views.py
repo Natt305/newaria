@@ -3,6 +3,7 @@ Interactive Discord UI components for bot commands.
 Views and Modals used by command responses — NOT used for regular chat.
 """
 import io
+from typing import Optional
 import discord
 import database
 import cloudflare_ai
@@ -216,30 +217,19 @@ class EntryView(discord.ui.View):
         entry_title = self.entry_title
 
         async def callback(interaction: discord.Interaction):
-            # Re-fetch from DB to guarantee we have the raw bytes
-            row = database.get_entry_by_id(entry_id)
-            if not row:
-                await interaction.response.send_message(
-                    "❌ 找不到此條目，可能已被刪除。", ephemeral=True
-                )
-                return
-
-            img_data = row.get("image_data")
-            if not img_data:
+            image_count = database.get_entry_image_count(entry_id)
+            if image_count == 0:
                 await interaction.response.send_message(
                     "⚠️ 此條目沒有儲存的圖像資料。", ephemeral=True
                 )
                 return
-
-            mime = row.get("image_mime") or "image/png"
-            ext = mime.split("/")[-1] if "/" in mime else "png"
-            # Sanitise: Discord only accepts common image extensions
-            if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
-                ext = "png"
-
-            filename = f"{entry_title[:40]}.{ext}"
-            file = discord.File(io.BytesIO(img_data), filename=filename)
-            await interaction.response.send_message(file=file, ephemeral=True)
+            can_remove = (
+                interaction.guild is not None
+                and isinstance(interaction.user, discord.Member)
+                and interaction.user.guild_permissions.administrator
+            )
+            gallery = ImageGalleryView(entry_id, entry_title, image_count, can_remove)
+            await gallery.send_first(interaction)
 
         btn.callback = callback
         return btn
@@ -301,6 +291,137 @@ class EntryView(discord.ui.View):
 
 KB_PAGE_SIZE = 4
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Image Gallery View  (shown when clicking 查看圖片 in EntryView)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ImageGalleryView(discord.ui.View):
+    """Cycling image viewer for multi-image KB entries."""
+
+    def __init__(self, entry_id: int, entry_title: str, image_count: int, can_remove: bool, current_index: int = 1):
+        super().__init__(timeout=180)
+        self.entry_id = entry_id
+        self.entry_title = entry_title
+        self.image_count = image_count
+        self.current_index = current_index
+        self.can_remove = can_remove
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.clear_items()
+
+        prev_btn = discord.ui.Button(
+            emoji="◀️",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.image_count <= 1 or self.current_index <= 1),
+            row=0,
+        )
+        prev_btn.callback = self._prev
+        self.add_item(prev_btn)
+
+        counter_btn = discord.ui.Button(
+            label=f"{self.current_index} / {self.image_count}",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+            row=0,
+        )
+        self.add_item(counter_btn)
+
+        next_btn = discord.ui.Button(
+            emoji="▶️",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.image_count <= 1 or self.current_index >= self.image_count),
+            row=0,
+        )
+        next_btn.callback = self._next
+        self.add_item(next_btn)
+
+        if self.can_remove:
+            remove_btn = discord.ui.Button(
+                emoji="🗑️",
+                label="移除此圖",
+                style=discord.ButtonStyle.danger,
+                row=1,
+            )
+            remove_btn.callback = self._remove
+            self.add_item(remove_btn)
+
+    def _make_file(self) -> Optional[discord.File]:
+        result = database.get_entry_image(self.entry_id, self.current_index)
+        if not result:
+            return None
+        img_data, mime = result
+        ext = mime.split("/")[-1] if "/" in mime else "png"
+        if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+            ext = "png"
+        return discord.File(io.BytesIO(img_data), filename=f"image_{self.current_index}.{ext}")
+
+    def _content(self) -> str:
+        return f"🖼️ **{self.entry_title}** — 圖片 {self.current_index} / {self.image_count}"
+
+    async def send_first(self, interaction: discord.Interaction):
+        file = self._make_file()
+        if not file:
+            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            content=self._content(), file=file, view=self, ephemeral=True
+        )
+
+    async def _prev(self, interaction: discord.Interaction):
+        self.current_index = max(1, self.current_index - 1)
+        self._build_buttons()
+        file = self._make_file()
+        if not file:
+            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
+            return
+        await interaction.response.edit_message(content=self._content(), attachments=[file], view=self)
+
+    async def _next(self, interaction: discord.Interaction):
+        self.current_index = min(self.image_count, self.current_index + 1)
+        self._build_buttons()
+        file = self._make_file()
+        if not file:
+            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
+            return
+        await interaction.response.edit_message(content=self._content(), attachments=[file], view=self)
+
+    async def _remove(self, interaction: discord.Interaction):
+        success, msg = database.remove_image_from_entry(self.entry_id, self.current_index)
+        if not success:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+        self.image_count -= 1
+        if self.image_count == 0:
+            await interaction.response.edit_message(
+                content=f"🗑️ 已移除最後一張圖片。**{self.entry_title}** 目前沒有任何圖片。",
+                attachments=[],
+                view=None,
+            )
+            return
+        self.current_index = min(self.current_index, self.image_count)
+        self._build_buttons()
+        file = self._make_file()
+        if not file:
+            await interaction.response.edit_message(
+                content=f"🗑️ 已移除圖片。剩餘 {self.image_count} 張。", attachments=[], view=self
+            )
+            return
+        await interaction.response.edit_message(
+            content=self._content(), attachments=[file], view=self
+        )
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KB Manager View  (!viewentry / !knowledge)
+# 4 entries per page; each row: 👁️ 標題(view)  ✏️ 編輯  🗑️ 刪除
+# Row 0: ◀️ 上一頁 | 🗂️ 第X/Y頁(disabled) | ▶️ 下一頁
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _build_kb_embed(entries: list, page: int, total_pages: int, total_count: int, query: str) -> discord.Embed:
     header = f"🔍 搜尋：{query}" if query else "📋 所有條目"

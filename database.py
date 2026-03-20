@@ -137,6 +137,7 @@ _DEFAULT_COMMAND_ROLES: Dict[str, Optional[str]] = {
     "viewentry":             "__admin__",
     "knowledge":             "__admin__",
     "saveimage":             "__admin__",
+    "addimage":              "__admin__",
     "clear":                 "__admin__",
     "suggestions":           "__admin__",
     "setsuggestionprompt":   "__admin__",
@@ -224,6 +225,9 @@ def clear_command_role(command_name: str) -> bool:
     return set_command_role(command_name, None)
 
 
+MAX_IMAGES_PER_ENTRY = 5
+
+
 # ── Knowledge base — file helpers ─────────────────────────────────────────────
 
 def _text_entry_path(entry_id: int) -> str:
@@ -234,19 +238,51 @@ def _image_meta_path(entry_id: int) -> str:
     return os.path.join(IMAGES_DIR, f"{entry_id}.json")
 
 
-def _image_file_path(entry_id: int, mime: str) -> str:
+def _safe_ext(mime: str) -> str:
     ext = mime.split("/")[-1] if "/" in mime else "png"
-    if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
-        ext = "png"
-    return os.path.join(IMAGES_DIR, f"{entry_id}.{ext}")
+    return ext.lower() if ext.lower() in ("png", "jpg", "jpeg", "gif", "webp") else "png"
 
 
-def _find_image_file(entry_id: int) -> Optional[str]:
+def _new_image_filename(entry_id: int, mime: str) -> str:
+    import time
+    return f"{entry_id}_{int(time.time() * 1000)}.{_safe_ext(mime)}"
+
+
+def _find_legacy_image_file(entry_id: int) -> Optional[str]:
+    """Find old single-image file: <id>.<ext>"""
     for ext in ("png", "jpg", "jpeg", "gif", "webp"):
         p = os.path.join(IMAGES_DIR, f"{entry_id}.{ext}")
         if os.path.exists(p):
             return p
     return None
+
+
+def _get_meta_with_images(entry_id: int) -> Optional[Dict[str, Any]]:
+    """Load image entry metadata, migrating legacy single-image format if needed."""
+    meta_path = _image_meta_path(entry_id)
+    if not os.path.exists(meta_path):
+        return None
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception:
+        return None
+
+    if "images" not in meta:
+        mime = meta.get("image_mime", "image/png")
+        legacy_path = _find_legacy_image_file(entry_id)
+        if legacy_path:
+            new_filename = _new_image_filename(entry_id, mime)
+            new_path = os.path.join(IMAGES_DIR, new_filename)
+            import shutil
+            shutil.move(legacy_path, new_path)
+            meta["images"] = [{"filename": new_filename, "mime": mime}]
+        else:
+            meta["images"] = []
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    return meta
 
 
 # ── Knowledge base — CRUD ─────────────────────────────────────────────────────
@@ -272,6 +308,10 @@ def add_text_entry(title: str, content: str, tags: str = "") -> int:
 def add_image_entry(title: str, image_bytes: bytes, mime_type: str, description: str = "", tags: str = "") -> int:
     entry_id = _next_id()
     now = datetime.utcnow().isoformat()
+    filename = _new_image_filename(entry_id, mime_type)
+    img_path = os.path.join(IMAGES_DIR, filename)
+    with open(img_path, "wb") as f:
+        f.write(image_bytes)
     meta = {
         "id": entry_id,
         "title": title,
@@ -281,14 +321,78 @@ def add_image_entry(title: str, image_bytes: bytes, mime_type: str, description:
         "tags": tags,
         "created_at": now,
         "updated_at": now,
+        "images": [{"filename": filename, "mime": mime_type}],
     }
-    img_path = _image_file_path(entry_id, mime_type)
-    with open(img_path, "wb") as f:
-        f.write(image_bytes)
     with open(_image_meta_path(entry_id), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
-    print(f"[DB] Image entry #{entry_id} saved → knowledge/images/{entry_id}.*")
+    print(f"[DB] Image entry #{entry_id} saved → knowledge/images/{filename}")
     return entry_id
+
+
+def get_entry_image_count(entry_id: int) -> int:
+    meta = _get_meta_with_images(entry_id)
+    if not meta:
+        return 0
+    return len(meta.get("images", []))
+
+
+def get_entry_image(entry_id: int, image_index: int) -> Optional[tuple]:
+    """Return (bytes, mime) for the image at 1-based image_index, or None."""
+    meta = _get_meta_with_images(entry_id)
+    if not meta:
+        return None
+    images = meta.get("images", [])
+    if image_index < 1 or image_index > len(images):
+        return None
+    img_info = images[image_index - 1]
+    img_path = os.path.join(IMAGES_DIR, img_info["filename"])
+    if not os.path.exists(img_path):
+        return None
+    with open(img_path, "rb") as f:
+        data = f.read()
+    return data, img_info.get("mime", "image/png")
+
+
+def add_image_to_entry(entry_id: int, image_bytes: bytes, mime_type: str) -> tuple:
+    """Append an image to an existing image KB entry. Returns (success, message)."""
+    meta = _get_meta_with_images(entry_id)
+    if not meta:
+        return False, "找不到此條目"
+    if meta.get("entry_type") != "image":
+        return False, "此條目不是圖片類型"
+    images = meta.get("images", [])
+    if len(images) >= MAX_IMAGES_PER_ENTRY:
+        return False, f"已達到每個條目最多 {MAX_IMAGES_PER_ENTRY} 張圖片的上限"
+    filename = _new_image_filename(entry_id, mime_type)
+    img_path = os.path.join(IMAGES_DIR, filename)
+    with open(img_path, "wb") as f:
+        f.write(image_bytes)
+    images.append({"filename": filename, "mime": mime_type})
+    meta["images"] = images
+    meta["updated_at"] = datetime.utcnow().isoformat()
+    with open(_image_meta_path(entry_id), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    print(f"[DB] Added image to entry #{entry_id} ({len(images)}/{MAX_IMAGES_PER_ENTRY})")
+    return True, f"已新增，目前 {len(images)} / {MAX_IMAGES_PER_ENTRY} 張"
+
+
+def remove_image_from_entry(entry_id: int, image_index: int) -> tuple:
+    """Remove image at 1-based image_index. Returns (success, message)."""
+    meta = _get_meta_with_images(entry_id)
+    if not meta:
+        return False, "找不到此條目"
+    images = meta.get("images", [])
+    if image_index < 1 or image_index > len(images):
+        return False, "無效的圖片編號"
+    img_info = images.pop(image_index - 1)
+    img_path = os.path.join(IMAGES_DIR, img_info["filename"])
+    if os.path.exists(img_path):
+        os.remove(img_path)
+    meta["images"] = images
+    meta["updated_at"] = datetime.utcnow().isoformat()
+    with open(_image_meta_path(entry_id), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    return True, f"已移除，剩餘 {len(images)} 張"
 
 
 def _load_all_knowledge_entries() -> List[Dict[str, Any]]:
@@ -331,21 +435,8 @@ def get_entry_by_id(entry_id: int) -> Optional[Dict[str, Any]]:
         except Exception:
             return None
 
-    meta_path = _image_meta_path(entry_id)
-    if os.path.exists(meta_path):
-        try:
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-            img_path = _find_image_file(entry_id)
-            if img_path:
-                with open(img_path, "rb") as f:
-                    meta["image_data"] = f.read()
-                meta["image_mime"] = meta.get("image_mime", "image/png")
-            return meta
-        except Exception:
-            return None
-
-    return None
+    meta = _get_meta_with_images(entry_id)
+    return meta
 
 
 def search_knowledge(query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -445,12 +536,17 @@ def delete_entry(entry_id: int) -> bool:
 
     meta_path = _image_meta_path(entry_id)
     if os.path.exists(meta_path):
-        with open(meta_path, "r", encoding="utf-8") as f:
-            meta = json.load(f)
-        mime = meta.get("image_mime", "image/png")
-        img_path = _find_image_file(entry_id)
-        if img_path:
-            os.remove(img_path)
+        try:
+            meta = _get_meta_with_images(entry_id) or {}
+            for img_info in meta.get("images", []):
+                img_file = os.path.join(IMAGES_DIR, img_info["filename"])
+                if os.path.exists(img_file):
+                    os.remove(img_file)
+            legacy = _find_legacy_image_file(entry_id)
+            if legacy and os.path.exists(legacy):
+                os.remove(legacy)
+        except Exception:
+            pass
         os.remove(meta_path)
         deleted = True
 

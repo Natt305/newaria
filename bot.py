@@ -1042,6 +1042,74 @@ async def saveimage_cmd(
     await ctx.send(embed=embed, view=view)
 
 
+@bot.hybrid_command(name="addimage", description="新增圖片到已有的圖片知識庫條目 (最多 5 張)")
+@app_commands.describe(
+    entry_id="目標條目編號 (使用 /knowledge 查看)",
+    attachment="要新增的圖片 (斜線指令專用)",
+)
+async def addimage_cmd(
+    ctx,
+    entry_id: int,
+    attachment: Optional[discord.Attachment] = None,
+):
+    """新增圖片到 KB 條目: !addimage <條目編號> (prefix: 附上圖片; slash: 使用 attachment 參數)"""
+    if not await check_command_role(ctx):
+        return
+
+    msg_attachments = getattr(ctx.message, "attachments", []) or []
+    resolved = attachment or (msg_attachments[0] if msg_attachments else None)
+    if not resolved:
+        await ctx.reply("❌ 請附上一張圖片。", mention_author=False)
+        return
+
+    fname = resolved.filename.lower()
+    if not any(fname.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp")):
+        await ctx.reply("❌ 請附上有效的圖像格式 (PNG、JPG、GIF 或 WebP)。", mention_author=False)
+        return
+
+    entry = database.get_entry_by_id(entry_id)
+    if not entry:
+        await ctx.reply(f"❌ 找不到條目 #{entry_id}。請使用 `/knowledge` 確認條目編號。", mention_author=False)
+        return
+    if entry.get("entry_type") != "image":
+        await ctx.reply(f"❌ 條目 #{entry_id} 是文字條目，只能將圖片新增到圖片條目。", mention_author=False)
+        return
+
+    current_count = database.get_entry_image_count(entry_id)
+    if current_count >= database.MAX_IMAGES_PER_ENTRY:
+        await ctx.reply(
+            f"❌ 條目 #{entry_id} 已有 {current_count} 張圖片，已達上限 {database.MAX_IMAGES_PER_ENTRY} 張。\n"
+            "請先在 `/viewentry` 中移除舊圖片再新增。",
+            mention_author=False,
+        )
+        return
+
+    await ctx.defer()
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(resolved.url) as resp:
+            img_bytes = await resp.read()
+
+    mime = "image/jpeg"
+    if fname.endswith(".png"):
+        mime = "image/png"
+    elif fname.endswith(".gif"):
+        mime = "image/gif"
+    elif fname.endswith(".webp"):
+        mime = "image/webp"
+
+    success, msg = database.add_image_to_entry(entry_id, img_bytes, mime)
+    if success:
+        new_count = database.get_entry_image_count(entry_id)
+        embed = discord.Embed(title="✅ 圖片已新增", color=discord.Color.green())
+        embed.add_field(name="🏷️ 條目", value=f"#{entry_id} {entry.get('title', '')}", inline=True)
+        embed.add_field(name="📊 圖片數量", value=f"{new_count} / {database.MAX_IMAGES_PER_ENTRY}", inline=True)
+        embed.set_footer(text="使用 /viewentry 查看並管理所有圖片。")
+        await ctx.send(embed=embed)
+    else:
+        await ctx.reply(f"❌ {msg}", mention_author=False)
+
+
 @bot.hybrid_command(name="generate", description="使用 Cloudflare Workers AI (Flux) 直接生成圖像")
 @app_commands.describe(prompt="圖像提示詞 (英文效果最佳)")
 async def generate_cmd(ctx, *, prompt: str):
