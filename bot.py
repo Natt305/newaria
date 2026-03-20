@@ -729,17 +729,17 @@ async def on_ready():
     await _apply_status()
     try:
         synced = await bot.tree.sync()
-        print(f"[Bot] 已全域同步 {len(synced)} 個斜線指令")
+        print(f"[Bot] 已同步 {len(synced)} 個斜線指令")
     except Exception as e:
-        print(f"[Bot] 全域斜線指令同步失敗: {e}")
-    # Also sync per-guild for instant availability (no propagation delay)
+        print(f"[Bot] 斜線指令同步失敗: {e}")
+    # Clear any guild-specific commands that may have been registered previously
+    # (guild commands duplicate global ones and must be removed)
     for guild in bot.guilds:
         try:
-            bot.tree.copy_global_to(guild=guild)
-            guild_synced = await bot.tree.sync(guild=guild)
-            print(f"[Bot] 已同步 {len(guild_synced)} 個斜線指令 → {guild.name} ({guild.id})")
+            bot.tree.clear_commands(guild=guild)
+            await bot.tree.sync(guild=guild)
         except Exception as e:
-            print(f"[Bot] 伺服器 {guild.name} 同步失敗: {e}")
+            print(f"[Bot] 清除伺服器 {guild.name} 舊指令失敗: {e}")
 
 
 @bot.event
