@@ -8,7 +8,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(_SCRIPT_DIR, "data")
 
 CHARACTER_DIR        = os.path.join(DATA_DIR, "character")
-CHARACTER_IMAGES_DIR = os.path.join(CHARACTER_DIR, "images")
+CHARACTER_IMAGES_DIR = CHARACTER_DIR
 MEMORIES_DIR         = os.path.join(DATA_DIR, "memories")
 KNOWLEDGE_DIR        = os.path.join(DATA_DIR, "knowledge")
 IMAGES_DIR           = os.path.join(KNOWLEDGE_DIR, "images")
@@ -24,7 +24,7 @@ HISTORY_DB     = os.path.join(DATA_DIR, "history.db")
 
 MAX_CHARACTER_IMAGES = 10
 
-for _d in (CHARACTER_DIR, CHARACTER_IMAGES_DIR, MEMORIES_DIR, KNOWLEDGE_DIR, IMAGES_DIR):
+for _d in (CHARACTER_DIR, MEMORIES_DIR, KNOWLEDGE_DIR, IMAGES_DIR):
     os.makedirs(_d, exist_ok=True)
 
 DEFAULT_CHARACTER = {
