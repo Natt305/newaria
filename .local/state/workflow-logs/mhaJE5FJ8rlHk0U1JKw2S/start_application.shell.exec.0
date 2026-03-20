@@ -1,0 +1,9 @@
+============================================================
+  少女樂團機器人 (AriaBot)
+  Powered by Groq + Cloudflare Workers AI + SQLite
+============================================================
+
+
+[Error] DISCORD_BOT_TOKEN is not set.
+Please add it as a Replit Secret named DISCORD_BOT_TOKEN,
+or fill it into /home/runner/workspace/config.txt and restart.
