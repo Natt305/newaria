@@ -1,33 +1,40 @@
 @echo off
 chcp 65001 >nul
-title 少女樂團機器人 (AriaBot)
+title AriaBot
 
 echo ================================================================
-echo   少女樂團機器人 (AriaBot)
+echo   AriaBot (少女樂團機器人)
 echo   Powered by Groq + Cloudflare Workers AI + SQLite
 echo ================================================================
 echo.
 
-REM Check if Python is available
+REM Check for Python (try "python" then "py" launcher)
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [Error] Python not found. Please install Python 3.8 or later.
-    echo Download from: https://www.python.org/downloads/
-    pause
-    exit /b 1
+    py --version >nul 2>&1
+    if errorlevel 1 (
+        echo [Error] Python not found. Please install Python 3.8 or later.
+        echo Download from: https://www.python.org/downloads/
+        echo Make sure to check "Add Python to PATH" during installation.
+        pause
+        exit /b 1
+    )
+    set PYTHON=py
+) else (
+    set PYTHON=python
 )
 
 REM Install requirements if needed
 if exist requirements.txt (
     echo [Setup] Installing dependencies...
-    pip install -r requirements.txt -q
+    %PYTHON% -m pip install -r requirements.txt -q
     echo [Setup] Dependencies ready.
     echo.
 )
 
 REM Launch the bot
 echo [Launcher] Starting bot...
-python launcher.py
+%PYTHON% launcher.py
 
 echo.
 echo [Launcher] Bot has stopped.
