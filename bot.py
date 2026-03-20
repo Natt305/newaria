@@ -92,16 +92,16 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
         )
     if visual_kb_context:
         prompt += (
-            "\n--- Images You Remember That Match What Was Just Shown ---\n"
+            "\n--- Saved Images From Your Memory That May Relate To What Was Just Shown ---\n"
             f"{visual_kb_context}\n"
-            "--- End Visual Matches ---\n"
-            "\nThe user has just sent you an image. You have previously seen and saved images "
-            "that appear to contain the same or similar subjects (same person, place, or object). "
-            "Use your memory of those images to inform your response — speak as if you recognize "
-            "what or who is in the image from having seen them before. "
-            "Say things like 'Oh, I recognize this — this looks like [name/subject] from the photo I saved!' "
-            "or 'I've seen this person before, I remember they...' etc. "
-            "Be natural and warm, not robotic."
+            "--- End Visual Memory ---\n"
+            "\nCRITICAL: The image the user JUST sent is described in the [Attached image analysis] "
+            "in their message — always respond to THAT image first and foremost. "
+            "The entries above are images you have previously saved that share similar subjects. "
+            "Only reference them if it is genuinely relevant (e.g. you recognise the same person or place). "
+            "NEVER describe a saved KB image as if it is the image the user just sent. "
+            "If you mention a saved image, make it clear you're recalling a past memory, e.g. "
+            "'Oh, this reminds me of a photo I saved of [subject]!' — not 'this image shows…'"
         )
     return prompt
 

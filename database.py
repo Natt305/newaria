@@ -389,11 +389,13 @@ def search_kb_images_by_subject(description: str, limit: int = 6) -> List[Dict[s
             (meta.get("image_description") or ""),
             (meta.get("tags") or ""),
         ]).lower()
-        if any(w in haystack for w in words):
-            results.append(meta)
+        match_count = sum(1 for w in words if w in haystack)
+        if match_count >= 2:
+            results.append((match_count, meta))
         if len(results) >= limit:
             break
-    return results
+    results.sort(key=lambda x: x[0], reverse=True)
+    return [meta for _, meta in results]
 
 
 def update_image_description(entry_id: int, description: str) -> bool:
