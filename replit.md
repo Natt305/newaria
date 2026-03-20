@@ -16,14 +16,13 @@ A Discord AI bot powered by Groq (text), Cloudflare Workers AI (image generation
 
 | File | Role |
 |------|------|
-| `launcher.py` | Entry point — loads env vars / config.txt, then calls `bot.main()` |
+| `launcher.py` | Entry point — loads env vars, then calls `bot.main()` |
 | `bot.py` | All Discord commands, event handlers, conversation logic |
 | `groq_ai.py` | Groq API client — text chat, image understanding, memory extraction |
 | `cloudflare_ai.py` | Cloudflare Workers AI — image generation |
 | `database.py` | SQLite KB, conversation history, long-term memories, settings |
 | `views.py` | Discord UI components (buttons, modals, paginated views) |
 | `help_config.py` | User-facing help text |
-| `config.txt` | Optional fallback config (env vars take priority) |
 
 ## Required Secrets
 
