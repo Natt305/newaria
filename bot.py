@@ -451,7 +451,7 @@ async def process_chat(
             result, comment = await asyncio.gather(
                 cloudflare_ai.generate_image(enriched_prompt),
                 groq_ai.generate_image_comment(
-                    image_prompt, bot_name, background, user_text
+                    image_prompt, bot_name, background, user_text, history=history
                 ),
             )
 

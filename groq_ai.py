@@ -332,10 +332,12 @@ async def generate_image_comment(
     bot_name: str,
     character_background: str,
     user_request: str = "",
+    history: list = None,
 ) -> str:
     """Generate a short in-character comment to accompany a generated image.
 
-    Matches the language of the user's request (Chinese or English).
+    Uses the recent conversation history so the comment continues the chat
+    naturally rather than feeling like a disconnected reaction.
     Returns a 1–2 sentence comment string, or empty string on failure.
     """
     client = _client()
@@ -344,19 +346,37 @@ async def generate_image_comment(
 
     system = (
         f"You are {bot_name}. {character_background}\n"
-        "The user just asked you to generate an image and you have done so.\n"
-        "Write a short, natural, in-character comment to send alongside the image.\n"
+        "You are mid-conversation and have just drawn/created an image for the user. "
+        "Write ONE short sentence (two at most) to send alongside it — something that flows "
+        "naturally from the conversation you were just having, like a real person would say.\n"
         "Rules:\n"
-        "- 1 to 2 sentences maximum, conversational and warm.\n"
-        "- Language rules: your default is Traditional Chinese (繁體中文). Only use another language if the user wrote a complete sentence in that language. If the user wrote in Simplified Chinese, reply in Traditional Chinese.\n"
-        "- Do NOT describe what you did technically.\n"
-        "- Sound genuinely excited, proud, or playful — stay in character.\n"
-        "- Do NOT start with 'Here is', 'Here's', 'I generated', 'I created', '好的' alone, etc.\n"
-        "- React naturally to the image as if you just painted or drew it yourself.\n"
+        "- Stay in the mood and tone of the conversation. If you were joking, keep joking. "
+        "If you were being sincere, be sincere.\n"
+        "- Reference the specific thing that was asked for when it feels natural — don't just react generically.\n"
+        "- Language: default Traditional Chinese (繁體中文). Only switch if the user wrote a full sentence in another language. Never use Simplified Chinese.\n"
+        "- Do NOT say 'Here is', 'Here's', 'I generated', 'I created', '好的', '完成了', or anything that sounds like a task report.\n"
+        "- Do NOT describe the image — the user can see it.\n"
+        "- Sound like yourself, not an assistant completing a request.\n"
     )
 
-    context = f"User request: {user_request}\n" if user_request else ""
-    msg = f"{context}Image created based on: {image_prompt[:200]}"
+    # Build the message with conversation context + the image request
+    context_lines = []
+    if history:
+        for msg in history[-6:]:
+            role_label = "User" if msg["role"] == "user" else bot_name
+            context_lines.append(f"{role_label}: {msg['content'][:200]}")
+    if user_request:
+        context_lines.append(f"User: {user_request}")
+
+    context_block = "\n".join(context_lines)
+    msg = (
+        f"Conversation so far:\n{context_block}\n\n"
+        f"(You just created an image of: {image_prompt[:200]})\n"
+        "Write your one-sentence reaction that continues this conversation naturally."
+    ) if context_block else (
+        f"You just created an image of: {image_prompt[:200]}. "
+        "Write one natural in-character sentence to send with it."
+    )
 
     messages = [{"role": "user", "content": msg}]
     try:
