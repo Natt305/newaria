@@ -1263,29 +1263,26 @@ async def saveimage_cmd(
         await ctx.send(embed=embed)
 
 
-@bot.hybrid_command(name="addimage", description="新增圖片到已有的圖片知識庫條目 (最多 5 張)")
+@bot.hybrid_command(name="addimage", description="新增圖片到已有的圖片知識庫條目 (最多 5 張，可批量上傳)")
 @app_commands.describe(
     entry_id="目標條目編號 (使用 /knowledge 查看)",
-    attachment="要新增的圖片 (斜線指令專用)",
+    attachment="圖片 1",
+    attachment2="圖片 2",
+    attachment3="圖片 3",
+    attachment4="圖片 4",
+    attachment5="圖片 5",
 )
 async def addimage_cmd(
     ctx,
     entry_id: int,
     attachment: Optional[discord.Attachment] = None,
+    attachment2: Optional[discord.Attachment] = None,
+    attachment3: Optional[discord.Attachment] = None,
+    attachment4: Optional[discord.Attachment] = None,
+    attachment5: Optional[discord.Attachment] = None,
 ):
-    """新增圖片到 KB 條目: !addimage <條目編號> (prefix: 附上圖片; slash: 使用 attachment 參數)"""
+    """新增圖片到 KB 條目 (批量): !addimage <條目編號> (prefix: 附上圖片; slash: 使用 attachment 參數)"""
     if not await check_command_role(ctx):
-        return
-
-    msg_attachments = getattr(ctx.message, "attachments", []) or []
-    resolved = attachment or (msg_attachments[0] if msg_attachments else None)
-    if not resolved:
-        await ctx.reply("❌ 請附上一張圖片。", mention_author=False)
-        return
-
-    fname = resolved.filename.lower()
-    if not any(fname.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp")):
-        await ctx.reply("❌ 請附上有效的圖像格式 (PNG、JPG、GIF 或 WebP)。", mention_author=False)
         return
 
     entry = database.get_entry_by_id(entry_id)
@@ -1294,6 +1291,23 @@ async def addimage_cmd(
         return
     if entry.get("entry_type") != "image":
         await ctx.reply(f"❌ 條目 #{entry_id} 是文字條目，只能將圖片新增到圖片條目。", mention_author=False)
+        return
+
+    slash_attachments = [
+        a for a in [attachment, attachment2, attachment3, attachment4, attachment5]
+        if a is not None
+    ]
+    msg_attachments = getattr(ctx.message, "attachments", []) or []
+    candidates = slash_attachments if slash_attachments else list(msg_attachments)
+
+    if not candidates:
+        await ctx.reply("❌ 請附上至少一張圖片。", mention_author=False)
+        return
+
+    valid_exts = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+    valid_candidates = [a for a in candidates if a.filename.lower().endswith(valid_exts)]
+    if not valid_candidates:
+        await ctx.reply("❌ 請附上有效的圖像格式 (PNG、JPG、GIF 或 WebP)。", mention_author=False)
         return
 
     current_count = database.get_entry_image_count(entry_id)
@@ -1305,30 +1319,54 @@ async def addimage_cmd(
         )
         return
 
+    slots_left = database.MAX_IMAGES_PER_ENTRY - current_count
+    to_process = valid_candidates[:slots_left]
+    skipped_count = len(valid_candidates) - len(to_process)
+
     await ctx.defer()
 
+    added, failed = [], []
+
     async with aiohttp.ClientSession() as session:
-        async with session.get(resolved.url) as resp:
-            img_bytes = await resp.read()
+        for att in to_process:
+            fname = att.filename.lower()
+            mime = "image/jpeg"
+            if fname.endswith(".png"):
+                mime = "image/png"
+            elif fname.endswith(".gif"):
+                mime = "image/gif"
+            elif fname.endswith(".webp"):
+                mime = "image/webp"
 
-    mime = "image/jpeg"
-    if fname.endswith(".png"):
-        mime = "image/png"
-    elif fname.endswith(".gif"):
-        mime = "image/gif"
-    elif fname.endswith(".webp"):
-        mime = "image/webp"
+            try:
+                async with session.get(att.url) as resp:
+                    img_bytes = await resp.read()
+                success, msg = database.add_image_to_entry(entry_id, img_bytes, mime)
+                if success:
+                    added.append(att.filename)
+                else:
+                    failed.append(f"{att.filename} ({msg})")
+            except Exception as e:
+                failed.append(f"{att.filename} ({e})")
 
-    success, msg = database.add_image_to_entry(entry_id, img_bytes, mime)
-    if success:
-        new_count = database.get_entry_image_count(entry_id)
-        embed = discord.Embed(title="✅ 圖片已新增", color=discord.Color.green())
-        embed.add_field(name="🏷️ 條目", value=f"#{entry_id} {entry.get('title', '')}", inline=True)
-        embed.add_field(name="📊 圖片數量", value=f"{new_count} / {database.MAX_IMAGES_PER_ENTRY}", inline=True)
-        embed.set_footer(text="使用 /viewentry 查看並管理所有圖片。")
-        await ctx.send(embed=embed)
-    else:
-        await ctx.reply(f"❌ {msg}", mention_author=False)
+    new_count = database.get_entry_image_count(entry_id)
+    embed = discord.Embed(
+        title="🖼️ 圖片批量新增結果",
+        color=discord.Color.green() if added else discord.Color.red(),
+    )
+    embed.add_field(name="🏷️ 條目", value=f"#{entry_id} {entry.get('title', '')}", inline=True)
+    embed.add_field(name="📊 圖片數量", value=f"{new_count} / {database.MAX_IMAGES_PER_ENTRY}", inline=True)
+    embed.add_field(name="✅ 成功新增", value=str(len(added)), inline=True)
+    if failed:
+        embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
+    if skipped_count > 0:
+        embed.add_field(
+            name="⏭️ 已略過 (超過上限)",
+            value=f"{skipped_count} 張 (每個條目最多 {database.MAX_IMAGES_PER_ENTRY} 張)",
+            inline=False,
+        )
+    embed.set_footer(text="使用 /viewentry 查看並管理所有圖片。")
+    await ctx.send(embed=embed)
 
 
 @bot.hybrid_command(name="generate", description="使用 Cloudflare Workers AI (Flux) 直接生成圖像")
