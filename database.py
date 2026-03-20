@@ -314,6 +314,49 @@ def clear_command_role(command_name: str) -> bool:
     return set_command_role(command_name, None)
 
 
+def sync_permissions_file(command_name: str, role_value: Optional[str]) -> None:
+    """Write a changed role back into permissions.txt, preserving all comments and formatting."""
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    perm_path = os.path.join(base_path, "permissions.txt")
+    if not os.path.exists(perm_path):
+        return
+
+    if role_value is None:
+        file_value = "everyone"
+    elif role_value == "__admin__":
+        file_value = "admin"
+    else:
+        file_value = role_value
+
+    lines = []
+    found = False
+    try:
+        with open(perm_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("#") or "=" not in stripped:
+                continue
+            key = stripped.partition("=")[0].strip().lower()
+            if key == command_name:
+                indent = len(line) - len(line.lstrip())
+                padding = max(1, 23 - len(command_name))
+                lines[i] = f"{' ' * indent}{command_name}{' ' * padding}= {file_value}\n"
+                found = True
+                break
+
+        if not found:
+            lines.append(f"{command_name:<23}= {file_value}\n")
+
+        with open(perm_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        print(f"[DB] permissions.txt updated: {command_name} = {file_value}")
+    except Exception as e:
+        print(f"[DB] Could not sync permissions.txt: {e}")
+
+
 MAX_IMAGES_PER_ENTRY = 5
 
 

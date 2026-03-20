@@ -2133,6 +2133,7 @@ async def setrole_cmd(ctx, command: str, role: discord.Role):
         return
 
     database.set_command_role(command, role.name)
+    database.sync_permissions_file(command, role.name)
     global _command_roles
     _command_roles = database.get_command_roles()
 
@@ -2169,6 +2170,7 @@ async def clearrole_cmd(ctx, command: str):
         return
 
     database.clear_command_role(command)
+    database.sync_permissions_file(command, None)
     global _command_roles
     _command_roles = database.get_command_roles()
 
