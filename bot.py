@@ -87,7 +87,9 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
             "Speak about them naturally in the first person: say 'I know...', 'I remember seeing...', "
             "'I have a photo of...', 'I learned that...' etc. "
             "Do NOT say things like 'according to my knowledge base' or 'I found in my records'. "
-            "For images: if you have seen/saved an image, talk about it as something you remember seeing. "
+            "For images: every photo entry is titled with the subject's name — that title IS the subject's actual name. "
+            "ALWAYS use that name when referring to the photo or its subject. "
+            "Say 'I have a photo of Alice' or 'That's Alice' — NEVER 'I have a picture of her' or vague pronouns. "
             "Proactively bring up relevant things you know when they fit the conversation naturally."
         )
     if visual_kb_context:
@@ -164,15 +166,15 @@ async def build_knowledge_context(channel_id: str, user_query: str = "") -> str:
             snippet = content[:500] + ("..." if len(content) > 500 else "")
             line = f"[Note — {entry['title']}]: {snippet}"
         elif entry["entry_type"] == "image":
+            title = entry["title"]
             desc = (entry.get("image_description") or "").strip()
             if desc:
                 snippet = desc[:500] + ("..." if len(desc) > 500 else "")
-                line = f"[Image you have seen — {entry['title']}]: {snippet}"
+                line = f"[Photo of {title}]: Subject name: {title}. {snippet}"
             else:
                 line = (
-                    f"[Image you have seen — {entry['title']}]: "
-                    "(you remember saving this image but have no description of it yet — "
-                    f"someone could add one with /setdesc {entry['id']})"
+                    f"[Photo of {title}]: Subject name: {title}. "
+                    "(no visual description saved yet)"
                 )
         else:
             continue

@@ -192,12 +192,13 @@ def _build_entry_embed(entry: dict) -> discord.Embed:
 class EntryView(discord.ui.View):
     """Shown by !viewentry — edit or delete the entry."""
 
-    def __init__(self, entry: dict):
+    def __init__(self, entry: dict, parent_kb_view=None):
         super().__init__(timeout=120)
         self.entry = entry
         self.entry_id = entry["id"]
         self.entry_title = entry["title"]
         self.entry_type = entry["entry_type"]
+        self.parent_kb_view = parent_kb_view
 
         if self.entry_type == "image":
             self.add_item(self._make_view_image_btn())
@@ -205,6 +206,27 @@ class EntryView(discord.ui.View):
         else:
             self.add_item(self._make_edit_text_btn())
         self.add_item(self._make_delete_btn())
+
+        if parent_kb_view is not None:
+            back_btn = discord.ui.Button(
+                label="← 返回列表",
+                style=discord.ButtonStyle.secondary,
+                emoji="📋",
+                row=1,
+            )
+            back_btn.callback = self._back
+            self.add_item(back_btn)
+
+    async def _back(self, interaction: discord.Interaction):
+        if self.parent_kb_view is None:
+            await interaction.response.defer()
+            return
+        self.parent_kb_view._build_buttons()
+        await interaction.response.edit_message(
+            embed=self.parent_kb_view._get_embed(),
+            attachments=[],
+            view=self.parent_kb_view,
+        )
 
     def _make_view_image_btn(self):
         btn = discord.ui.Button(
@@ -522,14 +544,15 @@ class KBManagerView(discord.ui.View):
     # ── Callbacks ──────────────────────────────────────────────────────
 
     def _make_view_cb(self, entry: dict):
+        parent = self
         async def callback(interaction: discord.Interaction):
             full = database.get_entry_by_id(entry["id"])
             if not full:
                 await interaction.response.send_message("❌ 條目已不存在。", ephemeral=True)
                 return
             embed = _build_entry_embed(full)
-            view = EntryView(full)
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            view = EntryView(full, parent_kb_view=parent)
+            await interaction.response.edit_message(embed=embed, attachments=[], view=view)
         return callback
 
     def _make_edit_cb(self, entry: dict):
