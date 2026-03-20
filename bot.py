@@ -1214,9 +1214,12 @@ async def saveimage_cmd(
     await ctx.defer()
 
     user_desc = description
-    added_entries = []
+    success_count = 0
     failed = []
     total = len(valid_candidates)
+    main_entry_id = None
+    auto_generated = not user_desc
+    auto_descs: list[str] = []
 
     progress_msg = None
     if total > 1:
@@ -1235,13 +1238,10 @@ async def saveimage_cmd(
             elif fname.endswith(".webp"):
                 mime = "image/webp"
 
-            entry_title = title if len(valid_candidates) == 1 else f"{title} {i + 1}"
-
             try:
                 async with session.get(att.url) as resp:
                     img_bytes = await resp.read()
 
-                auto_generated = not user_desc
                 desc = user_desc
                 if not desc:
                     analysed = await groq_ai.understand_image(
@@ -1249,21 +1249,36 @@ async def saveimage_cmd(
                         "Describe this image in detail for a knowledge base entry.",
                     )
                     desc = analysed or ""
+                    auto_descs.append(desc)
 
-                entry_id = database.add_image_entry(entry_title, img_bytes, mime, desc)
-                added_entries.append((entry_id, entry_title, desc, auto_generated))
+                if i == 0:
+                    main_entry_id = database.add_image_entry(title, img_bytes, mime, desc)
+                    success_count += 1
+                else:
+                    ok, msg = database.add_image_to_entry(main_entry_id, img_bytes, mime)
+                    if ok:
+                        success_count += 1
+                    else:
+                        failed.append(f"{att.filename} ({msg})")
             except Exception as e:
                 failed.append(f"{att.filename} ({e})")
 
             if progress_msg:
-                done = len(added_entries) + len(failed)
+                done = success_count + len(failed)
                 label = "✅ 完成！" if done == total else f"正在處理 **{total}** 張圖片⋯"
                 try:
                     await progress_msg.edit(
-                        content=f"📤 {label}\n{_make_progress_bar(len(added_entries), len(failed), total)}"
+                        content=f"📤 {label}\n{_make_progress_bar(success_count, len(failed), total)}"
                     )
                 except Exception:
                     pass
+
+    if auto_descs and len(auto_descs) > 1 and main_entry_id is not None:
+        combined = "\n\n".join(
+            f"圖片{j + 1}: {d}" for j, d in enumerate(auto_descs) if d
+        )
+        if combined:
+            database.update_image_description(main_entry_id, combined)
 
     if progress_msg:
         try:
@@ -1271,50 +1286,47 @@ async def saveimage_cmd(
         except Exception:
             pass
 
-    if len(added_entries) == 1:
-        entry_id, entry_title, desc, auto_generated = added_entries[0]
-        embed = discord.Embed(title="🖼️ Image 已保存到知識庫", color=discord.Color.green())
-        embed.add_field(name="🏷️ 標題", value=entry_title, inline=True)
-        embed.add_field(name="🆔 條目編號", value=f"#{entry_id}", inline=True)
-        if auto_generated and desc:
-            desc_label = "📄 Description (自動生成)"
-            desc_value = desc[:500] + ("..." if len(desc) > 500 else "")
-        elif auto_generated and not desc:
-            desc_label = "⚠️ Description (自動生成失敗)"
-            desc_value = f"視覺分析模型無法識別此圖像。\n請使用 `/setdesc {entry_id} <描述>` 手動新增描述，否則機器人將無法在對話中使用此圖像。"
+    entry_id = main_entry_id
+    final_desc = user_desc
+    if not final_desc and auto_descs:
+        if len(auto_descs) == 1:
+            final_desc = auto_descs[0]
         else:
-            desc_label = "📄 Description (使用者提供)"
-            desc_value = desc[:500] + ("..." if len(desc) > 500 else "")
-        embed.add_field(name=desc_label, value=desc_value, inline=False)
-        if failed:
-            embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
-        if skipped_over_limit > 0:
-            embed.add_field(
-                name="⏭️ 已略過 (超過上限)",
-                value=f"{skipped_over_limit} 張 (每次最多 {MAX_SAVEIMAGE_BATCH} 張)",
-                inline=False,
+            final_desc = "\n\n".join(
+                f"圖片{j + 1}: {d}" for j, d in enumerate(auto_descs) if d
             )
-        view = ui.SaveImageView(entry_id, entry_title)
+
+    embed = discord.Embed(
+        title="🖼️ Image 已保存到知識庫",
+        color=discord.Color.green() if success_count > 0 else discord.Color.red(),
+    )
+    embed.add_field(name="🏷️ 標題", value=title, inline=True)
+    if entry_id is not None:
+        embed.add_field(name="🆔 條目編號", value=f"#{entry_id}", inline=True)
+    if total > 1:
+        embed.add_field(name="📊 圖片數量", value=f"{success_count} / {total}", inline=True)
+    if auto_generated and final_desc:
+        desc_label = "📄 Description (自動生成)"
+        desc_value = final_desc[:500] + ("..." if len(final_desc) > 500 else "")
+    elif auto_generated and not final_desc:
+        desc_label = "⚠️ Description (自動生成失敗)"
+        desc_value = f"視覺分析模型無法識別此圖像。\n請使用 `/setdesc {entry_id} <描述>` 手動新增描述，否則機器人將無法在對話中使用此圖像。"
+    else:
+        desc_label = "📄 Description (使用者提供)"
+        desc_value = final_desc[:500] + ("..." if len(final_desc) > 500 else "")
+    embed.add_field(name=desc_label, value=desc_value, inline=False)
+    if failed:
+        embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
+    if skipped_over_limit > 0:
+        embed.add_field(
+            name="⏭️ 已略過 (超過上限)",
+            value=f"{skipped_over_limit} 張 (每次最多 {MAX_SAVEIMAGE_BATCH} 張)",
+            inline=False,
+        )
+    if entry_id is not None:
+        view = ui.SaveImageView(entry_id, title)
         await ctx.send(embed=embed, view=view)
     else:
-        embed = discord.Embed(
-            title="🖼️ 批量圖像已保存到知識庫",
-            color=discord.Color.green() if added_entries else discord.Color.red(),
-        )
-        embed.add_field(name="✅ 成功新增", value=str(len(added_entries)), inline=True)
-        embed.add_field(name="🏷️ 基礎標題", value=title, inline=True)
-        if added_entries:
-            ids_str = ", ".join(f"#{eid}" for eid, *_ in added_entries)
-            embed.add_field(name="🆔 條目編號", value=ids_str[:500], inline=False)
-        if failed:
-            embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
-        if skipped_over_limit > 0:
-            embed.add_field(
-                name="⏭️ 已略過 (超過上限)",
-                value=f"{skipped_over_limit} 張 (每次最多 {MAX_SAVEIMAGE_BATCH} 張)",
-                inline=False,
-            )
-        embed.set_footer(text="使用 /viewentry 查看各條目詳情。")
         await ctx.send(embed=embed)
 
 
