@@ -5,7 +5,7 @@ color 0A
 
 echo ============================================================
 echo   AriaBot - Discord AI Bot
-echo   Powered by Groq + Gemini + SQLite
+echo   Powered by Groq + Cloudflare Workers AI + SQLite
 echo ============================================================
 echo.
 
@@ -19,7 +19,19 @@ set "PYTHON_ZIP=%SCRIPT_DIR%python_embed.zip"
 set "GETPIP=%SCRIPT_DIR%get-pip.py"
 set "STAMP=%PYTHON_DIR%\.setup_done"
 
-if exist "%STAMP%" goto :run_bot
+:: If setup was done before, run a quick health check first
+if exist "%STAMP%" (
+    "%PYTHON_EXE%" -c "import unicodedata, sqlite3, json" >nul 2>&1
+    if errorlevel 1 (
+        echo [Repair] Python installation is broken or incomplete.
+        echo [Repair] Clearing old install and re-running setup...
+        echo.
+        del "%STAMP%" 2>nul
+        rmdir /s /q "%PYTHON_DIR%" 2>nul
+    ) else (
+        goto :run_bot
+    )
+)
 
 echo [Setup] First-time setup - this takes about 1-2 minutes...
 echo [Setup] No Python installation on your system is needed.
