@@ -10,9 +10,9 @@ import aiohttp
 
 MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
-WIDTH = 1024
-HEIGHT = 1024
-NUM_STEPS = 8
+WIDTH = 512
+HEIGHT = 512
+NUM_STEPS = 4
 
 
 async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
