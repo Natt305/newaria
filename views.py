@@ -395,19 +395,35 @@ class ImageGalleryView(discord.ui.View):
         self.current_index = max(1, self.current_index - 1)
         self._build_buttons()
         file = self._make_file()
-        if not file:
-            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
-            return
-        await interaction.response.edit_message(content=self._content(), attachments=[file], view=self)
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(content="❌ 無法讀取此圖片。", attachments=[], view=self)
+                return
+            await interaction.edit_original_response(content=self._content(), attachments=[file], view=self)
+        except Exception as e:
+            print(f"[View] ImageGalleryView._prev error: {e}")
+            try:
+                await interaction.followup.send("❌ 切換圖片時發生錯誤，請稍後再試。", ephemeral=True)
+            except Exception:
+                pass
 
     async def _next(self, interaction: discord.Interaction):
         self.current_index = min(self.image_count, self.current_index + 1)
         self._build_buttons()
         file = self._make_file()
-        if not file:
-            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
-            return
-        await interaction.response.edit_message(content=self._content(), attachments=[file], view=self)
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(content="❌ 無法讀取此圖片。", attachments=[], view=self)
+                return
+            await interaction.edit_original_response(content=self._content(), attachments=[file], view=self)
+        except Exception as e:
+            print(f"[View] ImageGalleryView._next error: {e}")
+            try:
+                await interaction.followup.send("❌ 切換圖片時發生錯誤，請稍後再試。", ephemeral=True)
+            except Exception:
+                pass
 
     async def _remove(self, interaction: discord.Interaction):
         success, msg = database.remove_image_from_entry(self.entry_id, self.current_index)
@@ -425,14 +441,22 @@ class ImageGalleryView(discord.ui.View):
         self.current_index = min(self.current_index, self.image_count)
         self._build_buttons()
         file = self._make_file()
-        if not file:
-            await interaction.response.edit_message(
-                content=f"🗑️ 已移除圖片。剩餘 {self.image_count} 張。", attachments=[], view=self
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(
+                    content=f"🗑️ 已移除圖片。剩餘 {self.image_count} 張。", attachments=[], view=self
+                )
+                return
+            await interaction.edit_original_response(
+                content=self._content(), attachments=[file], view=self
             )
-            return
-        await interaction.response.edit_message(
-            content=self._content(), attachments=[file], view=self
-        )
+        except Exception as e:
+            print(f"[View] ImageGalleryView._remove error: {e}")
+            try:
+                await interaction.followup.send("❌ 操作時發生錯誤，請稍後再試。", ephemeral=True)
+            except Exception:
+                pass
 
     async def on_timeout(self):
         for item in self.children:
@@ -742,19 +766,35 @@ class CharacterGalleryView(discord.ui.View):
         self.current_index = max(1, self.current_index - 1)
         self._build_buttons()
         file = self._make_file()
-        if not file:
-            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
-            return
-        await interaction.response.edit_message(content=self._content(), attachments=[file], view=self)
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(content="❌ 無法讀取此圖片。", attachments=[], view=self)
+                return
+            await interaction.edit_original_response(content=self._content(), attachments=[file], view=self)
+        except Exception as e:
+            print(f"[View] CharacterGalleryView._prev error: {e}")
+            try:
+                await interaction.followup.send("❌ 切換圖片時發生錯誤，請稍後再試。", ephemeral=True)
+            except Exception:
+                pass
 
     async def _next(self, interaction: discord.Interaction):
         self.current_index = min(self.image_count, self.current_index + 1)
         self._build_buttons()
         file = self._make_file()
-        if not file:
-            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
-            return
-        await interaction.response.edit_message(content=self._content(), attachments=[file], view=self)
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(content="❌ 無法讀取此圖片。", attachments=[], view=self)
+                return
+            await interaction.edit_original_response(content=self._content(), attachments=[file], view=self)
+        except Exception as e:
+            print(f"[View] CharacterGalleryView._next error: {e}")
+            try:
+                await interaction.followup.send("❌ 切換圖片時發生錯誤，請稍後再試。", ephemeral=True)
+            except Exception:
+                pass
 
     async def _remove(self, interaction: discord.Interaction):
         success, msg = database.remove_character_image(self.current_index)
@@ -772,14 +812,22 @@ class CharacterGalleryView(discord.ui.View):
         self.current_index = min(self.current_index, self.image_count)
         self._build_buttons()
         file = self._make_file()
-        if not file:
-            await interaction.response.edit_message(
-                content=f"🗑️ 已移除圖片。剩餘 {self.image_count} 張。", attachments=[], view=self
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(
+                    content=f"🗑️ 已移除圖片。剩餘 {self.image_count} 張。", attachments=[], view=self
+                )
+                return
+            await interaction.edit_original_response(
+                content=self._content(), attachments=[file], view=self
             )
-            return
-        await interaction.response.edit_message(
-            content=self._content(), attachments=[file], view=self
-        )
+        except Exception as e:
+            print(f"[View] CharacterGalleryView._remove error: {e}")
+            try:
+                await interaction.followup.send("❌ 操作時發生錯誤，請稍後再試。", ephemeral=True)
+            except Exception:
+                pass
 
     async def on_timeout(self):
         for item in self.children:
