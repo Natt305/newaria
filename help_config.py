@@ -70,6 +70,8 @@ ADMIN_HELP_SECTIONS: List[Tuple[str, str]] = [
         "🤖 機器人狀態",
         "`/setstatus <文字> [類型] [狀態]` — 設定機器人自訂狀態\n"
         "`/clearstatus` — 清除自訂狀態，恢復預設\n"
+        "`/setthinking <文字>` — 設定思考泡泡 (Discord「What's on your mind?」)\n"
+        "`/clearthinking` — 清除思考泡泡\n"
         "`/clear` 或 `!clear` — 清除頻道對話歷史",
     ),
     (

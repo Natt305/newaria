@@ -450,6 +450,7 @@ _STATUS_TYPES = {
 }
 
 _custom_status: dict = {}
+_custom_thinking: str = ""
 _suggestions_enabled: bool = True
 _suggestion_prompt: str = ""
 
@@ -544,22 +545,26 @@ async def _extract_and_store_memories(
 
 
 async def _apply_status():
-    """Apply stored custom status, or fall back to the default presence."""
-    if _custom_status:
+    """Apply stored presence. Thinking bubble (CustomActivity) takes priority over
+    the regular activity type; the online/idle/dnd status is always preserved."""
+    # Determine activity: thinking bubble > regular status > default
+    if _custom_thinking:
+        activity = discord.CustomActivity(name=_custom_thinking)
+    elif _custom_status:
         activity = discord.Activity(
             type=_ACTIVITY_TYPES.get(_custom_status.get("activity_type", "listening"), discord.ActivityType.listening),
             name=_custom_status["text"],
         )
-        status = _STATUS_TYPES.get(_custom_status.get("status", "online"), discord.Status.online)
-        await bot.change_presence(activity=activity, status=status)
     else:
         bot_name, _ = load_character()
-        await bot.change_presence(
-            activity=discord.Activity(
-                type=discord.ActivityType.listening,
-                name=f"@{bot_name} mentions",
-            )
+        activity = discord.Activity(
+            type=discord.ActivityType.listening,
+            name=f"@{bot_name} mentions",
         )
+
+    # Determine presence status: use setstatus value if set, else online
+    status = _STATUS_TYPES.get(_custom_status.get("status", "online"), discord.Status.online) if _custom_status else discord.Status.online
+    await bot.change_presence(activity=activity, status=status)
 
 
 async def check_command_role(ctx) -> bool:
@@ -726,6 +731,14 @@ async def on_ready():
     if saved:
         _custom_status.update(saved)
         print(f"[Bot] 已還原自訂狀態: {saved.get('activity_type')} '{saved.get('text')}' ({saved.get('status')})")
+
+    # Restore thinking bubble (custom activity)
+    global _custom_thinking
+    saved_thinking = database.get_setting("custom_thinking") or ""
+    if saved_thinking:
+        _custom_thinking = saved_thinking
+        print(f"[Bot] 已還原思考泡泡: '{_custom_thinking}'")
+
     await _apply_status()
     try:
         synced = await bot.tree.sync()
@@ -1559,6 +1572,37 @@ async def clearstatus_cmd(ctx):
     database.clear_status()
     await _apply_status()
     await ctx.reply("✅ 已清除自訂狀態，恢復為預設顯示。", mention_author=False)
+
+
+@bot.hybrid_command(name="setthinking", description="設定機器人的思考泡泡文字 (Discord「What's on your mind?」)")
+@app_commands.describe(text="要顯示在思考泡泡中的文字")
+async def setthinking_cmd(ctx, *, text: str):
+    """設定思考泡泡: !setthinking <文字>"""
+    if not await check_command_role(ctx):
+        return
+    global _custom_thinking
+    _custom_thinking = text
+    database.set_setting("custom_thinking", text)
+    await _apply_status()
+    embed = discord.Embed(
+        title="💭 思考泡泡已設定",
+        description=f"**{text}**",
+        color=discord.Color.blurple(),
+    )
+    embed.set_footer(text="使用 /clearthinking 可移除思考泡泡")
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.hybrid_command(name="clearthinking", description="清除思考泡泡，恢復為一般狀態顯示")
+async def clearthinking_cmd(ctx):
+    """清除思考泡泡: !clearthinking"""
+    if not await check_command_role(ctx):
+        return
+    global _custom_thinking
+    _custom_thinking = ""
+    database.set_setting("custom_thinking", "")
+    await _apply_status()
+    await ctx.reply("✅ 已清除思考泡泡。", mention_author=False)
 
 
 PERMISSIONS_PAGE_SIZE = 11

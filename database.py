@@ -128,6 +128,8 @@ _DEFAULT_COMMAND_ROLES: Dict[str, Optional[str]] = {
     "clearmemory":           None,
     "setstatus":             "__admin__",
     "clearstatus":           "__admin__",
+    "setthinking":           "__admin__",
+    "clearthinking":         "__admin__",
     "helpsetting":           "__admin__",
     "generate":              None,
     "help":                  None,
