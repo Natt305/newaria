@@ -142,8 +142,12 @@ def add_character_image(img_bytes: bytes, mime: str, description: str = "") -> t
     ext = mime.split("/")[-1] if "/" in mime else "png"
     if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
         ext = "png"
-    ts = int(datetime.utcnow().timestamp() * 1000)
+    import time as _time
+    ts = int(_time.time() * 1000)
     filename = f"char_{ts}.{ext}"
+    while os.path.exists(os.path.join(CHARACTER_IMAGES_DIR, filename)):
+        ts += 1
+        filename = f"char_{ts}.{ext}"
     path = os.path.join(CHARACTER_IMAGES_DIR, filename)
     with open(path, "wb") as f:
         f.write(img_bytes)

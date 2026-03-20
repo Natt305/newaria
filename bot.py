@@ -941,14 +941,15 @@ async def addcharimage_cmd(
     if not await check_command_role(ctx):
         return
 
-    slash_attachments = [
-        a for a in [
-            attachment, attachment2, attachment3, attachment4, attachment5,
-            attachment6, attachment7, attachment8, attachment9, attachment10,
-        ] if a is not None
-    ]
-    msg_attachments = getattr(ctx.message, "attachments", []) or []
-    candidates = slash_attachments if slash_attachments else list(msg_attachments)
+    if ctx.interaction is not None:
+        candidates = [
+            a for a in [
+                attachment, attachment2, attachment3, attachment4, attachment5,
+                attachment6, attachment7, attachment8, attachment9, attachment10,
+            ] if a is not None
+        ]
+    else:
+        candidates = list(getattr(ctx.message, "attachments", None) or [])
 
     if not candidates:
         await ctx.reply("❌ 請附上至少一張圖片。", mention_author=False)
@@ -1163,8 +1164,10 @@ async def saveimage_cmd(
             attachment, attachment2, attachment3, attachment4, attachment5,
         ] if a is not None
     ]
-    msg_attachments = getattr(ctx.message, "attachments", []) or []
-    candidates = slash_attachments if slash_attachments else list(msg_attachments)
+    if ctx.interaction is not None:
+        candidates = slash_attachments
+    else:
+        candidates = list(getattr(ctx.message, "attachments", None) or [])
 
     if not candidates:
         await ctx.reply("請附上至少一張圖像再使用此指令。", mention_author=False)
@@ -1293,12 +1296,13 @@ async def addimage_cmd(
         await ctx.reply(f"❌ 條目 #{entry_id} 是文字條目，只能將圖片新增到圖片條目。", mention_author=False)
         return
 
-    slash_attachments = [
-        a for a in [attachment, attachment2, attachment3, attachment4, attachment5]
-        if a is not None
-    ]
-    msg_attachments = getattr(ctx.message, "attachments", []) or []
-    candidates = slash_attachments if slash_attachments else list(msg_attachments)
+    if ctx.interaction is not None:
+        candidates = [
+            a for a in [attachment, attachment2, attachment3, attachment4, attachment5]
+            if a is not None
+        ]
+    else:
+        candidates = list(getattr(ctx.message, "attachments", None) or [])
 
     if not candidates:
         await ctx.reply("❌ 請附上至少一張圖片。", mention_author=False)
