@@ -17,3 +17,10 @@ google-genai
 groq
 Pillow
 requests
+aiohttp
+discord.py
+google-genai
+groq
+Pillow
+requests
+sift-stack-py
