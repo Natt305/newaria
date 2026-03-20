@@ -646,7 +646,19 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.CommandNotFound):
         pass
     else:
+        import traceback
         print(f"[Bot] Command error in !{ctx.command}: {error}")
+        traceback.print_exc()
+        # For slash command interactions, the interaction MUST receive a response
+        # or Discord shows "This interaction failed". Handle it here if on_app_command_error
+        # hasn't already responded.
+        if ctx.interaction and not ctx.interaction.response.is_done():
+            try:
+                await ctx.interaction.response.send_message(
+                    "❌ 執行指令時發生錯誤，請稍後再試。", ephemeral=True
+                )
+            except Exception as respond_err:
+                print(f"[Bot] Could not send slash error response: {respond_err}")
 
 
 @bot.tree.error
@@ -717,9 +729,17 @@ async def on_ready():
     await _apply_status()
     try:
         synced = await bot.tree.sync()
-        print(f"[Bot] 已同步 {len(synced)} 個斜線指令")
+        print(f"[Bot] 已全域同步 {len(synced)} 個斜線指令")
     except Exception as e:
-        print(f"[Bot] 斜線指令同步失敗: {e}")
+        print(f"[Bot] 全域斜線指令同步失敗: {e}")
+    # Also sync per-guild for instant availability (no propagation delay)
+    for guild in bot.guilds:
+        try:
+            bot.tree.copy_global_to(guild=guild)
+            guild_synced = await bot.tree.sync(guild=guild)
+            print(f"[Bot] 已同步 {len(guild_synced)} 個斜線指令 → {guild.name} ({guild.id})")
+        except Exception as e:
+            print(f"[Bot] 伺服器 {guild.name} 同步失敗: {e}")
 
 
 @bot.event
