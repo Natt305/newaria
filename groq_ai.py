@@ -340,7 +340,7 @@ async def generate_image_comment(
         "Write a short, natural, in-character comment to send alongside the image.\n"
         "Rules:\n"
         "- 1 to 2 sentences maximum, conversational and warm.\n"
-        "- Match the language of the user's request (Chinese if they wrote Chinese, English if English).\n"
+        "- Language rules: your default is Traditional Chinese (繁體中文). Only use another language if the user wrote a complete sentence in that language. If the user wrote in Simplified Chinese, reply in Traditional Chinese.\n"
         "- Do NOT describe what you did technically.\n"
         "- Sound genuinely excited, proud, or playful — stay in character.\n"
         "- Do NOT start with 'Here is', 'Here's', 'I generated', 'I created', '好的' alone, etc.\n"
