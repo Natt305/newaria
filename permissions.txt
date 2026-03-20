@@ -1,0 +1,51 @@
+# ================================================================
+#  少女樂團機器人 — 指令權限設定
+#  每次啟動時自動套用。修改後重新啟動機器人即可生效。
+#
+#  格式:  指令名稱 = 權限
+#
+#  可用值:
+#    admin      → 需要「管理員」或「管理伺服器」Discord 權限 (預設)
+#    everyone   → 所有人皆可使用 (無限制)
+#    角色名稱   → 只有擁有該角色的成員可使用 (例如: Moderator)
+#
+#  以 # 開頭的行為註解，空白行會被忽略。
+#  管理員永遠可以使用所有指令，無論此處如何設定。
+# ================================================================
+
+# ── 角色與知識庫管理 ─────────────────────────────────────────────
+setcharacter           = admin
+character              = admin
+remember               = admin
+forget                 = admin
+setdesc                = admin
+viewentry              = admin
+knowledge              = admin
+saveimage              = admin
+addimage               = admin
+addcharimage           = admin
+
+# ── 對話與記憶 ──────────────────────────────────────────────────
+clear                  = admin
+memory                 = admin
+memorylength           = admin
+passivememory          = admin
+passivememorylength    = admin
+memories               = admin
+clearmemory            = everyone
+
+# ── 建議功能 ────────────────────────────────────────────────────
+suggestions            = admin
+setsuggestionprompt    = admin
+clearsuggestionprompt  = admin
+
+# ── 狀態與外觀 ──────────────────────────────────────────────────
+setstatus              = admin
+clearstatus            = admin
+setthinking            = admin
+clearthinking          = admin
+
+# ── 其他 ────────────────────────────────────────────────────────
+helpsetting            = admin
+generate               = everyone
+help                   = everyone

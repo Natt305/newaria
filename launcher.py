@@ -5,8 +5,7 @@ import os
 import sys
 
 
-def load_tokens_file():
-    base_path = os.path.dirname(os.path.abspath(__file__))
+def load_tokens_file(base_path: str):
     tokens_path = os.path.join(base_path, "tokens.txt")
     if not os.path.exists(tokens_path):
         return
@@ -23,6 +22,50 @@ def load_tokens_file():
                     os.environ[key] = value
 
 
+def load_permissions_file(base_path: str):
+    permissions_path = os.path.join(base_path, "permissions.txt")
+    if not os.path.exists(permissions_path):
+        return
+
+    import database
+
+    known = set(database._DEFAULT_COMMAND_ROLES.keys())
+    applied = 0
+    skipped = []
+
+    with open(permissions_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, raw_value = line.partition("=")
+            key = key.strip().lower()
+            raw_value = raw_value.partition("#")[0].strip()  # strip inline comments
+
+            if not key or not raw_value:
+                continue
+
+            if key not in known:
+                skipped.append(key)
+                continue
+
+            if raw_value.lower() == "admin":
+                role_value = "__admin__"
+            elif raw_value.lower() in ("everyone", "open", "all"):
+                role_value = None
+            else:
+                role_value = raw_value  # treat as a Discord role name
+
+            database.set_command_role(key, role_value)
+            applied += 1
+
+    print(f"[啟動器] permissions.txt 已套用 {applied} 條權限設定。")
+    if skipped:
+        print(f"[啟動器] 忽略未知指令: {', '.join(skipped)}")
+
+
 def main():
     print("=" * 60)
     print("  少女樂團機器人 (AriaBot)")
@@ -30,7 +73,10 @@ def main():
     print("=" * 60)
     print()
 
-    load_tokens_file()
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, base_path)
+
+    load_tokens_file(base_path)
 
     if not os.environ.get("DISCORD_BOT_TOKEN"):
         print("[Error] DISCORD_BOT_TOKEN is not set. Add it to tokens.txt or as a Replit Secret.")
@@ -42,10 +88,9 @@ def main():
     if not os.environ.get("CLOUDFLARE_API_TOKEN") or not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
         print("[Warning] Cloudflare config is incomplete. Image generation will be disabled.")
 
-    print("[啟動器] 啟動機器人...")
+    load_permissions_file(base_path)
 
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    sys.path.insert(0, base_path)
+    print("[啟動器] 啟動機器人...")
 
     import bot
     bot.main()
