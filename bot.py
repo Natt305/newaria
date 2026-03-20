@@ -379,7 +379,13 @@ async def process_chat(
     image_failed = False
     visual_kb_context = ""
     if image_bytes and image_mime:
-        question = user_text if user_text else "Describe this image in detail, including any people, places, or objects."
+        question = user_text if user_text else (
+            "Describe any characters or people in this image, focusing on their permanent physical features: "
+            "face shape, eye shape, iris color, hair color, hair style and length, skin tone, eyebrow shape, "
+            "and any other distinguishing facial traits. "
+            "Mention clothing and accessories only briefly — do not make them the main focus, as characters may wear many different outfits. "
+            "Also describe the overall scene, setting, or objects present."
+        )
         description = await groq_ai.understand_image(image_bytes, image_mime, question)
         if description:
             image_analysis = f"\n\n[Attached image analysis: {description}]"
@@ -1009,7 +1015,10 @@ async def addcharimage_cmd(
 
                 auto_desc = await groq_ai.understand_image(
                     img_bytes, mime,
-                    f"Describe this character's appearance in detail — hair, eyes, clothing, style, expression — as reference for an AI character named {bot_name}.",
+                    f"Describe this character's permanent physical appearance in detail for an AI character reference sheet. "
+                    f"Focus on: iris color and eye shape, hair color, hair style and length, skin tone, face shape, eyebrow shape, and any other distinctive facial features. "
+                    f"Also note body type and height if visible. "
+                    f"Mention clothing only briefly — this character ({bot_name}) has many outfits so garments are not reliable identifiers.",
                 )
                 description = auto_desc or ""
 
@@ -1246,7 +1255,10 @@ async def saveimage_cmd(
                 if not desc:
                     analysed = await groq_ai.understand_image(
                         img_bytes, mime,
-                        "Describe this image in detail for a knowledge base entry.",
+                        "Describe any characters in this image for a knowledge base entry, focusing on permanent physical features: "
+                        "iris color, eye shape, hair color, hair style and length, skin tone, face shape, eyebrow shape, and distinctive facial traits. "
+                        "These are anime/game characters who change outfits frequently, so focus on facial and physical features over clothing. "
+                        "Also briefly describe the scene, background, or other notable elements.",
                     )
                     desc = analysed or ""
                     auto_descs.append(desc)
