@@ -50,20 +50,25 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
     )
     if memory_context:
         prompt += (
-            "\n--- 我的記憶 (Long-term Memory) ---\n"
+            "\n--- Long-term Memory (Things you remember about people) ---\n"
             f"{memory_context}\n"
-            "--- 記憶結束 ---\n"
+            "--- End Memory ---\n"
             "\nThese are things you genuinely remember from past conversations. "
             "Reference them naturally when relevant — don't announce that you're using a memory system, "
             "just speak as if you naturally remember these things about the people you've talked with."
         )
     if kb_context:
         prompt += (
-            "\n--- Available 知識庫 (Your Dynamic Memory) ---\n"
+            "\n--- Your Personal Knowledge (Things you know and have experienced) ---\n"
             f"{kb_context}\n"
-            "--- End 知識庫 ---\n"
-            "\nUse these knowledge base entries naturally in your responses when relevant to the conversation. "
-            "You can reference them, build on them, or ask follow-up questions about them."
+            "--- End Knowledge ---\n"
+            "\nIMPORTANT: These are things YOU personally know, have learned, or have seen — treat them as "
+            "your own genuine knowledge and experience, not as a database you are consulting. "
+            "Speak about them naturally in the first person: say 'I know...', 'I remember seeing...', "
+            "'I have a photo of...', 'I learned that...' etc. "
+            "Do NOT say things like 'according to my knowledge base' or 'I found in my records'. "
+            "For images: if you have seen/saved an image, talk about it as something you remember seeing. "
+            "Proactively bring up relevant things you know when they fit the conversation naturally."
         )
     return prompt
 
@@ -93,40 +98,65 @@ def has_clear_topic(channel_id: str) -> bool:
 
 
 async def build_knowledge_context(channel_id: str, user_query: str = "") -> str:
-    """Build KB context from conversation topic + user query.
-    
-    Searches the knowledge base using the conversation's current topic for
-    dynamic memory pooling. Falls back to the user's immediate query if available.
+    """Build KB context for the system prompt.
+
+    Strategy:
+    - Always load the full KB (up to 30 entries) so the bot genuinely knows
+      everything it has been taught, regardless of what the user is asking about.
+    - Search-relevant entries are marked and placed first so the LLM pays
+      closer attention to them during the current conversation.
+    - Images are always described in full so the bot can refer to them naturally.
     """
-    # Prefer conversation topic (more reliable signal of what's being discussed)
+    all_entries = database.get_all_entries(limit=30)
+    if not all_entries:
+        return ""
+
+    # Find which entries are relevant to the current conversation
     search_topic = get_current_topic(channel_id) if has_clear_topic(channel_id) else ""
-    
-    # Fallback to user's query if no clear conversation topic
     search_query = search_topic or user_query
-    
-    if not search_query:
-        return ""
-    
-    results = database.search_knowledge(search_query, limit=5)
-    if not results:
-        return ""
-    
-    parts = []
-    for entry in results[:4]:
+    relevant_ids: set = set()
+    if search_query:
+        relevant_results = database.search_knowledge(search_query, limit=8)
+        relevant_ids = {r["id"] for r in relevant_results}
+
+    # Build the context string — relevant entries first, then the rest
+    relevant_parts: list[str] = []
+    other_parts: list[str] = []
+
+    for entry in all_entries:
+        is_relevant = entry["id"] in relevant_ids
+
         if entry["entry_type"] == "text":
-            snippet = (entry["content"] or "")[:400]
-            parts.append(f"[{entry['title']}]: {snippet}")
+            content = (entry["content"] or "").strip()
+            snippet = content[:500] + ("..." if len(content) > 500 else "")
+            line = f"[Note — {entry['title']}]: {snippet}"
         elif entry["entry_type"] == "image":
             desc = (entry.get("image_description") or "").strip()
             if desc:
-                parts.append(f"[Image: {entry['title']}]: {desc[:400]}")
+                snippet = desc[:500] + ("..." if len(desc) > 500 else "")
+                line = f"[Image you have seen — {entry['title']}]: {snippet}"
             else:
-                parts.append(f"[Image: {entry['title']}]: (no description stored — the image is saved but its contents are unknown)")
-    
+                line = (
+                    f"[Image you have seen — {entry['title']}]: "
+                    "(you remember saving this image but have no description of it yet — "
+                    f"someone could add one with /setdesc {entry['id']})"
+                )
+        else:
+            continue
+
+        if is_relevant:
+            relevant_parts.append(f"★ {line}")
+        else:
+            other_parts.append(line)
+
+    parts = relevant_parts + other_parts
     if not parts:
         return ""
-    
-    return "\n".join(parts)
+
+    header = ""
+    if relevant_parts:
+        header = f"(★ = especially relevant to the current conversation)\n"
+    return header + "\n".join(parts)
 
 
 async def get_suggestion_topic(channel_id: str) -> str:
