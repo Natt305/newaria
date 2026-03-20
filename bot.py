@@ -207,6 +207,30 @@ async def build_visual_kb_context(image_description: str) -> str:
     return "\n".join(parts)
 
 
+async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
+    """Search KB image entries for keyword matches with the image prompt.
+
+    Appends matching image descriptions to the prompt so generation can
+    reference visual details already stored in the knowledge base.
+    Returns (enriched_prompt, matched_entries).
+    """
+    matches = database.search_kb_images_by_subject(image_prompt, limit=3)
+    ref_parts = []
+    for m in matches:
+        desc = (m.get("image_description") or "").strip()
+        title = m.get("title", "")
+        if desc:
+            ref_parts.append(f"{title}: {desc[:200]}")
+
+    if not ref_parts:
+        return image_prompt, []
+
+    refs_text = "; ".join(ref_parts)
+    enriched = f"{image_prompt}, visual reference — {refs_text}"
+    print(f"[Bot] KB image enrichment: {len(ref_parts)} match(es) applied to prompt")
+    return enriched, matches
+
+
 async def get_suggestion_topic(channel_id: str) -> str:
     if has_clear_topic(channel_id):
         return get_current_topic(channel_id)
@@ -373,15 +397,27 @@ async def process_chat(
         if response_text:
             await send_with_suggestions(response_text, channel_id, reply_target)
 
+        # Enrich prompt with KB image references and generate comment in parallel
+        enriched_prompt, _kb_matches = await _enrich_image_prompt_with_kb(image_prompt)
+
         async with channel.typing():
-            result = await cloudflare_ai.generate_image(image_prompt)
+            result, comment = await asyncio.gather(
+                cloudflare_ai.generate_image(enriched_prompt),
+                groq_ai.generate_image_comment(
+                    image_prompt, bot_name, background, user_text
+                ),
+            )
 
         if result and isinstance(result, tuple) and len(result) == 2:
             img_data, mime_type = result
             if isinstance(img_data, bytes):
                 ext = mime_type.split("/")[-1] if "/" in mime_type else "png"
                 file = discord.File(io.BytesIO(img_data), filename=f"generated.{ext}")
-                await reply_target.reply(file=file, mention_author=False)
+                await reply_target.reply(
+                    content=comment or None,
+                    file=file,
+                    mention_author=False,
+                )
             else:
                 # Error sentinel
                 await reply_target.reply("⚠️ 圖像生成失敗，請稍後再試。", mention_author=False)
@@ -961,7 +997,9 @@ async def generate_cmd(ctx, *, prompt: str):
         return
 
     await ctx.defer()
-    result = await cloudflare_ai.generate_image(prompt)
+
+    enriched_prompt, kb_matches = await _enrich_image_prompt_with_kb(prompt)
+    result = await cloudflare_ai.generate_image(enriched_prompt)
 
     if result == ("API_KEY_ERROR", ""):
         await ctx.send(
@@ -982,6 +1020,10 @@ async def generate_cmd(ctx, *, prompt: str):
             description=f"**提示詞:** {prompt}",
             color=discord.Color.purple(),
         )
+        if kb_matches:
+            ref_titles = ", ".join(m.get("title", "") for m in kb_matches if m.get("title"))
+            if ref_titles:
+                embed.set_footer(text=f"📚 知識庫參考: {ref_titles}")
         view = ui.GenerateView(prompt, img_data, mime_type)
         await ctx.send(embed=embed, file=file, view=view)
     else:

@@ -319,6 +319,48 @@ async def chat(
     return "I'm having trouble connecting to my text AI right now. Please try again in a moment.", None
 
 
+async def generate_image_comment(
+    image_prompt: str,
+    bot_name: str,
+    character_background: str,
+    user_request: str = "",
+) -> str:
+    """Generate a short in-character comment to accompany a generated image.
+
+    Matches the language of the user's request (Chinese or English).
+    Returns a 1–2 sentence comment string, or empty string on failure.
+    """
+    client = _client()
+    if not client:
+        return ""
+
+    system = (
+        f"You are {bot_name}. {character_background}\n"
+        "The user just asked you to generate an image and you have done so.\n"
+        "Write a short, natural, in-character comment to send alongside the image.\n"
+        "Rules:\n"
+        "- 1 to 2 sentences maximum, conversational and warm.\n"
+        "- Match the language of the user's request (Chinese if they wrote Chinese, English if English).\n"
+        "- Do NOT describe what you did technically.\n"
+        "- Sound genuinely excited, proud, or playful — stay in character.\n"
+        "- Do NOT start with 'Here is', 'Here's', 'I generated', 'I created', '好的' alone, etc.\n"
+        "- React naturally to the image as if you just painted or drew it yourself.\n"
+    )
+
+    context = f"User request: {user_request}\n" if user_request else ""
+    msg = f"{context}Image created based on: {image_prompt[:200]}"
+
+    messages = [{"role": "user", "content": msg}]
+    try:
+        text, _ = await chat(messages, system_prompt=system, model=DEFAULT_MODEL)
+        if text and len(text.strip()) > 2:
+            return text.strip()
+    except Exception as e:
+        print(f"[Groq] Image comment generation failed: {e}")
+
+    return ""
+
+
 async def generate_suggestions(
     topic: str,
     bot_name: str,
