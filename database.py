@@ -334,6 +334,46 @@ def add_image_entry(title: str, image_bytes: bytes, mime_type: str, description:
     return entry_id
 
 
+def search_kb_images_by_subject(description: str, limit: int = 6) -> List[Dict[str, Any]]:
+    """Search only image entries whose stored description matches keywords from `description`.
+
+    Used when a user sends an image — the vision description of the uploaded image
+    is used to find KB images that share the same subjects (people, places, objects).
+    Returns only entries that have a non-empty image_description.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+
+    words = [w.strip() for w in description.split() if len(w.strip()) > 2][:15]
+    if not words:
+        conn.close()
+        return []
+
+    conditions = []
+    params: List = []
+    for word in words:
+        q = f"%{word.lower()}%"
+        conditions.append(
+            "(LOWER(title) LIKE ? OR LOWER(image_description) LIKE ? OR LOWER(tags) LIKE ?)"
+        )
+        params.extend([q, q, q])
+    params.append(limit)
+
+    c.execute(f"""
+        SELECT id, title, image_description, tags, created_at
+        FROM knowledge_entries
+        WHERE entry_type = 'image'
+          AND image_description IS NOT NULL
+          AND image_description != ''
+          AND ({" OR ".join(conditions)})
+        ORDER BY updated_at DESC
+        LIMIT ?
+    """, params)
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def search_knowledge(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     conn = get_connection()
     c = conn.cursor()

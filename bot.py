@@ -33,7 +33,7 @@ def load_character() -> tuple[str, str]:
     return char["name"], char["background"]
 
 
-def build_system_prompt(name: str, background: str, kb_context: str = "", memory_context: str = "") -> str:
+def build_system_prompt(name: str, background: str, kb_context: str = "", memory_context: str = "", visual_kb_context: str = "") -> str:
     prompt = (
         f"You are {name}. {background}\n\n"
         "Guidelines:\n"
@@ -69,6 +69,19 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
             "Do NOT say things like 'according to my knowledge base' or 'I found in my records'. "
             "For images: if you have seen/saved an image, talk about it as something you remember seeing. "
             "Proactively bring up relevant things you know when they fit the conversation naturally."
+        )
+    if visual_kb_context:
+        prompt += (
+            "\n--- Images You Remember That Match What Was Just Shown ---\n"
+            f"{visual_kb_context}\n"
+            "--- End Visual Matches ---\n"
+            "\nThe user has just sent you an image. You have previously seen and saved images "
+            "that appear to contain the same or similar subjects (same person, place, or object). "
+            "Use your memory of those images to inform your response — speak as if you recognize "
+            "what or who is in the image from having seen them before. "
+            "Say things like 'Oh, I recognize this — this looks like [name/subject] from the photo I saved!' "
+            "or 'I've seen this person before, I remember they...' etc. "
+            "Be natural and warm, not robotic."
         )
     return prompt
 
@@ -157,6 +170,35 @@ async def build_knowledge_context(channel_id: str, user_query: str = "") -> str:
     if relevant_parts:
         header = f"(★ = especially relevant to the current conversation)\n"
     return header + "\n".join(parts)
+
+
+async def build_visual_kb_context(image_description: str) -> str:
+    """Search KB image entries for subjects that match an uploaded image.
+
+    Takes the vision AI's description of a user-uploaded image, extracts key
+    subjects, and finds previously-saved KB images that contain the same people,
+    places, or objects.  Returns a formatted string to inject into the system
+    prompt so the bot can speak as if it recognises what it is looking at.
+    """
+    if not image_description:
+        return ""
+
+    matches = database.search_kb_images_by_subject(image_description, limit=5)
+    if not matches:
+        return ""
+
+    parts: list[str] = []
+    for m in matches:
+        desc = (m.get("image_description") or "").strip()
+        title = m.get("title", "Untitled")
+        if desc:
+            snippet = desc[:500] + ("..." if len(desc) > 500 else "")
+            parts.append(f"• {title}: {snippet}")
+
+    if not parts:
+        return ""
+
+    return "\n".join(parts)
 
 
 async def get_suggestion_topic(channel_id: str) -> str:
@@ -253,11 +295,16 @@ async def process_chat(
 
     image_analysis = ""
     image_failed = False
+    visual_kb_context = ""
     if image_bytes and image_mime:
-        question = user_text if user_text else "Describe this image in detail."
+        question = user_text if user_text else "Describe this image in detail, including any people, places, or objects."
         description = await groq_ai.understand_image(image_bytes, image_mime, question)
         if description:
             image_analysis = f"\n\n[Attached image analysis: {description}]"
+            # Search KB for previously-saved images that share the same subjects
+            visual_kb_context = await build_visual_kb_context(description)
+            if visual_kb_context:
+                print(f"[Bot] Visual KB match found for uploaded image — injecting {len(visual_kb_context)} chars of context")
         else:
             image_failed = True
 
@@ -291,9 +338,12 @@ async def process_chat(
         user_text or "[Image]", "user",
     )
 
-    # Build system prompt with memory + KB context
+    # Build system prompt with memory + KB context + visual KB matches
     system_prompt = build_system_prompt(
-        bot_name, background, kb_context=kb_context, memory_context=memory_context
+        bot_name, background,
+        kb_context=kb_context,
+        memory_context=memory_context,
+        visual_kb_context=visual_kb_context,
     )
     history = get_channel_context(channel_id)
 
