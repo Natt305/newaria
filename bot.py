@@ -967,10 +967,6 @@ async def addcharimage_cmd(
         new_count = database.get_character_image_count()
         embed = discord.Embed(title="✅ 角色外貌圖片已新增", color=discord.Color.gold())
         embed.add_field(name="🖼️ 圖片數量", value=f"{new_count} / {database.MAX_CHARACTER_IMAGES}", inline=True)
-        if description:
-            embed.add_field(name="📄 自動分析描述", value=description[:500] + ("..." if len(description) > 500 else ""), inline=False)
-        else:
-            embed.add_field(name="⚠️ 描述", value="視覺分析無法識別此圖像，機器人對此圖外貌的理解有限。", inline=False)
         embed.set_footer(text="使用 /character 查看角色設定與外貌圖庫。")
         await ctx.send(embed=embed)
     else:
