@@ -11,3 +11,9 @@ groq
 Pillow
 requests
 sift-stack-py
+aiohttp
+discord.py
+google-genai
+groq
+Pillow
+requests
