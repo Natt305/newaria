@@ -1131,7 +1131,9 @@ async def knowledge_cmd(ctx, *, query: str = ""):
     await ctx.reply(embed=embed, view=view, mention_author=False)
 
 
-@bot.hybrid_command(name="saveimage", description="保存圖像到知識庫，可批量上傳 (斜線指令請使用 attachment 參數)")
+MAX_SAVEIMAGE_BATCH = 5
+
+@bot.hybrid_command(name="saveimage", description="保存圖像到知識庫，可批量上傳最多 5 張 (斜線指令請使用 attachment 參數)")
 @app_commands.describe(
     title="條目標題 (多張圖片時自動編號)",
     attachment="圖片 1",
@@ -1139,11 +1141,6 @@ async def knowledge_cmd(ctx, *, query: str = ""):
     attachment3="圖片 3",
     attachment4="圖片 4",
     attachment5="圖片 5",
-    attachment6="圖片 6",
-    attachment7="圖片 7",
-    attachment8="圖片 8",
-    attachment9="圖片 9",
-    attachment10="圖片 10",
     description="圖像描述 (可選，留空自動生成；批量時套用於所有圖片)",
 )
 async def saveimage_cmd(
@@ -1154,22 +1151,16 @@ async def saveimage_cmd(
     attachment3: Optional[discord.Attachment] = None,
     attachment4: Optional[discord.Attachment] = None,
     attachment5: Optional[discord.Attachment] = None,
-    attachment6: Optional[discord.Attachment] = None,
-    attachment7: Optional[discord.Attachment] = None,
-    attachment8: Optional[discord.Attachment] = None,
-    attachment9: Optional[discord.Attachment] = None,
-    attachment10: Optional[discord.Attachment] = None,
     *,
     description: str = "",
 ):
-    """保存圖像到知識庫 (批量): !saveimage "標題" [描述]  (prefix: attach images; slash: use attachment params)"""
+    """保存圖像到知識庫 (批量最多 5 張): !saveimage "標題" [描述]  (prefix: attach images; slash: use attachment params)"""
     if not await check_command_role(ctx):
         return
 
     slash_attachments = [
         a for a in [
             attachment, attachment2, attachment3, attachment4, attachment5,
-            attachment6, attachment7, attachment8, attachment9, attachment10,
         ] if a is not None
     ]
     msg_attachments = getattr(ctx.message, "attachments", []) or []
@@ -1184,6 +1175,9 @@ async def saveimage_cmd(
     if not valid_candidates:
         await ctx.reply("請附上有效的圖像格式 (PNG、JPG、GIF 或 WebP)。", mention_author=False)
         return
+
+    skipped_over_limit = max(0, len(valid_candidates) - MAX_SAVEIMAGE_BATCH)
+    valid_candidates = valid_candidates[:MAX_SAVEIMAGE_BATCH]
 
     await ctx.defer()
 
@@ -1239,6 +1233,12 @@ async def saveimage_cmd(
         embed.add_field(name=desc_label, value=desc_value, inline=False)
         if failed:
             embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
+        if skipped_over_limit > 0:
+            embed.add_field(
+                name="⏭️ 已略過 (超過上限)",
+                value=f"{skipped_over_limit} 張 (每次最多 {MAX_SAVEIMAGE_BATCH} 張)",
+                inline=False,
+            )
         view = ui.SaveImageView(entry_id, entry_title)
         await ctx.send(embed=embed, view=view)
     else:
@@ -1253,6 +1253,12 @@ async def saveimage_cmd(
             embed.add_field(name="🆔 條目編號", value=ids_str[:500], inline=False)
         if failed:
             embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
+        if skipped_over_limit > 0:
+            embed.add_field(
+                name="⏭️ 已略過 (超過上限)",
+                value=f"{skipped_over_limit} 張 (每次最多 {MAX_SAVEIMAGE_BATCH} 張)",
+                inline=False,
+            )
         embed.set_footer(text="使用 /viewentry 查看各條目詳情。")
         await ctx.send(embed=embed)
 
