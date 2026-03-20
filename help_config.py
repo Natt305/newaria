@@ -19,23 +19,12 @@ USER_HELP_SECTIONS: List[Tuple[str, str]] = [
         "例如: `/generate 夕陽下的貓咪在草原上`",
     ),
     (
-        "🧠 長期記憶",
-        "`/memories` — 分頁瀏覽所有與你相關的記憶\n"
-        "`/clearmemory` — 清除你自己的記憶 (需二次確認)",
-    ),
-    (
-        "🎭 角色資料",
-        "`/character` 或 `!character` — 查看機器人目前的角色設定、背景故事與外貌參考圖",
-    ),
-    (
-        "📚 知識庫瀏覽",
-        "`/knowledge [查詢]` 或 `!knowledge [查詢]` — 搜尋或分頁瀏覽所有知識庫條目\n"
-        "`/viewentry [id]` 或 `!viewentry [id]` — 查看特定條目的完整內容與圖片",
+        "🧠 清除記憶",
+        "`/clearmemory` — 清除你自己的長期記憶 (需二次確認)",
     ),
     (
         "ℹ️ 說明",
-        "`/help` 或 `!help` — 顯示此說明頁面\n"
-        "`/helpsetting` 或 `!helpsetting` — 顯示管理員設定說明 (需管理員或指定角色)",
+        "`/help` 或 `!help` — 顯示此說明頁面",
     ),
 ]
 
