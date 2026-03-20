@@ -912,17 +912,12 @@ async def character_cmd(ctx):
 
 
 @bot.hybrid_command(name="addcharimage", description="新增外貌參考圖片到角色設定 (最多 10 張)")
-@app_commands.describe(
-    attachment="要新增的圖片 (斜線指令專用)",
-    description="外貌描述 (可選，留空則自動分析圖片)",
-)
+@app_commands.describe(attachment="要新增的圖片 (斜線指令專用)")
 async def addcharimage_cmd(
     ctx,
     attachment: Optional[discord.Attachment] = None,
-    *,
-    description: str = "",
 ):
-    """新增角色外貌參考圖: !addcharimage [描述] (prefix: 附上圖片; slash: 使用 attachment 參數)"""
+    """新增角色外貌參考圖: !addcharimage (prefix: 附上圖片; slash: 使用 attachment 參數)"""
     if not await check_command_role(ctx):
         return
 
@@ -960,14 +955,12 @@ async def addcharimage_cmd(
     elif fname.endswith(".webp"):
         mime = "image/webp"
 
-    auto_generated = not description.strip()
-    if auto_generated:
-        bot_name, _ = load_character()
-        auto_desc = await groq_ai.understand_image(
-            img_bytes, mime,
-            f"Describe this character's appearance in detail — hair, eyes, clothing, style, expression — as reference for an AI character named {bot_name}.",
-        )
-        description = auto_desc or ""
+    bot_name, _ = load_character()
+    auto_desc = await groq_ai.understand_image(
+        img_bytes, mime,
+        f"Describe this character's appearance in detail — hair, eyes, clothing, style, expression — as reference for an AI character named {bot_name}.",
+    )
+    description = auto_desc or ""
 
     success, msg = database.add_character_image(img_bytes, mime, description)
     if success:
@@ -975,8 +968,7 @@ async def addcharimage_cmd(
         embed = discord.Embed(title="✅ 角色外貌圖片已新增", color=discord.Color.gold())
         embed.add_field(name="🖼️ 圖片數量", value=f"{new_count} / {database.MAX_CHARACTER_IMAGES}", inline=True)
         if description:
-            desc_label = "📄 自動分析描述" if auto_generated else "📄 描述"
-            embed.add_field(name=desc_label, value=description[:500] + ("..." if len(description) > 500 else ""), inline=False)
+            embed.add_field(name="📄 自動分析描述", value=description[:500] + ("..." if len(description) > 500 else ""), inline=False)
         else:
             embed.add_field(name="⚠️ 描述", value="視覺分析無法識別此圖像，機器人對此圖外貌的理解有限。", inline=False)
         embed.set_footer(text="使用 /character 查看角色設定與外貌圖庫。")
