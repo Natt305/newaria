@@ -18,6 +18,12 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 def _cf_ready():
     return bool(os.environ.get("CLOUDFLARE_API_TOKEN") and os.environ.get("CLOUDFLARE_ACCOUNT_ID"))
 
+
+def _make_progress_bar(success: int, failed: int, total: int) -> str:
+    done = success + failed
+    bar = "🟩" * success + "🟥" * failed + "⬛" * (total - done)
+    return f"{bar}  `{done}/{total}`"
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -978,6 +984,13 @@ async def addcharimage_cmd(
 
     bot_name, _ = load_character()
     added, failed = [], []
+    total = len(to_process)
+
+    progress_msg = None
+    if total > 1:
+        progress_msg = await ctx.send(
+            f"📤 正在處理 **{total}** 張角色圖片⋯\n{_make_progress_bar(0, 0, total)}"
+        )
 
     async with aiohttp.ClientSession() as session:
         for att in to_process:
@@ -1007,6 +1020,22 @@ async def addcharimage_cmd(
                     failed.append(f"{att.filename} ({msg})")
             except Exception as e:
                 failed.append(f"{att.filename} ({e})")
+
+            if progress_msg:
+                done = len(added) + len(failed)
+                label = "✅ 完成！" if done == total else f"正在處理 **{total}** 張角色圖片⋯"
+                try:
+                    await progress_msg.edit(
+                        content=f"📤 {label}\n{_make_progress_bar(len(added), len(failed), total)}"
+                    )
+                except Exception:
+                    pass
+
+    if progress_msg:
+        try:
+            await progress_msg.delete()
+        except Exception:
+            pass
 
     new_count = database.get_character_image_count()
     embed = discord.Embed(
@@ -1187,6 +1216,13 @@ async def saveimage_cmd(
     user_desc = description
     added_entries = []
     failed = []
+    total = len(valid_candidates)
+
+    progress_msg = None
+    if total > 1:
+        progress_msg = await ctx.send(
+            f"📤 正在處理 **{total}** 張圖片⋯\n{_make_progress_bar(0, 0, total)}"
+        )
 
     async with aiohttp.ClientSession() as session:
         for i, att in enumerate(valid_candidates):
@@ -1218,6 +1254,22 @@ async def saveimage_cmd(
                 added_entries.append((entry_id, entry_title, desc, auto_generated))
             except Exception as e:
                 failed.append(f"{att.filename} ({e})")
+
+            if progress_msg:
+                done = len(added_entries) + len(failed)
+                label = "✅ 完成！" if done == total else f"正在處理 **{total}** 張圖片⋯"
+                try:
+                    await progress_msg.edit(
+                        content=f"📤 {label}\n{_make_progress_bar(len(added_entries), len(failed), total)}"
+                    )
+                except Exception:
+                    pass
+
+    if progress_msg:
+        try:
+            await progress_msg.delete()
+        except Exception:
+            pass
 
     if len(added_entries) == 1:
         entry_id, entry_title, desc, auto_generated = added_entries[0]
@@ -1330,6 +1382,13 @@ async def addimage_cmd(
     await ctx.defer()
 
     added, failed = [], []
+    total = len(to_process)
+
+    progress_msg = None
+    if total > 1:
+        progress_msg = await ctx.send(
+            f"📤 正在處理 **{total}** 張圖片⋯\n{_make_progress_bar(0, 0, total)}"
+        )
 
     async with aiohttp.ClientSession() as session:
         for att in to_process:
@@ -1352,6 +1411,22 @@ async def addimage_cmd(
                     failed.append(f"{att.filename} ({msg})")
             except Exception as e:
                 failed.append(f"{att.filename} ({e})")
+
+            if progress_msg:
+                done = len(added) + len(failed)
+                label = "✅ 完成！" if done == total else f"正在處理 **{total}** 張圖片⋯"
+                try:
+                    await progress_msg.edit(
+                        content=f"📤 {label}\n{_make_progress_bar(len(added), len(failed), total)}"
+                    )
+                except Exception:
+                    pass
+
+    if progress_msg:
+        try:
+            await progress_msg.delete()
+        except Exception:
+            pass
 
     new_count = database.get_entry_image_count(entry_id)
     embed = discord.Embed(
