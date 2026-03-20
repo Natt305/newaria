@@ -14,70 +14,92 @@ from typing import List, Tuple
 USER_HELP_SECTIONS: List[Tuple[str, str]] = [
     (
         "🎨 圖像生成",
-        "`/generate` 或 `!generate <提示詞>` — 直接生成圖像\n"
-        "例如: `/generate 一隻在森林裡的貓`",
+        "`/generate <提示詞>` 或 `!generate <提示詞>`\n"
+        "使用 Cloudflare Flux AI 直接生成圖像。\n"
+        "例如: `/generate 夕陽下的貓咪在草原上`",
     ),
     (
         "🧠 長期記憶",
-        "`/memories` — 檢視所有儲存的記憶 (分頁顯示)\n"
-        "`/clearmemory` — 清除自己的記憶 (需確認，所有人可用)",
+        "`/memories` — 分頁瀏覽所有與你相關的記憶\n"
+        "`/clearmemory` — 清除你自己的記憶 (需二次確認)",
     ),
     (
-        "🎭 角色 & 知識庫",
-        "`/character` 或 `!character` — 檢視目前角色\n"
-        "`/knowledge` 或 `!knowledge [查詢]` — 搜尋/列出知識庫條目\n"
-        "`/viewentry` 或 `!viewentry [id]` — 檢視/管理知識庫條目",
+        "🎭 角色資料",
+        "`/character` 或 `!character` — 查看機器人目前的角色設定、背景故事與外貌參考圖",
+    ),
+    (
+        "📚 知識庫瀏覽",
+        "`/knowledge [查詢]` 或 `!knowledge [查詢]` — 搜尋或分頁瀏覽所有知識庫條目\n"
+        "`/viewentry [id]` 或 `!viewentry [id]` — 查看特定條目的完整內容與圖片",
     ),
     (
         "ℹ️ 說明",
-        "`/help` 或 `!help` — 顯示此說明",
+        "`/help` 或 `!help` — 顯示此說明頁面\n"
+        "`/helpsetting` 或 `!helpsetting` — 顯示管理員設定說明 (需管理員或指定角色)",
     ),
 ]
 
 ADMIN_HELP_SECTIONS: List[Tuple[str, str]] = [
     (
         "🎭 角色設定",
-        '`/setcharacter` 或 `!setcharacter "名稱" <背景>` — 設定角色名稱與背景\n'
-        "`/character` 或 `!character` — 檢視目前角色",
+        '`/setcharacter "名稱" <背景>` 或 `!setcharacter "名稱" <背景>`\n'
+        "　設定角色名稱與背景故事。\n"
+        "`/character` 或 `!character`\n"
+        "　查看目前角色設定；可在圖庫中新增/移除外貌圖。\n"
+        "`/addcharimage [attachment 1–10]` 或 `!addcharimage (附上圖片)`\n"
+        "　批量新增角色外貌參考圖，最多 10 張；AI 自動分析外貌並生成描述。",
     ),
     (
-        "📚 知識庫",
-        '`/remember` 或 `!remember "標題" 內容` — 保存文字\n'
-        '`/saveimage` 或 `!saveimage "標題" [描述]` — 保存圖像\n'
-        "`/setdesc` 或 `!setdesc <id> <描述>` — 更新圖像條目描述\n"
-        "`/viewentry` 或 `!viewentry [id]` — 檢視/管理條目\n"
-        "`/knowledge` 或 `!knowledge [查詢]` — 搜尋/列出條目\n"
-        "`/forget` 或 `!forget <id>` — 刪除條目",
+        "📚 知識庫 — 文字",
+        '`/remember "標題" <內容>` 或 `!remember "標題" <內容>`\n'
+        "　將文字資料存入知識庫，供機器人對話時參考。\n"
+        "`/forget <id>` 或 `!forget <id>`\n"
+        "　刪除指定條目 (需二次確認)。\n"
+        "`/viewentry [id]` 或 `!viewentry [id]`\n"
+        "　查看條目詳情；不填 id 則開啟互動式管理器。\n"
+        "`/knowledge [查詢]` 或 `!knowledge [查詢]`\n"
+        "　搜尋或分頁瀏覽所有條目。",
+    ),
+    (
+        "🖼️ 知識庫 — 圖像",
+        '`/saveimage "標題" [描述] [attachment 1–5]` 或 `!saveimage "標題" [描述]` (附上圖片)\n'
+        "　批量新增圖像條目，最多 5 張；未填描述時 AI 自動分析。\n"
+        "`/addimage <id> [attachment 1–5]` 或 `!addimage <id>` (附上圖片)\n"
+        "　將最多 5 張圖片追加到現有圖像條目。\n"
+        "`/setdesc <id> <描述>` 或 `!setdesc <id> <描述>`\n"
+        "　手動修改圖像條目的描述文字。",
     ),
     (
         "🧠 長期記憶",
-        "`/memory` — 開啟或關閉主動記憶 (每次對話自動注入)\n"
-        "`/memorylength <數字>` — 設定每次注入的記憶條數 (預設 20)\n"
-        "`/passivememory` — 開啟或關閉被動記憶 (詢問時搜索深層記憶)\n"
-        "`/passivememorylength <數字>` — 設定深層記憶搜索條數 (預設 50)\n"
-        "`/memories` — 檢視所有儲存的記憶 (分頁顯示)\n"
-        "`/clearmemory` — 清除自己的記憶 (所有人可用)\n"
+        "`/memory` — 開啟或關閉主動記憶 (每次對話自動注入最近記憶)\n"
+        "`/memorylength <數字>` — 設定主動記憶注入條數 (預設 20)\n"
+        "`/passivememory` — 開啟或關閉被動記憶 (用戶詢問時搜索深層記憶庫)\n"
+        "`/passivememorylength <數字>` — 設定深層搜索條數 (預設 50)\n"
+        "`/memories` — 分頁瀏覽所有記憶\n"
+        "`/clearmemory` — 清除自己的記憶\n"
         "`/clearmemory @用戶` — 清除指定用戶的記憶 (需管理員)\n"
         "`/clearmemory all:True` — 清除所有人的記憶 (需管理員)",
     ),
     (
         "💬 建議按鈕",
-        "`/suggestions` — 開啟或關閉建議按鈕\n"
-        "`/setsuggestionprompt <提示詞>` — 自訂建議生成提示詞\n"
+        "`/suggestions` — 開啟或關閉回覆下方的建議按鈕\n"
+        "`/setsuggestionprompt <提示詞>` — 自訂建議生成提示詞 (覆蓋預設)\n"
         "`/clearsuggestionprompt` — 恢復預設建議提示詞",
     ),
     (
         "🤖 機器人狀態",
-        "`/setstatus <文字> [類型] [狀態]` — 設定機器人自訂狀態\n"
+        "`/setstatus <文字> [類型] [狀態]` — 設定機器人的自訂 Discord 狀態\n"
+        "　類型: `playing` / `watching` / `listening` / `streaming`\n"
+        "　狀態: `online` / `idle` / `dnd`\n"
         "`/clearstatus` — 清除自訂狀態，恢復預設\n"
         "`/setthinking <文字>` — 設定思考泡泡 (Discord「What's on your mind?」)\n"
         "`/clearthinking` — 清除思考泡泡\n"
-        "`/clear` 或 `!clear` — 清除頻道對話歷史",
+        "`/clear` 或 `!clear` — 清除此頻道的對話歷史記錄",
     ),
     (
         "🔑 權限管理 (需管理員)",
-        "`/permissions` — 檢視所有指令的目前權限設定\n"
-        "`/setrole <指令> <@角色>` — 將指令開放給指定角色\n"
-        "`/clearrole <指令>` — 移除指令的角色限制，開放給所有人",
+        "`/permissions` — 分頁檢視所有指令的目前權限設定\n"
+        "`/setrole <指令> <@角色>` — 將指定指令的使用權開放給某個角色\n"
+        "`/clearrole <指令>` — 移除指令的角色限制，恢復為所有人可用",
     ),
 ]
