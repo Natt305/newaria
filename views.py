@@ -12,6 +12,31 @@ import groq_ai
 PAGE_SIZE = 5
 
 
+def _has_saveimage_permission(interaction: discord.Interaction) -> bool:
+    """Return True if the interaction user may save to the knowledge base."""
+    gate = database.get_command_roles().get("saveimage")
+    member = interaction.user
+
+    # No gate set — open to everyone
+    if gate is None:
+        return True
+
+    # Must be in a guild with a real Member object to check roles/perms
+    if not interaction.guild or not isinstance(member, discord.Member):
+        return False
+
+    # Server admins and Manage Guild always bypass
+    if member.guild_permissions.administrator or member.guild_permissions.manage_guild:
+        return True
+
+    # Admin-only gate — already failed above
+    if gate == "__admin__":
+        return False
+
+    # Role name gate — check if user has the role (case-insensitive)
+    return any(r.name.lower() == gate.lower() for r in member.roles)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Modals
 # ─────────────────────────────────────────────────────────────────────────────
@@ -906,6 +931,11 @@ class GenerateView(discord.ui.View):
 
     @discord.ui.button(label="保存到知識庫", style=discord.ButtonStyle.success, emoji="💾")
     async def save_to_kb(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not _has_saveimage_permission(interaction):
+            await interaction.response.send_message(
+                "🔒 你沒有權限將圖像保存到知識庫。", ephemeral=True
+            )
+            return
         modal = SaveGeneratedModal(self.prompt, self.img_bytes, self.mime_type)
         await interaction.response.send_modal(modal)
 
@@ -932,6 +962,11 @@ class SaveGeneratedModal(discord.ui.Modal, title="保存生成的圖像"):
         self.title_input.default = prompt[:100]
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not _has_saveimage_permission(interaction):
+            await interaction.response.send_message(
+                "🔒 你沒有權限將圖像保存到知識庫。", ephemeral=True
+            )
+            return
         await interaction.response.defer(thinking=True)
         title = str(self.title_input)
         desc = str(self.description_input).strip()
