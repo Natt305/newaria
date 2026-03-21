@@ -184,7 +184,19 @@ class 確認刪除View(discord.ui.View):
 # Entry View  (!viewentry)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_entry_embed(entry: dict) -> discord.Embed:
+_CONTENT_PAGE_SIZE = 1024
+
+
+def _content_chunks(entry: dict) -> list:
+    """Split entry content/description into 1024-char pages for pagination."""
+    if entry["entry_type"] == "image":
+        text = entry.get("image_description") or "No description set."
+    else:
+        text = entry.get("content") or "No content."
+    return [text[i:i + _CONTENT_PAGE_SIZE] for i in range(0, max(1, len(text)), _CONTENT_PAGE_SIZE)]
+
+
+def _build_entry_embed(entry: dict, content_page: int = 0) -> discord.Embed:
     icon = "🖼️" if entry["entry_type"] == "image" else "📝"
     color = discord.Color.teal() if entry["entry_type"] == "image" else discord.Color.blue()
     embed = discord.Embed(
@@ -195,27 +207,25 @@ def _build_entry_embed(entry: dict) -> discord.Embed:
     embed.add_field(name="Created", value=entry["created_at"][:10], inline=True)
     if entry.get("tags"):
         embed.add_field(name="🏷️ Tags", value=entry["tags"], inline=True)
-    if entry["entry_type"] == "image":
-        desc = entry.get("image_description") or "No description set."
-        for i, chunk in enumerate([desc[j:j+1024] for j in range(0, min(len(desc), 2048), 1024)]):
-            embed.add_field(
-                name="📄 Description" if i == 0 else "📄 Description (cont.)",
-                value=chunk,
-                inline=False,
-            )
-    else:
-        content = entry.get("content") or "No content."
-        for i, chunk in enumerate([content[j:j+1024] for j in range(0, min(len(content), 2048), 1024)]):
-            embed.add_field(
-                name="📄 Content" if i == 0 else "📄 Content (cont.)",
-                value=chunk,
-                inline=False,
-            )
+
+    chunks = _content_chunks(entry)
+    total = len(chunks)
+    page = max(0, min(content_page, total - 1))
+
+    field_name = "📄 Description" if entry["entry_type"] == "image" else "📄 Content"
+    if total > 1:
+        field_name += f"　第 {page + 1} / {total} 頁"
+
+    embed.add_field(name=field_name, value=chunks[page], inline=False)
     return embed
 
 
 class EntryView(discord.ui.View):
-    """Shown by !viewentry — edit or delete the entry."""
+    """Shown by !viewentry — edit or delete the entry.
+
+    When the content/description exceeds 1024 characters, ◀ / ▶ buttons are
+    added so the user can page through it without leaving the view.
+    """
 
     def __init__(self, entry: dict, parent_kb_view=None):
         super().__init__(timeout=120)
@@ -224,23 +234,80 @@ class EntryView(discord.ui.View):
         self.entry_title = entry["title"]
         self.entry_type = entry["entry_type"]
         self.parent_kb_view = parent_kb_view
+        self.content_page = 0
+        self.content_total = len(_content_chunks(entry))
+        self._build_buttons()
 
+    # ── embed ─────────────────────────────────────────────────────────────────
+
+    def _get_embed(self) -> discord.Embed:
+        return _build_entry_embed(self.entry, self.content_page)
+
+    # ── button layout ─────────────────────────────────────────────────────────
+
+    def _build_buttons(self):
+        self.clear_items()
+
+        # Row 0: content pagination (only shown when content > 1 page)
+        if self.content_total > 1:
+            prev_btn = discord.ui.Button(
+                emoji="◀️", label="上一頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=self.content_page == 0, row=0,
+            )
+            prev_btn.callback = self._prev_page
+
+            counter_btn = discord.ui.Button(
+                label=f"第 {self.content_page + 1} / {self.content_total} 頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=True, row=0,
+            )
+
+            next_btn = discord.ui.Button(
+                emoji="▶️", label="下一頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=self.content_page >= self.content_total - 1, row=0,
+            )
+            next_btn.callback = self._next_page
+
+            self.add_item(prev_btn)
+            self.add_item(counter_btn)
+            self.add_item(next_btn)
+
+        # Row 1: action buttons
+        action_row = 1 if self.content_total > 1 else 0
         if self.entry_type == "image":
-            self.add_item(self._make_view_image_btn())
-            self.add_item(self._make_edit_desc_btn())
+            view_btn = self._make_view_image_btn(row=action_row)
+            edit_btn = self._make_edit_desc_btn(row=action_row)
+            self.add_item(view_btn)
+            self.add_item(edit_btn)
         else:
-            self.add_item(self._make_edit_text_btn())
-        self.add_item(self._make_delete_btn())
+            self.add_item(self._make_edit_text_btn(row=action_row))
+        self.add_item(self._make_delete_btn(row=action_row))
 
-        if parent_kb_view is not None:
+        # Row 2: back button (optional)
+        if self.parent_kb_view is not None:
+            back_row = action_row + 1
             back_btn = discord.ui.Button(
                 label="← 返回列表",
                 style=discord.ButtonStyle.secondary,
                 emoji="📋",
-                row=1,
+                row=back_row,
             )
             back_btn.callback = self._back
             self.add_item(back_btn)
+
+    # ── navigation callbacks ──────────────────────────────────────────────────
+
+    async def _prev_page(self, interaction: discord.Interaction):
+        self.content_page = max(0, self.content_page - 1)
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
+
+    async def _next_page(self, interaction: discord.Interaction):
+        self.content_page = min(self.content_total - 1, self.content_page + 1)
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
 
     async def _back(self, interaction: discord.Interaction):
         if self.parent_kb_view is None:
@@ -253,11 +320,12 @@ class EntryView(discord.ui.View):
             view=self.parent_kb_view,
         )
 
-    def _make_view_image_btn(self):
+    def _make_view_image_btn(self, row: int = 0):
         btn = discord.ui.Button(
             label="查看圖片",
             style=discord.ButtonStyle.secondary,
             emoji="🖼️",
+            row=row,
         )
 
         entry_id = self.entry_id
@@ -301,11 +369,12 @@ class EntryView(discord.ui.View):
         btn.callback = callback
         return btn
 
-    def _make_edit_desc_btn(self):
+    def _make_edit_desc_btn(self, row: int = 0):
         btn = discord.ui.Button(
             label="編輯描述",
             style=discord.ButtonStyle.primary,
             emoji="✏️",
+            row=row,
         )
 
         async def callback(interaction: discord.Interaction):
@@ -315,11 +384,12 @@ class EntryView(discord.ui.View):
         btn.callback = callback
         return btn
 
-    def _make_edit_text_btn(self):
+    def _make_edit_text_btn(self, row: int = 0):
         btn = discord.ui.Button(
             label="編輯內容",
             style=discord.ButtonStyle.primary,
             emoji="✏️",
+            row=row,
         )
         current = self.entry.get("content", "")
 
@@ -330,11 +400,12 @@ class EntryView(discord.ui.View):
         btn.callback = callback
         return btn
 
-    def _make_delete_btn(self):
+    def _make_delete_btn(self, row: int = 0):
         btn = discord.ui.Button(
             label="刪除",
             style=discord.ButtonStyle.danger,
             emoji="🗑️",
+            row=row,
         )
 
         async def callback(interaction: discord.Interaction):
