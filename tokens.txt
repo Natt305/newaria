@@ -17,10 +17,22 @@ AI_BACKEND=groq
 # Groq API Key（從 https://console.groq.com/keys 獲取）
 GROQ_API_KEY=
 # 文字模型（留空使用預設 llama-3.3-70b-versatile）
-# 可選：llama-3.3-70b-versatile / llama3-70b-8192 / llama3-8b-8192 / gemma2-9b-it
+# 可選（任何 Groq 支援的模型 ID 皆可填入）：
+#   llama-3.3-70b-versatile          ← 預設，平衡品質與速度
+#   llama-3.1-8b-instant             ← 最快，適合輕量任務
+#   llama3-70b-8192 / llama3-8b-8192
+#   gemma2-9b-it
+#   qwen-qwq-32b                     ← Qwen QwQ 32B（推理型）
+#   qwen3-32b                        ← Qwen3 32B（若已上架）
+#   compound-beta                    ← Groq Compound（多模型路由）
+#   compound-beta-mini
 GROQ_MODEL=
 # 視覺模型，用於圖片理解（留空使用預設 meta-llama/llama-4-scout-17b-16e-instruct）
-# 可選：meta-llama/llama-4-scout-17b-16e-instruct / meta-llama/llama-4-maverick-17b-128e-instruct / llama-3.2-90b-vision-preview / llama-3.2-11b-vision-preview
+# 可選：
+#   meta-llama/llama-4-scout-17b-16e-instruct    ← 預設
+#   meta-llama/llama-4-maverick-17b-128e-instruct
+#   llama-3.2-90b-vision-preview
+#   llama-3.2-11b-vision-preview
 GROQ_VISION_MODEL=
 
 # --- Ollama 設定（AI_BACKEND=ollama 時使用）---
