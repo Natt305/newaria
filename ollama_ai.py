@@ -86,6 +86,8 @@ _IMAGE_MARKER_RE = re.compile(
     re.I | re.S,
 )
 
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
 # Phrases that indicate the model broke character and admitted to being an AI / LLM.
 # Deliberately specific to SELF-IDENTIFICATION — avoids false positives when the bot
 # legitimately discusses AI topics in conversation.
@@ -254,7 +256,7 @@ async def _call_ollama(
                     print(f"[Ollama] HTTP {resp.status}: {body[:500]}")
                     return None
                 data = await resp.json()
-                content = (data.get("message", {}).get("content") or "").strip()
+                content = _THINK_RE.sub("", data.get("message", {}).get("content") or "").strip()
                 prompt_tokens = data.get("prompt_eval_count", "?")
                 completion_tokens = data.get("eval_count", "?")
                 done_reason = data.get("done_reason", "?")
@@ -421,7 +423,7 @@ async def understand_image(
                     print(f"[Ollama Vision] HTTP {resp.status}: {body[:500]}")
                     return None
                 data = await resp.json()
-                text = (data.get("message", {}).get("content") or "").strip()
+                text = _THINK_RE.sub("", data.get("message", {}).get("content") or "").strip()
                 if text:
                     print(f"[Ollama Vision] Success with model: {model}")
                     return text

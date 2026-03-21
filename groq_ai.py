@@ -162,6 +162,8 @@ IMAGE_REQUEST_PATTERNS = [
     re.compile(r"(妳|你)(彈|唱|跳|演奏|表演).{0,20}(的樣子|樣子|畫面)", re.I),
 ]
 
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
 _IMAGE_MARKER_RE = re.compile(
     r"\[(?:IMAGE|圖像生成|圖像|生成圖像|生成图像|图像生成|图像|GENERATE IMAGE|GEN IMAGE):\s*(.+?)\]",
     re.I | re.S,
@@ -453,7 +455,7 @@ async def chat(
                 temperature=0.8,
                 max_tokens=1024,
             )
-            text = (response.choices[0].message.content or "").strip()
+            text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
 
             # Primary: bot used the [IMAGE: ...] marker → generate silently
             marker_match = _IMAGE_MARKER_RE.search(text)
