@@ -264,19 +264,39 @@ class EntryView(discord.ui.View):
         entry_title = self.entry_title
 
         async def callback(interaction: discord.Interaction):
-            image_count = database.get_entry_image_count(entry_id)
-            if image_count == 0:
-                await interaction.response.send_message(
-                    "⚠️ 此條目沒有儲存的圖像資料。", ephemeral=True
+            try:
+                image_count = database.get_entry_image_count(entry_id)
+                if image_count == 0:
+                    await interaction.response.send_message(
+                        "⚠️ 此條目沒有儲存的圖像資料。", ephemeral=True
+                    )
+                    return
+                can_remove = (
+                    interaction.guild is not None
+                    and isinstance(interaction.user, discord.Member)
+                    and interaction.user.guild_permissions.administrator
                 )
-                return
-            can_remove = (
-                interaction.guild is not None
-                and isinstance(interaction.user, discord.Member)
-                and interaction.user.guild_permissions.administrator
-            )
-            gallery = ImageGalleryView(entry_id, entry_title, image_count, can_remove)
-            await gallery.send_first(interaction)
+                gallery = ImageGalleryView(entry_id, entry_title, image_count, can_remove)
+                await gallery.send_first(interaction)
+            except discord.HTTPException as e:
+                print(f"[View] 查看圖片 HTTP error for entry #{entry_id}: {e.status} {e.text}")
+                msg = "❌ 圖片太大，無法在 Discord 上顯示（超過 8MB 上限）。" if e.status == 413 else f"❌ Discord 錯誤: {e.text}"
+                try:
+                    if interaction.response.is_done():
+                        await interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await interaction.response.send_message(msg, ephemeral=True)
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"[View] 查看圖片 error for entry #{entry_id}: {type(e).__name__}: {e}")
+                try:
+                    if interaction.response.is_done():
+                        await interaction.followup.send(f"❌ 讀取圖片時發生錯誤: {type(e).__name__}", ephemeral=True)
+                    else:
+                        await interaction.response.send_message(f"❌ 讀取圖片時發生錯誤: {type(e).__name__}", ephemeral=True)
+                except Exception:
+                    pass
 
         btn.callback = callback
         return btn
@@ -408,13 +428,25 @@ class ImageGalleryView(discord.ui.View):
         return f"🖼️ **{self.entry_title}** — 圖片 {self.current_index} / {self.image_count}"
 
     async def send_first(self, interaction: discord.Interaction):
-        file = self._make_file()
+        try:
+            file = self._make_file()
+        except Exception as e:
+            print(f"[View] ImageGalleryView._make_file error: {e}")
+            await interaction.response.send_message("❌ 讀取圖片資料時發生錯誤。", ephemeral=True)
+            return
         if not file:
             await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
             return
-        await interaction.response.send_message(
-            content=self._content(), file=file, view=self, ephemeral=True
-        )
+        try:
+            await interaction.response.send_message(
+                content=self._content(), file=file, view=self, ephemeral=True
+            )
+        except discord.HTTPException as e:
+            print(f"[View] ImageGalleryView.send_first HTTP error: {e.status} {e.text}")
+            if e.status == 413:
+                await interaction.followup.send("❌ 圖片太大，無法在 Discord 上顯示（超過 8MB 上限）。", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ Discord 錯誤: {e.text}", ephemeral=True)
 
     async def _prev(self, interaction: discord.Interaction):
         self.current_index = max(1, self.current_index - 1)
