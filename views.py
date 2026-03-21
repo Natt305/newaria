@@ -104,31 +104,25 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
         label="個性 / 背景",
         style=discord.TextStyle.paragraph,
         placeholder="描述角色的個性、語氣和背景...",
-        max_length=1000,
+        max_length=4000,
     )
 
     def __init__(self, current_name: str = "", current_background: str = ""):
         super().__init__()
-        self.name.default = current_name
-        self.background.default = current_background[:1000]
+        self.name.default = current_name[:50]
+        self.background.default = current_background[:4000]
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Import here to avoid circular dep; conversation_contexts lives in bot
         import bot as bot_module
         success = database.set_character(str(self.name), str(self.background))
         if success:
             bot_module.conversation_contexts.clear()
-            embed = discord.Embed(
-                title="""✅ 角色已更新""",
-                color=discord.Color.gold(),
+            new_bg = str(self.background)
+            embed = build_char_embed(
+                str(self.name), new_bg,
+                title="✅ 角色已更新",
+                footer="對話歷史已清除以套用新角色。",
             )
-            embed.add_field(name="🏷️ 名稱", value=str(self.name), inline=True)
-            embed.add_field(
-                name="📖 背景",
-                value=str(self.background)[:1000],
-                inline=False,
-            )
-            embed.set_footer(text="對話歷史已清除以套用新角色。")
             await interaction.response.send_message(embed=embed, ephemeral=True)
         else:
             await interaction.response.send_message(
@@ -1072,8 +1066,18 @@ class CharacterView(discord.ui.View):
         await interaction.response.edit_message(embed=self._get_embed(), view=self)
 
     async def _edit_character(self, interaction: discord.Interaction):
-        modal = EditCharacterModal(self.bot_name, self.background)
-        await interaction.response.send_modal(modal)
+        try:
+            modal = EditCharacterModal(self.bot_name, self.background)
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            print(f"[View] EditCharacter modal error: {type(e).__name__}: {e}")
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(f"❌ 開啟編輯器時發生錯誤: {type(e).__name__}", ephemeral=True)
+                else:
+                    await interaction.response.send_message(f"❌ 開啟編輯器時發生錯誤: {type(e).__name__}", ephemeral=True)
+            except Exception:
+                pass
 
     async def _open_gallery(self, interaction: discord.Interaction):
         can_remove = (
