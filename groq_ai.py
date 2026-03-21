@@ -24,20 +24,44 @@ def _default_vision_model() -> str:
 # Resolved at import time so the module-level DEFAULT_MODEL stays compatible.
 DEFAULT_MODEL = _default_model()
 
-# Vision model candidates tried in order until one works.
-# GROQ_VISION_MODEL is placed first when set; Groq model names are case-sensitive.
+# ── Vision model candidates (tried in order until one succeeds) ───────────────
+# Llama 4 Scout is the primary confirmed multimodal model on Groq.
+# GROQ_VISION_MODEL is dynamically prepended at call time.
 VISION_MODELS = [
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "llama-3.2-90b-vision-preview",
-    "llama-3.2-11b-vision-preview",
+    "meta-llama/llama-4-scout-17b-16e-instruct",  # 750 T/s, 20 MB, preview
+    "llama-3.2-90b-vision-preview",               # legacy fallback
+    "llama-3.2-11b-vision-preview",               # legacy fallback
 ]
 
+# ── Text chat fallback chain (priority-ordered, highest quality first) ────────
+# When the primary model (GROQ_MODEL) is rate-limited, each entry is tried
+# in sequence.  Lower tiers trade quality for availability / speed.
+#
+#  Tier 1 — production, large  (~120–70 B params)
+#    openai/gpt-oss-120b       500 T/s  131K ctx  production
+#    llama-3.3-70b-versatile   280 T/s  131K ctx  production  ← default
+#  Tier 2 — production, fast   (~20–32 B params)
+#    qwen/qwen3-32b            400 T/s  131K ctx  preview
+#    openai/gpt-oss-20b       1000 T/s  131K ctx  production
+#  Tier 3 — extended context / compound
+#    moonshotai/kimi-k2-instruct-0905  200 T/s  262K ctx  preview
+#    groq/compound              450 T/s  131K ctx  production system
+#    groq/compound-mini         450 T/s  131K ctx  production system
+#  Tier 4 — fast last resort  (~8 B params)
+#    llama-3.1-8b-instant      560 T/s  131K ctx  production
 FALLBACK_MODELS = [
+    # Tier 1
+    "openai/gpt-oss-120b",
     "llama-3.3-70b-versatile",
-    "llama3-70b-8192",
-    "llama3-8b-8192",
-    "gemma2-9b-it",
+    # Tier 2
+    "qwen/qwen3-32b",
+    "openai/gpt-oss-20b",
+    # Tier 3
+    "moonshotai/kimi-k2-instruct-0905",
+    "groq/compound",
+    "groq/compound-mini",
+    # Tier 4
+    "llama-3.1-8b-instant",
 ]
 
 IMAGE_TRIGGER_PHRASES = [

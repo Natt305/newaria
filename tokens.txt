@@ -16,23 +16,30 @@ AI_BACKEND=groq
 # --- Groq 設定（AI_BACKEND=groq 時使用）---
 # Groq API Key（從 https://console.groq.com/keys 獲取）
 GROQ_API_KEY=
-# 文字模型（留空使用預設 llama-3.3-70b-versatile）
-# 可選（任何 Groq 支援的模型 ID 皆可填入）：
-#   llama-3.3-70b-versatile          ← 預設，平衡品質與速度
-#   llama-3.1-8b-instant             ← 最快，適合輕量任務
-#   llama3-70b-8192 / llama3-8b-8192
-#   gemma2-9b-it
-#   qwen-qwq-32b                     ← Qwen QwQ 32B（推理型）
-#   qwen3-32b                        ← Qwen3 32B（若已上架）
-#   compound-beta                    ← Groq Compound（多模型路由）
-#   compound-beta-mini
+# 文字模型（留空使用預設 llama-3.3-70b-versatile；達到速率上限時自動依優先順序切換）
+# 可填入任何 Groq 支援的模型 ID（完整清單見 console.groq.com/docs/models）：
+#
+#  【Tier 1 — 大型生產模型，品質最高】
+#   openai/gpt-oss-120b          120B  500 T/s  131K ctx  （OpenAI GPT-OSS）
+#   llama-3.3-70b-versatile       70B  280 T/s  131K ctx  ← 預設
+#
+#  【Tier 2 — 快速生產模型，輕量但仍具備高品質】
+#   qwen/qwen3-32b                32B  400 T/s  131K ctx
+#   openai/gpt-oss-20b            20B  1000 T/s 131K ctx
+#
+#  【Tier 3 — Compound 系統 / 超長上下文】
+#   moonshotai/kimi-k2-instruct-0905  200 T/s  262K ctx
+#   groq/compound                     Groq Compound（工具增強）
+#   groq/compound-mini                Groq Compound Mini
+#
+#  【Tier 4 — 最輕量最快，作為最後備援】
+#   llama-3.1-8b-instant           8B  560 T/s  131K ctx
 GROQ_MODEL=
 # 視覺模型，用於圖片理解（留空使用預設 meta-llama/llama-4-scout-17b-16e-instruct）
 # 可選：
-#   meta-llama/llama-4-scout-17b-16e-instruct    ← 預設
-#   meta-llama/llama-4-maverick-17b-128e-instruct
-#   llama-3.2-90b-vision-preview
-#   llama-3.2-11b-vision-preview
+#   meta-llama/llama-4-scout-17b-16e-instruct  ← 預設，目前 Groq 主要視覺模型
+#   llama-3.2-90b-vision-preview               （舊版備援）
+#   llama-3.2-11b-vision-preview               （舊版備援）
 GROQ_VISION_MODEL=
 
 # --- Ollama 設定（AI_BACKEND=ollama 時使用）---
