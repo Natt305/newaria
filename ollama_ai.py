@@ -155,18 +155,38 @@ async def chat(
     messages: list,
     system_prompt: str = "",
     model: str = "",
+    context_images: Optional[list] = None,
 ) -> tuple[str, Optional[str]]:
-    """Send a chat request to Ollama. Returns (response_text, image_prompt_or_None)."""
-    active_model = model if model else _model()
+    """Send a chat request to Ollama. Returns (response_text, image_prompt_or_None).
+
+    context_images: optional list of (bytes, mime_type) tuples injected as visual
+    content into the last user message. Switches to the vision model automatically.
+    """
+    # Use vision model when context images are provided
+    if context_images:
+        active_model = _vision_model()
+    else:
+        active_model = model if model else _model()
 
     ollama_messages = []
     if system_prompt:
         ollama_messages.append({"role": "system", "content": system_prompt})
-    for msg in messages[-20:]:
+
+    recent = messages[-20:]
+    for i, msg in enumerate(recent):
         content = msg["content"]
         if isinstance(content, list):
             text_parts = [p["text"] for p in content if isinstance(p, dict) and p.get("type") == "text"]
             content = " ".join(text_parts)
+        # Inject context_images into the last user message
+        if context_images and i == len(recent) - 1 and msg["role"] == "user":
+            image_parts = []
+            for img_bytes, img_mime in context_images:
+                b64 = base64.b64encode(img_bytes).decode("utf-8")
+                data_url = f"data:{img_mime};base64,{b64}"
+                image_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+            image_parts.append({"type": "text", "text": content if isinstance(content, str) else str(content)})
+            content = image_parts
         ollama_messages.append({"role": msg["role"], "content": content})
 
     text = await _call_ollama(ollama_messages, model=active_model)

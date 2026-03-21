@@ -45,10 +45,13 @@ async def chat(
     messages: list,
     system_prompt: str = "",
     model: Optional[str] = None,
+    context_images: Optional[list] = None,
 ) -> tuple[str, Optional[str]]:
     kwargs = {"system_prompt": system_prompt}
     if model:
         kwargs["model"] = model
+    if context_images:
+        kwargs["context_images"] = context_images
     return await _mod().chat(messages, **kwargs)
 
 

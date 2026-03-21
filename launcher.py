@@ -101,6 +101,10 @@ def main():
 
     load_permissions_file(base_path)
 
+    import database as _db
+    _db.init_db()
+    _db.migrate_thumbnails()
+
     print("[啟動器] 啟動機器人...")
 
     import bot

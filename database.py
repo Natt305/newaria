@@ -134,6 +134,23 @@ def get_character_image(index: int) -> Optional[tuple]:
         return f.read(), info.get("mime", "image/png")
 
 
+def _make_thumbnail(image_bytes: bytes) -> Optional[bytes]:
+    """Generate a 256×256 JPEG thumbnail from image bytes using Pillow.
+    Returns JPEG bytes on success, or None if Pillow is unavailable / image is corrupt."""
+    try:
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(image_bytes))
+        img = img.convert("RGB")
+        img.thumbnail((256, 256), Image.LANCZOS)
+        buf = _io.BytesIO()
+        img.save(buf, format="JPEG", quality=60, optimize=True)
+        return buf.getvalue()
+    except Exception as e:
+        print(f"[DB] Thumbnail generation failed: {e}")
+        return None
+
+
 def add_character_image(img_bytes: bytes, mime: str, description: str = "") -> tuple:
     """Add a character reference image. Returns (success, message)."""
     images = _read_char_images()
@@ -151,7 +168,16 @@ def add_character_image(img_bytes: bytes, mime: str, description: str = "") -> t
     path = os.path.join(CHARACTER_IMAGES_DIR, filename)
     with open(path, "wb") as f:
         f.write(img_bytes)
-    images.append({"filename": filename, "mime": mime, "description": description})
+    thumb_filename = None
+    thumb_bytes = _make_thumbnail(img_bytes)
+    if thumb_bytes:
+        thumb_filename = f"char_{ts}_thumb.jpg"
+        with open(os.path.join(CHARACTER_IMAGES_DIR, thumb_filename), "wb") as f:
+            f.write(thumb_bytes)
+    entry = {"filename": filename, "mime": mime, "description": description}
+    if thumb_filename:
+        entry["thumb"] = thumb_filename
+    images.append(entry)
     _write_char_images(images)
     return True, f"已新增第 {len(images)} 張角色圖片。"
 
@@ -165,6 +191,11 @@ def remove_character_image(index: int) -> tuple:
     path = os.path.join(CHARACTER_IMAGES_DIR, info["filename"])
     if os.path.exists(path):
         os.remove(path)
+    thumb = info.get("thumb")
+    if thumb:
+        thumb_path = os.path.join(CHARACTER_IMAGES_DIR, thumb)
+        if os.path.exists(thumb_path):
+            os.remove(thumb_path)
     _write_char_images(images)
     return True, "已移除圖片。"
 
@@ -177,6 +208,22 @@ def update_character_image_description(index: int, description: str) -> bool:
     images[index - 1]["description"] = description
     _write_char_images(images)
     return True
+
+
+def get_character_image_thumb(index: int) -> Optional[tuple]:
+    """1-indexed. Returns (thumb_bytes, 'image/jpeg') or None."""
+    images = _read_char_images()
+    if index < 1 or index > len(images):
+        return None
+    info = images[index - 1]
+    thumb = info.get("thumb")
+    if not thumb:
+        return None
+    path = os.path.join(CHARACTER_IMAGES_DIR, thumb)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return f.read(), "image/jpeg"
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
@@ -444,6 +491,14 @@ def add_image_entry(title: str, image_bytes: bytes, mime_type: str, description:
     img_path = os.path.join(IMAGES_DIR, filename)
     with open(img_path, "wb") as f:
         f.write(image_bytes)
+    img_record = {"filename": filename, "mime": mime_type}
+    thumb_bytes = _make_thumbnail(image_bytes)
+    if thumb_bytes:
+        stem = os.path.splitext(filename)[0]
+        thumb_filename = f"{stem}_thumb.jpg"
+        with open(os.path.join(IMAGES_DIR, thumb_filename), "wb") as f:
+            f.write(thumb_bytes)
+        img_record["thumb"] = thumb_filename
     meta = {
         "id": entry_id,
         "title": title,
@@ -453,7 +508,7 @@ def add_image_entry(title: str, image_bytes: bytes, mime_type: str, description:
         "tags": tags,
         "created_at": now,
         "updated_at": now,
-        "images": [{"filename": filename, "mime": mime_type}],
+        "images": [img_record],
     }
     with open(_image_meta_path(entry_id), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -485,6 +540,26 @@ def get_entry_image(entry_id: int, image_index: int) -> Optional[tuple]:
     return data, img_info.get("mime", "image/png")
 
 
+def get_kb_image_thumb(entry_id: int, image_index: int = 1) -> Optional[tuple]:
+    """Return (thumb_bytes, 'image/jpeg') for a KB image entry, or None.
+    image_index is 1-based. Defaults to the first image."""
+    meta = _get_meta_with_images(entry_id)
+    if not meta:
+        return None
+    images = meta.get("images", [])
+    if image_index < 1 or image_index > len(images):
+        return None
+    img_info = images[image_index - 1]
+    thumb = img_info.get("thumb")
+    if not thumb:
+        return None
+    path = os.path.join(IMAGES_DIR, thumb)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return f.read(), "image/jpeg"
+
+
 def add_image_to_entry(entry_id: int, image_bytes: bytes, mime_type: str) -> tuple:
     """Append an image to an existing image KB entry. Returns (success, message)."""
     meta = _get_meta_with_images(entry_id)
@@ -499,7 +574,15 @@ def add_image_to_entry(entry_id: int, image_bytes: bytes, mime_type: str) -> tup
     img_path = os.path.join(IMAGES_DIR, filename)
     with open(img_path, "wb") as f:
         f.write(image_bytes)
-    images.append({"filename": filename, "mime": mime_type})
+    img_record = {"filename": filename, "mime": mime_type}
+    thumb_bytes = _make_thumbnail(image_bytes)
+    if thumb_bytes:
+        stem = os.path.splitext(filename)[0]
+        thumb_filename = f"{stem}_thumb.jpg"
+        with open(os.path.join(IMAGES_DIR, thumb_filename), "wb") as f:
+            f.write(thumb_bytes)
+        img_record["thumb"] = thumb_filename
+    images.append(img_record)
     meta["images"] = images
     meta["updated_at"] = datetime.utcnow().isoformat()
     with open(_image_meta_path(entry_id), "w", encoding="utf-8") as f:
@@ -520,6 +603,11 @@ def remove_image_from_entry(entry_id: int, image_index: int) -> tuple:
     img_path = os.path.join(IMAGES_DIR, img_info["filename"])
     if os.path.exists(img_path):
         os.remove(img_path)
+    thumb = img_info.get("thumb")
+    if thumb:
+        thumb_path = os.path.join(IMAGES_DIR, thumb)
+        if os.path.exists(thumb_path):
+            os.remove(thumb_path)
     meta["images"] = images
     meta["updated_at"] = datetime.utcnow().isoformat()
     with open(_image_meta_path(entry_id), "w", encoding="utf-8") as f:
@@ -935,6 +1023,73 @@ def _migrate_old_sqlite():
 
 
 # ── Init ──────────────────────────────────────────────────────────────────────
+
+def migrate_thumbnails():
+    """One-time migration: generate thumbnails for any existing images that lack them.
+    Safe to call on every startup — skips images that already have a thumb."""
+    generated = 0
+
+    # Character images
+    images = _read_char_images()
+    changed = False
+    for info in images:
+        if info.get("thumb"):
+            continue
+        src_path = os.path.join(CHARACTER_IMAGES_DIR, info["filename"])
+        if not os.path.exists(src_path):
+            continue
+        with open(src_path, "rb") as f:
+            raw = f.read()
+        thumb_bytes = _make_thumbnail(raw)
+        if not thumb_bytes:
+            continue
+        stem = os.path.splitext(info["filename"])[0]
+        thumb_filename = f"{stem}_thumb.jpg"
+        with open(os.path.join(CHARACTER_IMAGES_DIR, thumb_filename), "wb") as f:
+            f.write(thumb_bytes)
+        info["thumb"] = thumb_filename
+        changed = True
+        generated += 1
+    if changed:
+        _write_char_images(images)
+
+    # KB images
+    for fname in os.listdir(IMAGES_DIR):
+        if not fname.endswith(".json"):
+            continue
+        meta_path = os.path.join(IMAGES_DIR, fname)
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+        except Exception:
+            continue
+        img_list = meta.get("images", [])
+        changed = False
+        for img_info in img_list:
+            if img_info.get("thumb"):
+                continue
+            src_path = os.path.join(IMAGES_DIR, img_info["filename"])
+            if not os.path.exists(src_path):
+                continue
+            with open(src_path, "rb") as f:
+                raw = f.read()
+            thumb_bytes = _make_thumbnail(raw)
+            if not thumb_bytes:
+                continue
+            stem = os.path.splitext(img_info["filename"])[0]
+            thumb_filename = f"{stem}_thumb.jpg"
+            with open(os.path.join(IMAGES_DIR, thumb_filename), "wb") as f:
+                f.write(thumb_bytes)
+            img_info["thumb"] = thumb_filename
+            changed = True
+            generated += 1
+        if changed:
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    if generated:
+        print(f"[DB] migrate_thumbnails: generated {generated} thumbnail(s)")
+
 
 def init_db():
     _migrate_old_sqlite()

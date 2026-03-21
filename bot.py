@@ -225,33 +225,51 @@ async def build_knowledge_context(channel_id: str, user_query: str = "") -> str:
     return header + "\n".join(parts)
 
 
-async def build_visual_kb_context(image_description: str) -> str:
+import re as _re
+
+_APPEARANCE_PATTERNS = [
+    _re.compile(r"\b(look|looks|looking|appearance|appear)\b", _re.I),
+    _re.compile(r"\b(hair|eyes|eye|face|skin|outfit|clothes|dress|wear|wearing|style)\b", _re.I),
+    _re.compile(r"\b(tall|short|cute|pretty|beautiful|handsome)\b", _re.I),
+    _re.compile(r"(你|妳).{0,10}(長|長相|外表|外貌|樣子|樣貌|髮|頭髮|眼|眼睛|臉|衣服|穿著|穿)", _re.I),
+    _re.compile(r"(長什麼樣|長怎樣|長相|外貌|外型|外觀)", _re.I),
+    _re.compile(r"\b(what do you look like|how do you look|describe yourself|show me you)\b", _re.I),
+]
+
+
+def is_appearance_query(text: str) -> bool:
+    """Return True when the user's message appears to ask about Aria's appearance."""
+    return any(p.search(text) for p in _APPEARANCE_PATTERNS)
+
+
+async def build_visual_kb_context(image_description: str) -> tuple:
     """Search KB image entries for subjects that match an uploaded image.
 
-    Takes the vision AI's description of a user-uploaded image, extracts key
-    subjects, and finds previously-saved KB images that contain the same people,
-    places, or objects.  Returns a formatted string to inject into the system
-    prompt so the bot can speak as if it recognises what it is looking at.
+    Returns (context_string, matched_entries_list).
+    matched_entries is a list of dicts from the KB (with 'id' key) so the
+    caller can load thumbnails from them.
     """
     if not image_description:
-        return ""
+        return "", []
 
     matches = database.search_kb_images_by_subject(image_description, limit=5)
     if not matches:
-        return ""
+        return "", []
 
     parts: list[str] = []
+    valid_matches: list = []
     for m in matches:
         desc = (m.get("image_description") or "").strip()
         title = m.get("title", "Untitled")
         if desc:
             snippet = desc[:500] + ("..." if len(desc) > 500 else "")
             parts.append(f"• {title}: {snippet}")
+            valid_matches.append(m)
 
     if not parts:
-        return ""
+        return "", []
 
-    return "\n".join(parts)
+    return "\n".join(parts), valid_matches
 
 
 async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
@@ -380,6 +398,7 @@ async def process_chat(
     image_analysis = ""
     image_failed = False
     visual_kb_context = ""
+    visual_kb_matched = []
     if image_bytes and image_mime:
         question = user_text if user_text else (
             "Describe any characters or people in this image, focusing on their permanent physical features: "
@@ -392,7 +411,7 @@ async def process_chat(
         if description:
             image_analysis = f"\n\n[Attached image analysis: {description}]"
             # Search KB for previously-saved images that share the same subjects
-            visual_kb_context = await build_visual_kb_context(description)
+            visual_kb_context, visual_kb_matched = await build_visual_kb_context(description)
             if visual_kb_context:
                 print(f"[Bot] Visual KB match found for uploaded image — injecting {len(visual_kb_context)} chars of context")
         else:
@@ -428,6 +447,27 @@ async def process_chat(
         user_text or "[Image]", "user",
     )
 
+    # ── Collect thumbnails for visual context ─────────────────────────────────
+    context_images: list = []
+
+    # Character thumbnails: only when user asks about appearance
+    if not image_bytes and is_appearance_query(user_text):
+        char_images = database.list_character_images()
+        for i, _ in enumerate(char_images, start=1):
+            result = database.get_character_image_thumb(i)
+            if result:
+                context_images.append(result)
+                if len(context_images) >= 2:
+                    break
+
+    # KB image thumbnails: from entries that matched the uploaded image (capped at 2)
+    for m in visual_kb_matched[:2]:
+        entry_id = m.get("id")
+        if entry_id:
+            result = database.get_kb_image_thumb(entry_id)
+            if result:
+                context_images.append(result)
+
     # Build system prompt with memory + KB context + visual KB matches
     system_prompt = build_system_prompt(
         bot_name, background,
@@ -438,7 +478,10 @@ async def process_chat(
     )
     history = get_channel_context(channel_id)
 
-    response_text, image_prompt = await groq_ai.chat(history, system_prompt=system_prompt)
+    response_text, image_prompt = await groq_ai.chat(
+        history, system_prompt=system_prompt,
+        context_images=context_images if context_images else None,
+    )
 
     saved_text = response_text or f"[圖像生成: {image_prompt}]"
     add_to_context(channel_id, "assistant", saved_text)
