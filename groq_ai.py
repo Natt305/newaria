@@ -226,9 +226,12 @@ def user_wants_image(messages: list) -> Optional[str]:
     return None
 
 
-async def enhance_image_prompt(raw_prompt: str) -> str:
+async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> str:
     """Translate and expand a raw (possibly Chinese) prompt into a rich English
     image-generation prompt suitable for Cloudflare Workers AI.
+
+    If character_context is provided (appearance descriptions of the bot's character),
+    it will be used to ground self-referential prompts like 'selfie' or 'photo of me'.
 
     Returns the enhanced prompt, or the original if enhancement fails.
     """
@@ -236,15 +239,25 @@ async def enhance_image_prompt(raw_prompt: str) -> str:
     if not client:
         return raw_prompt
 
+    char_block = ""
+    if character_context and character_context.strip():
+        char_block = (
+            f"\nThe image may involve the character whose appearance is described below. "
+            f"If the prompt is self-referential (e.g. 'selfie', 'photo of me', 'my face', 'what I look like'), "
+            f"use these appearance details as the subject of the image:\n"
+            f"{character_context.strip()}\n"
+        )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
         "rewrite it as a single, rich English prompt for an AI image model.\n"
+        f"{char_block}"
         "Rules:\n"
         "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
         "- Always write in English.\n"
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
-        "- Aim for 20-50 words.\n"
+        "- Aim for 20-60 words.\n"
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
         "Good output: vibrant cherry blossom park in Kyoto at sunset, soft golden light, "
         "anime art style, petals drifting in the breeze, peaceful atmosphere\n"
