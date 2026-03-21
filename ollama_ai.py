@@ -274,9 +274,12 @@ async def chat(
     system_prompt: str = "",
     model: str = "",
     context_images: Optional[list] = None,
-) -> tuple[str, Optional[str]]:
-    """Send a chat request to Ollama. Returns (response_text, image_prompt_or_None).
+) -> tuple[str, Optional[str], bool]:
+    """Send a chat request to Ollama. Returns (response_text, image_prompt_or_None, prompt_from_marker).
 
+    prompt_from_marker=True means the image prompt came from the [IMAGE: ...] tag
+    and is already well-crafted English — the caller should skip a full LLM rewrite.
+    prompt_from_marker=False means the prompt is raw user text needing enhancement.
     context_images: optional list of (bytes, mime_type) tuples injected as visual
     content into the last user message. Switches to the vision model automatically.
     """
@@ -310,7 +313,7 @@ async def chat(
     text = await _call_ollama(ollama_messages, model=active_model)
 
     if text is None:
-        return "I'm having trouble connecting to Ollama right now. Please make sure Ollama is running.", None
+        return "I'm having trouble connecting to Ollama right now. Please make sure Ollama is running.", None, False
 
     # Character-break guard: if the model admitted to being an AI/LLM, retry once
     # with a fresh, laser-focused minimal prompt — no extra context to confuse it.
@@ -370,14 +373,16 @@ async def chat(
     if marker_match:
         img_prompt = marker_match.group(1).strip()
         clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
-        return (clean_text or None), img_prompt
+        print(f"[Ollama] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
+        return (clean_text or None), img_prompt, True
 
     if response_declines_image(text):
         img_prompt = user_wants_image(messages)
         if img_prompt:
-            return None, img_prompt
+            print(f"[Ollama] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
+            return None, img_prompt, False
 
-    return text, None
+    return text, None, False
 
 
 async def understand_image(
@@ -450,7 +455,7 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     messages = [{"role": "user", "content": f"Extract memorable facts:\n\n{exchange[:1500]}"}]
 
     try:
-        text, _ = await chat(messages, system_prompt=system)
+        text, *_ = await chat(messages, system_prompt=system)
         if not text:
             return []
         start = text.find("[")
@@ -496,7 +501,7 @@ async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> 
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
     try:
-        enhanced, _ = await chat(messages_list, system_prompt=system)
+        enhanced, *_ = await chat(messages_list, system_prompt=system)
         if enhanced and len(enhanced.strip()) > 5:
             print(f"[Ollama] Prompt enhanced: {enhanced[:120]}")
             return enhanced.strip()
@@ -548,7 +553,7 @@ async def generate_image_comment(
 
     messages = [{"role": "user", "content": msg}]
     try:
-        text, _ = await chat(messages, system_prompt=system)
+        text, *_ = await chat(messages, system_prompt=system)
         if text and len(text.strip()) > 2:
             return text.strip()
     except Exception as e:
@@ -598,7 +603,7 @@ async def generate_suggestions(
     messages = [{"role": "user", "content": prompt}]
 
     try:
-        text, _ = await chat(messages, system_prompt=system)
+        text, *_ = await chat(messages, system_prompt=system)
         if not text:
             return []
         start = text.find("[")

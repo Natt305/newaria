@@ -459,7 +459,7 @@ async def process_chat(
     )
     history = get_channel_context(channel_id)
 
-    response_text, image_prompt = await groq_ai.chat(
+    response_text, image_prompt, _prompt_from_marker = await groq_ai.chat(
         history, system_prompt=system_prompt,
         context_images=context_images if context_images else None,
     )
@@ -482,16 +482,26 @@ async def process_chat(
         if response_text:
             await send_with_suggestions(response_text, channel_id, reply_target)
 
-        # Enrich prompt with KB image references, then enhance
+        # Enrich prompt with KB image references (always useful, no LLM call)
         enriched_prompt, _kb_matches = await _enrich_image_prompt_with_kb(image_prompt)
-        # Inject character appearance context when the user OR the generated prompt
-        # is self-referential. We check user_text too because the model often expands
-        # "draw yourself" into a description, losing the "me/myself" language before
-        # this check runs.
+        # Detect self-referential prompts — these need character appearance injected
+        # even when the prompt already came from the marker.
+        # We check user_text too because the model often expands "draw yourself"
+        # into a description, losing the "me/myself" language before this check runs.
         char_images_ctx = build_character_images_context() if (
             groq_ai.is_self_referential_image(user_text) or groq_ai.is_self_referential_image(image_prompt)
         ) else ""
-        enriched_prompt = await groq_ai.enhance_image_prompt(enriched_prompt, character_context=char_images_ctx)
+        # Only run the LLM enhancement rewrite when:
+        #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
+        #   (b) character appearance context needs to be injected (self-referential)
+        # Skip it for marker-sourced prompts with no character context — the LLM
+        # already crafted rich English in the [IMAGE: ...] tag; a second rewrite
+        # only causes drift from the user's original intent.
+        if not _prompt_from_marker or char_images_ctx:
+            enriched_prompt = await groq_ai.enhance_image_prompt(enriched_prompt, character_context=char_images_ctx)
+            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)})")
+        else:
+            print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker")
 
         async with channel.typing():
             result, comment = await asyncio.gather(

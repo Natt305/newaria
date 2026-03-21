@@ -46,7 +46,7 @@ async def chat(
     system_prompt: str = "",
     model: Optional[str] = None,
     context_images: Optional[list] = None,
-) -> tuple[str, Optional[str]]:
+) -> tuple[str, Optional[str], bool]:
     kwargs = {"system_prompt": system_prompt}
     if model:
         kwargs["model"] = model
