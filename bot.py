@@ -435,37 +435,6 @@ async def process_chat(
     """Core chat handler — used by on_message and button callbacks."""
     bot_name, background, personality, looks = load_character()
 
-    # ── 5-stage progress bar ──────────────────────────────────────────────────
-    _BAR_TOTAL = 5
-    _bar_msg: Optional[discord.Message] = None
-
-    def _prog(filled: int) -> str:
-        return "🟦" * filled + "⬜" * (_BAR_TOTAL - filled) + " 思考中"
-
-    async def _bar_set(n: int) -> None:
-        if _bar_msg is None:
-            return
-        try:
-            await _bar_msg.edit(content=_prog(n))
-        except Exception:
-            pass
-
-    async def _bar_delete() -> None:
-        nonlocal _bar_msg
-        if _bar_msg is None:
-            return
-        _tmp, _bar_msg = _bar_msg, None
-        try:
-            await _tmp.delete()
-        except Exception:
-            pass
-
-    try:
-        _bar_msg = await reply_target.reply(_prog(0), mention_author=False)
-    except Exception:
-        pass
-    # ─────────────────────────────────────────────────────────────────────────
-
     image_analysis = ""
     image_failed = False
     visual_kb_context = ""
@@ -488,22 +457,15 @@ async def process_chat(
         else:
             image_failed = True
 
-    await _bar_set(1)  # Stage 1: image analysis done (or skipped)
-
     # Build KB context from conversation topic (dynamic memory pool)
     _simple = is_simple_message(user_text) and not image_bytes
     kb_context = await build_knowledge_context(channel_id, user_text, simple=_simple)
 
-    await _bar_set(2)  # Stage 2: KB context ready
-
     # Build long-term memory context (active always; passive if recall phrase detected)
     memory_context = await build_memory_context(user_text)
 
-    await _bar_set(3)  # Stage 3: memory context ready
-
     # If image analysis failed entirely, notify and skip image context
     if image_failed and not user_text:
-        await _bar_delete()
         await reply_target.reply(
             "⚠️ 抱歉，目前圖像分析功能無法使用，請稍後再試。",
             mention_author=False,
@@ -582,8 +544,6 @@ async def process_chat(
         context_images=context_images if context_images else None,
     )
 
-    await _bar_set(4)  # Stage 4: AI response received
-
     saved_text = response_text or f"[圖像生成: {image_prompt}]"
     add_to_context(channel_id, "assistant", saved_text)
     database.save_conversation(
@@ -599,7 +559,6 @@ async def process_chat(
 
     if image_prompt and _cf_ready():
         # Send any pre-text first (usually None for seamless generation)
-        # Bar stays visible — it will be deleted right before the image reply
         if response_text:
             await send_with_suggestions(response_text, channel_id, reply_target)
 
@@ -624,8 +583,6 @@ async def process_chat(
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker")
 
-        await _bar_set(5)  # Stage 5: starting image generation
-
         async with channel.typing():
             result, comment = await asyncio.gather(
                 cloudflare_ai.generate_image(enriched_prompt),
@@ -633,8 +590,6 @@ async def process_chat(
                     image_prompt, bot_name, background, user_text, history=history
                 ),
             )
-
-        await _bar_delete()  # Remove bar before sending image
 
         if result and isinstance(result, tuple) and len(result) == 2:
             img_data, mime_type = result
@@ -653,11 +608,8 @@ async def process_chat(
             await reply_target.reply("⚠️ 圖像生成失敗，請稍後再試。", mention_author=False)
 
     elif image_prompt and not _cf_ready():
-        await _bar_delete()
         await reply_target.reply("⚠️ 尚未設定 Cloudflare 金鑰，無法生成圖像。", mention_author=False)
     else:
-        await _bar_set(5)   # Stage 5: text reply ready
-        await _bar_delete()
         await send_with_suggestions(response_text or "…", channel_id, reply_target)
 
 
