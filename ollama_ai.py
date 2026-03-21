@@ -13,35 +13,6 @@ import aiohttp
 DEFAULT_MODEL = "gemma3:12b"
 DEFAULT_VISION_MODEL = "gemma3:12b"
 
-# Unicode ranges used for language detection
-_CJK_RE        = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]')   # Chinese chars
-_KANA_RE       = re.compile(r'[\u3040-\u309f\u30a0-\u30ff]')                 # Japanese kana
-_HANGUL_RE     = re.compile(r'[\uac00-\ud7af]')                              # Korean
-
-def _lang_reinforcement(messages: list) -> str:
-    """Return a one-line CRITICAL instruction matching the user's script.
-
-    Reads the last user message to detect the writing system in use so Ollama
-    is reminded to respond in the same language even for uncommon topics.
-    Returns an empty string when plain ASCII/English is detected.
-    """
-    last_user = ""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            c = m.get("content", "")
-            last_user = c if isinstance(c, str) else " ".join(
-                p.get("text", "") for p in c if isinstance(p, dict)
-            )
-            break
-
-    if _KANA_RE.search(last_user):
-        return "CRITICAL: Respond ONLY in Japanese (日本語). Never switch to English.\n"
-    if _HANGUL_RE.search(last_user):
-        return "CRITICAL: Respond ONLY in Korean (한국어). Never switch to English.\n"
-    if _CJK_RE.search(last_user):
-        return "CRITICAL: Respond ONLY in Traditional Chinese (繁體中文). Never use English or Simplified Chinese.\n"
-    return ""
-
 IMAGE_TRIGGER_PHRASES = [
     "i can't generate",
     "i cannot generate",
@@ -66,55 +37,6 @@ IMAGE_TRIGGER_PHRASES = [
     "no image generation",
     "can't render",
     "cannot render",
-    # Ollama / gemma-style declines
-    "i can't directly show",
-    "i cannot directly show",
-    "i can't show you images",
-    "i cannot show you images",
-    "i can't show you pictures",
-    "i cannot show you pictures",
-    "i can't share images",
-    "i cannot share images",
-    "i'm not able to show",
-    "i am not able to show",
-    "i don't have the capability to generate",
-    "i do not have the capability to generate",
-    "i'm not capable of generating",
-    "i am not capable of generating",
-    "i can't actually generate",
-    "i cannot actually generate",
-    "images you're requesting",
-    "the images you're requesting",
-    "i'd describe them as follows",
-    "i would describe them as follows",
-    "based on my recent memories",
-    "i can describe",
-    "let me describe",
-    # Chinese declines (Ollama/gemma responding in Chinese)
-    "文字 ai",
-    "文字ai",
-    "我是一個文字",
-    "我是個文字",
-    "只是一個文字",
-    "只是個文字",
-    "沒有辦法真的",
-    "無法生成圖",
-    "無法顯示圖",
-    "無法生成照片",
-    "無法顯示照片",
-    "無法繪製",
-    "沒有能力生成",
-    "沒有能力繪製",
-    "無法直接顯示",
-    "無法真的",
-    "只能用文字",
-    "用文字描述",
-    "想像一下",
-    "試著想像",
-    "無法拍照",
-    "沒辦法拍",
-    "沒辦法生成",
-    "沒辦法顯示",
 ]
 
 IMAGE_REQUEST_PATTERNS = [
@@ -128,11 +50,6 @@ IMAGE_REQUEST_PATTERNS = [
     re.compile(r"(生成|畫|繪|製作|創作|做).{0,20}(圖|圖片|圖像|插圖|照片)", re.I),
     re.compile(r"(幫我|幫|請|可以|能不能).{0,10}(畫|生成|繪製|做).{0,20}(圖|圖片|圖像)", re.I),
     re.compile(r"(圖片|圖像|照片|插圖).{0,10}(生成|製作|創作)", re.I),
-    # "photo/picture of you" — possession style (妳彈吉他的照片, 你的照片, etc.)
-    re.compile(r"(你|妳|她|他|您).{0,30}(照片|圖片|圖像|相片|自拍)", re.I),
-    re.compile(r"(照片|相片|圖片|圖像).{0,10}(給我|看看|看一下|分享)", re.I),
-    re.compile(r"\b(photo|picture|image|pic)\b.{0,20}\bof\b", re.I),
-    re.compile(r"\bshow me\b.{0,30}\b(photo|picture|image|pic|what you look)\b", re.I),
 ]
 
 _IMAGE_MARKER_RE = re.compile(
@@ -251,13 +168,9 @@ async def chat(
     else:
         active_model = model if model else _model()
 
-    # Prepend a hard language instruction so Ollama doesn't drift to English
-    lang_hint = _lang_reinforcement(messages)
-    effective_system = (lang_hint + system_prompt) if system_prompt else lang_hint
-
     ollama_messages = []
-    if effective_system:
-        ollama_messages.append({"role": "system", "content": effective_system})
+    if system_prompt:
+        ollama_messages.append({"role": "system", "content": system_prompt})
 
     recent = messages[-20:]
     for i, msg in enumerate(recent):
@@ -292,14 +205,6 @@ async def chat(
         if img_prompt:
             img_prompt = await enhance_image_prompt(img_prompt)
             return None, img_prompt
-
-    # Final fallback: model responded with text but the user had asked for an image
-    # (e.g. gemma3 described the image instead of outputting [IMAGE:...]).
-    # Still trigger Cloudflare image generation from the user's original request.
-    img_prompt = user_wants_image(messages)
-    if img_prompt:
-        img_prompt = await enhance_image_prompt(img_prompt)
-        return None, img_prompt
 
     return text, None
 
