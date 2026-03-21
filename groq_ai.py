@@ -10,10 +10,22 @@ import base64
 from typing import Optional
 from groq import AsyncGroq
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+_DEFAULT_CHAT_MODEL   = "llama-3.3-70b-versatile"
+_DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+def _default_model() -> str:
+    """Return the configured chat model (GROQ_MODEL env var, else built-in default)."""
+    return os.environ.get("GROQ_MODEL", "").strip() or _DEFAULT_CHAT_MODEL
+
+def _default_vision_model() -> str:
+    """Return the configured vision model (GROQ_VISION_MODEL env var, else built-in default)."""
+    return os.environ.get("GROQ_VISION_MODEL", "").strip() or _DEFAULT_VISION_MODEL
+
+# Resolved at import time so the module-level DEFAULT_MODEL stays compatible.
+DEFAULT_MODEL = _default_model()
 
 # Vision model candidates tried in order until one works.
-# Groq model names are case-sensitive — keep these in preferred order.
+# GROQ_VISION_MODEL is placed first when set; Groq model names are case-sensitive.
 VISION_MODELS = [
     "meta-llama/llama-4-scout-17b-16e-instruct",
     "meta-llama/llama-4-maverick-17b-128e-instruct",
@@ -187,7 +199,10 @@ async def understand_image(
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{mime_type};base64,{b64}"
 
-    for model in VISION_MODELS:
+    configured_vision = _default_vision_model()
+    vision_order = [configured_vision] + [m for m in VISION_MODELS if m != configured_vision]
+
+    for model in vision_order:
         try:
             response = await client.chat.completions.create(
                 model=model,
@@ -331,7 +346,9 @@ async def chat(
 
     # Prefer vision models when images are attached
     if context_images:
-        models_to_try = VISION_MODELS + [m for m in FALLBACK_MODELS if m not in VISION_MODELS]
+        configured_vision = _default_vision_model()
+        vision_order = [configured_vision] + [m for m in VISION_MODELS if m != configured_vision]
+        models_to_try = vision_order + [m for m in FALLBACK_MODELS if m not in vision_order]
     else:
         models_to_try = [model] + [m for m in FALLBACK_MODELS if m != model]
 

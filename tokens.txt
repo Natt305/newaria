@@ -16,6 +16,12 @@ AI_BACKEND=groq
 # --- Groq 設定（AI_BACKEND=groq 時使用）---
 # Groq API Key（從 https://console.groq.com/keys 獲取）
 GROQ_API_KEY=
+# 文字模型（留空使用預設 llama-3.3-70b-versatile）
+# 可選：llama-3.3-70b-versatile / llama3-70b-8192 / llama3-8b-8192 / gemma2-9b-it
+GROQ_MODEL=
+# 視覺模型，用於圖片理解（留空使用預設 meta-llama/llama-4-scout-17b-16e-instruct）
+# 可選：meta-llama/llama-4-scout-17b-16e-instruct / meta-llama/llama-4-maverick-17b-128e-instruct / llama-3.2-90b-vision-preview / llama-3.2-11b-vision-preview
+GROQ_VISION_MODEL=
 
 # --- Ollama 設定（AI_BACKEND=ollama 時使用）---
 # Ollama 伺服器位址（預設 http://localhost:11434）

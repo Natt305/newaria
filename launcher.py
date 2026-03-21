@@ -94,7 +94,11 @@ def main():
         if not os.environ.get("GROQ_API_KEY"):
             print("[Warning] GROQ_API_KEY is not set. Text chat will be unavailable.")
         else:
-            print("[AI] Backend: Groq")
+            chat_model   = os.environ.get("GROQ_MODEL", "").strip() or "llama-3.3-70b-versatile"
+            vision_model = os.environ.get("GROQ_VISION_MODEL", "").strip() or "meta-llama/llama-4-scout-17b-16e-instruct"
+            print(f"[AI] Backend: Groq")
+            print(f"[AI] Chat model:   {chat_model}")
+            print(f"[AI] Vision model: {vision_model}")
 
     if not os.environ.get("CLOUDFLARE_API_TOKEN") or not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
         print("[Warning] Cloudflare config is incomplete. Image generation will be disabled.")
