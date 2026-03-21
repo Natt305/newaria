@@ -45,7 +45,7 @@ class EditDescriptionModal(discord.ui.Modal, title="編輯描述"):
     description = discord.ui.TextInput(
         label="描述",
         style=discord.TextStyle.paragraph,
-        placeholder="輸入新的圖像描述...",
+        placeholder="輸入新的描述 for this image entry...",
         max_length=2000,
     )
 
@@ -58,12 +58,12 @@ class EditDescriptionModal(discord.ui.Modal, title="編輯描述"):
         success = database.update_image_description(self.entry_id, str(self.description))
         if success:
             await interaction.response.send_message(
-                f"✅ 描述已更新：**{self.entry_title}** (#{self.entry_id})",
+                f"✅ Description 已更新 **{self.entry_title}** (#{self.entry_id})!",
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                "❌ 更新失敗，條目可能已不存在。", ephemeral=True
+                "❌ 更新失敗. The entry may no longer exist.", ephemeral=True
             )
 
 
@@ -85,12 +85,12 @@ class EditTextModal(discord.ui.Modal, title="編輯內容"):
         success = database.update_text_content(self.entry_id, str(self.content))
         if success:
             await interaction.response.send_message(
-                f"✅ 內容已更新：**{self.entry_title}** (#{self.entry_id})",
+                f"✅ Content 已更新 **{self.entry_title}** (#{self.entry_id})!",
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                "❌ 更新失敗，條目可能已不存在。", ephemeral=True
+                "❌ 更新失敗. The entry may no longer exist.", ephemeral=True
             )
 
 
@@ -138,15 +138,13 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
         success = database.set_character(new_name, new_bg, new_personality, new_looks)
         if success:
             bot_module.conversation_contexts.clear()
-            image_count = database.get_character_image_count()
             new_embed = build_char_embed(
                 new_name, new_bg, new_personality, new_looks,
                 tab="background", bg_page=0,
                 title="✅ 角色已更新",
                 footer="對話歷史已清除以套用新角色。點擊下方按鈕可繼續編輯。",
-                image_count=image_count,
             )
-            new_view = CharacterView(new_name, new_bg, new_personality, new_looks, image_count=image_count)
+            new_view = CharacterView(new_name, new_bg, new_personality, new_looks)
             await interaction.response.edit_message(embed=new_embed, view=new_view)
         else:
             await interaction.response.send_message(
@@ -210,13 +208,10 @@ _CONTENT_PAGE_SIZE = 1024
 def _content_chunks(entry: dict) -> list:
     """Split entry content/description into 1024-char pages for pagination."""
     if entry["entry_type"] == "image":
-        text = entry.get("image_description") or "（尚未設定描述）"
+        text = entry.get("image_description") or "No description set."
     else:
-        text = entry.get("content") or "（尚未設定內容）"
+        text = entry.get("content") or "No content."
     return [text[i:i + _CONTENT_PAGE_SIZE] for i in range(0, max(1, len(text)), _CONTENT_PAGE_SIZE)]
-
-
-_ENTRY_TYPE_LABELS = {"image": "圖像", "text": "文字"}
 
 
 def _build_entry_embed(entry: dict, content_page: int = 0) -> discord.Embed:
@@ -226,16 +221,16 @@ def _build_entry_embed(entry: dict, content_page: int = 0) -> discord.Embed:
         title=f"{icon} #{entry['id']} — {entry['title']}",
         color=color,
     )
-    embed.add_field(name="類型", value=_ENTRY_TYPE_LABELS.get(entry["entry_type"], entry["entry_type"]), inline=True)
-    embed.add_field(name="建立時間", value=entry["created_at"][:10], inline=True)
+    embed.add_field(name="Type", value=entry["entry_type"].capitalize(), inline=True)
+    embed.add_field(name="Created", value=entry["created_at"][:10], inline=True)
     if entry.get("tags"):
-        embed.add_field(name="🏷️ 標籤", value=entry["tags"], inline=True)
+        embed.add_field(name="🏷️ Tags", value=entry["tags"], inline=True)
 
     chunks = _content_chunks(entry)
     total = len(chunks)
     page = max(0, min(content_page, total - 1))
 
-    field_name = "📄 描述" if entry["entry_type"] == "image" else "📄 內容"
+    field_name = "📄 Description" if entry["entry_type"] == "image" else "📄 Content"
     if total > 1:
         field_name += f"　第 {page + 1} / {total} 頁"
 
@@ -251,7 +246,7 @@ class EntryView(discord.ui.View):
     """
 
     def __init__(self, entry: dict, parent_kb_view=None):
-        super().__init__(timeout=300)
+        super().__init__(timeout=120)
         self.entry = entry
         self.entry_id = entry["id"]
         self.entry_title = entry["title"]
@@ -782,7 +777,7 @@ class SaveImageView(discord.ui.View):
     """Shown after !saveimage — lets the user edit the auto-generated description."""
 
     def __init__(self, entry_id: int, entry_title: str):
-        super().__init__(timeout=300)
+        super().__init__(timeout=120)
         self.entry_id = entry_id
         self.entry_title = entry_title
 
@@ -796,7 +791,7 @@ class SaveImageView(discord.ui.View):
         confirm_view = 確認刪除View(self.entry_id, self.entry_title)
         embed = discord.Embed(
             title="⚠️ 確認刪除",
-            description=f"確定要從知識庫刪除 **{self.entry_title}** (#{self.entry_id})？\n此操作無法撤銷。",
+            description=f"刪除 **{self.entry_title}** (#{self.entry_id}) from the knowledge base?",
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
@@ -810,7 +805,7 @@ class RememberView(discord.ui.View):
     """Shown after !remember — lets the user edit or immediately forget the entry."""
 
     def __init__(self, entry_id: int, entry_title: str, content: str):
-        super().__init__(timeout=300)
+        super().__init__(timeout=120)
         self.entry_id = entry_id
         self.entry_title = entry_title
         self.content = content
@@ -825,7 +820,7 @@ class RememberView(discord.ui.View):
         confirm_view = 確認刪除View(self.entry_id, self.entry_title)
         embed = discord.Embed(
             title="⚠️ 確認刪除",
-            description=f"確定要從知識庫刪除 **{self.entry_title}** (#{self.entry_id})？\n此操作無法撤銷。",
+            description=f"刪除 **{self.entry_title}** (#{self.entry_id}) from the knowledge base?",
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
@@ -1064,7 +1059,7 @@ class CharacterView(discord.ui.View):
     """
 
     def __init__(self, bot_name: str, background: str, personality: str = "", looks: str = "", image_count: int = 0):
-        super().__init__(timeout=300)
+        super().__init__(timeout=120)
         self.bot_name = bot_name
         self.background = background
         self.personality = personality
@@ -1150,7 +1145,7 @@ class CharacterView(discord.ui.View):
         edit_btn.callback = self._edit_character
         self.add_item(edit_btn)
 
-        if self.image_count >= 1:
+        if self.image_count > 1:
             gallery_btn = discord.ui.Button(
                 label="外貌圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=2,
             )
@@ -1262,9 +1257,9 @@ class SaveGeneratedModal(discord.ui.Modal, title="保存生成的圖像"):
         max_length=100,
     )
     description_input = discord.ui.TextInput(
-        label="描述（選填）",
+        label="Description (optional)",
         style=discord.TextStyle.paragraph,
-        placeholder="留空則自動生成描述...",
+        placeholder="Leave blank to auto-generate a description with Llama 4...",
         required=False,
         max_length=2000,
     )
@@ -1291,8 +1286,6 @@ class SaveGeneratedModal(discord.ui.Modal, title="保存生成的圖像"):
                 "Describe this generated image in detail for a knowledge base entry.",
             )
         entry_id = database.add_image_entry(title, self.img_bytes, self.mime_type, desc)
-        import bot as _bot_module
-        _bot_module._invalidate_kb_title_index()
         embed = discord.Embed(
             title="💾 已保存到知識庫",
             color=discord.Color.green(),

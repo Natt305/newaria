@@ -319,7 +319,8 @@ async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
     are returned unchanged so the KB never overrides the intended subject.
     Returns (enriched_prompt, matched_entries).
     """
-    image_entries = database.get_image_entries()
+    all_image_entries = database.get_all_entries(limit=200)
+    image_entries = [e for e in all_image_entries if e.get("entry_type") == "image"]
 
     prompt_lower = image_prompt.lower()
     matched = []
@@ -1009,14 +1010,12 @@ async def setcharacter_cmd(ctx, name: str, background: str, personality: str = "
     success = database.set_character(name, background, personality, looks)
     if success:
         conversation_contexts.clear()
-        image_count = database.get_character_image_count()
         embed = ui.build_char_embed(
             name, background, personality, looks,
             title="✅ 角色已更新",
             footer="對話歷史已清除。隨時可按「編輯角色」更新設定。",
-            image_count=image_count,
         )
-        view = ui.CharacterView(name, background, personality, looks, image_count=image_count)
+        view = ui.CharacterView(name, background, personality, looks)
         await ctx.reply(embed=embed, view=view, mention_author=False)
     else:
         await ctx.reply("❌ 更新角色時發生錯誤，請重試。", mention_author=False)
@@ -1245,7 +1244,7 @@ async def setdesc_cmd(ctx, entry_id: int, *, description: str):
         return
     if entry["entry_type"] != "image":
         await ctx.reply(
-            f"❌ 條目 #{entry_id} 是文字條目，無法設定圖像描述。請使用 `/remember` 更新文字內容。",
+            f"❌ Entry #{entry_id} is a text entry. Use `!remember` to update text entries.",
             mention_author=False,
         )
         return
@@ -1253,13 +1252,13 @@ async def setdesc_cmd(ctx, entry_id: int, *, description: str):
     if success:
         _invalidate_kb_title_index()
         embed = discord.Embed(title="✅ 描述已更新", color=discord.Color.green())
-        embed.add_field(name="🖼️ 條目", value=f"#{entry_id} — {entry['title']}", inline=False)
-        embed.add_field(name="📄 新描述", value=description[:1000], inline=False)
+        embed.add_field(name="🖼️ Entry", value=f"#{entry_id} — {entry['title']}", inline=False)
+        embed.add_field(name="📄 New Description", value=description[:1000], inline=False)
         updated_entry = database.get_entry_by_id(entry_id)
         view = ui.EntryView(updated_entry)
         await ctx.reply(embed=embed, view=view, mention_author=False)
     else:
-        await ctx.reply("❌ 發生錯誤，請重試。", mention_author=False)
+        await ctx.reply("❌ 發生錯誤. Please try again.", mention_author=False)
 
 
 @bot.hybrid_command(name="viewentry", description="檢視知識庫條目；不填 ID 則開啟管理器")
