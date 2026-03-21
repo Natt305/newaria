@@ -164,6 +164,8 @@ class 確認刪除View(discord.ui.View):
         success = database.delete_entry(self.entry_id)
         self._disable_all()
         if success:
+            import bot as _bot_module
+            _bot_module._invalidate_kb_title_index()
             await interaction.response.edit_message(
                 content=f"🗑️ **{self.entry_title}** (#{self.entry_id}) 已刪除。",
                 embed=None,
@@ -936,6 +938,8 @@ class CharacterGalleryView(discord.ui.View):
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
+        import bot as _bot_module
+        _bot_module._invalidate_char_images_ctx()
         self.image_count -= 1
         if self.image_count == 0:
             await interaction.response.edit_message(

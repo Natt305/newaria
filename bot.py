@@ -39,16 +39,55 @@ def load_character() -> tuple[str, str, str]:
     return char["name"], char["background"], char.get("personality", "")
 
 
+_char_images_ctx_cache: Optional[str] = None
+
 def build_character_images_context() -> str:
-    """Return a numbered list of character image descriptions for the system prompt."""
+    """Return a numbered list of character image descriptions for the system prompt.
+    Result is cached in-memory; call _invalidate_char_images_ctx() after any image add/remove.
+    """
+    global _char_images_ctx_cache
+    if _char_images_ctx_cache is not None:
+        return _char_images_ctx_cache
     images = database.get_character_images_meta()
     if not images:
+        _char_images_ctx_cache = ""
         return ""
     parts = []
     for i, img in enumerate(images, 1):
         desc = (img.get("description") or "").strip()
         parts.append(f"{i}. {desc}" if desc else f"{i}. (此圖片尚無描述)")
-    return "\n".join(parts)
+    _char_images_ctx_cache = "\n".join(parts)
+    return _char_images_ctx_cache
+
+
+def _invalidate_char_images_ctx() -> None:
+    """Clear the character images context cache (call after add/remove character image)."""
+    global _char_images_ctx_cache
+    _char_images_ctx_cache = None
+
+
+_kb_image_title_index: Optional[dict] = None
+
+def _get_kb_image_title_index() -> dict:
+    """Return {lowercase_title: entry_id} for all image-type KB entries.
+    Built lazily on first call; invalidated by _invalidate_kb_title_index().
+    """
+    global _kb_image_title_index
+    if _kb_image_title_index is not None:
+        return _kb_image_title_index
+    entries = database.get_all_entries(limit=500)
+    _kb_image_title_index = {
+        (e.get("title") or "").strip().lower(): e["id"]
+        for e in entries
+        if e.get("entry_type") == "image" and len((e.get("title") or "").strip()) >= 2
+    }
+    return _kb_image_title_index
+
+
+def _invalidate_kb_title_index() -> None:
+    """Clear the KB image title index (call after any KB add/update/delete)."""
+    global _kb_image_title_index
+    _kb_image_title_index = None
 
 
 def build_system_prompt(name: str, background: str, personality: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "") -> str:
@@ -120,7 +159,7 @@ def has_clear_topic(channel_id: str) -> bool:
     return len(get_channel_context(channel_id)) >= 2
 
 
-async def build_knowledge_context(channel_id: str, user_query: str = "") -> str:
+async def build_knowledge_context(channel_id: str, user_query: str = "", simple: bool = False) -> str:
     """Build KB context for the system prompt.
 
     Strategy:
@@ -129,6 +168,8 @@ async def build_knowledge_context(channel_id: str, user_query: str = "") -> str:
     - Search-relevant entries are marked and placed first so the LLM pays
       closer attention to them during the current conversation.
     - Images are always described in full so the bot can refer to them naturally.
+    - When simple=True (short chitchat), only inject the starred relevant entries
+      and skip the background dump to keep the system prompt small.
     """
     all_entries = database.get_all_entries(limit=30)
     if not all_entries:
@@ -172,13 +213,20 @@ async def build_knowledge_context(channel_id: str, user_query: str = "") -> str:
         else:
             other_parts.append(line)
 
+    if simple:
+        # For short chitchat: only inject the genuinely relevant entries.
+        # If nothing is relevant, skip KB entirely to keep the prompt lean.
+        if not relevant_parts:
+            return ""
+        return "(★ = especially relevant to the current conversation)\n" + "\n".join(relevant_parts)
+
     parts = relevant_parts + other_parts
     if not parts:
         return ""
 
     header = ""
     if relevant_parts:
-        header = f"(★ = especially relevant to the current conversation)\n"
+        header = "(★ = especially relevant to the current conversation)\n"
     return header + "\n".join(parts)
 
 
@@ -197,6 +245,38 @@ _APPEARANCE_PATTERNS = [
 def is_appearance_query(text: str) -> bool:
     """Return True when the user's message appears to ask about Aria's appearance."""
     return any(p.search(text) for p in _APPEARANCE_PATTERNS)
+
+
+_QUESTION_PATTERNS = [
+    _re.compile(r"\b(what|why|how|when|where|who|which|whose|whom|can|could|would|should|is|are|do|does|did|tell me|explain|describe)\b", _re.I),
+    _re.compile(r"[?？]"),
+    _re.compile(r"(什麼|為什麼|為何|怎麼|如何|哪|誰|幾|是否|可以|能不能|告訴我|解釋|介紹|說說)"),
+]
+
+_RECALL_PATTERNS_SIMPLE = [
+    _re.compile(r"(remember|記得|記憶|之前|上次|你說過|說過)", _re.I),
+]
+
+
+def is_simple_message(text: str) -> bool:
+    """Return True if the message is short chitchat that doesn't need a full KB dump.
+
+    A message is considered simple when:
+    - It is 60 characters or fewer, AND
+    - It contains no question words or question marks (Chinese or English), AND
+    - It contains no recall trigger words.
+    """
+    if not text:
+        return True
+    if len(text) > 60:
+        return False
+    for pat in _QUESTION_PATTERNS:
+        if pat.search(text):
+            return False
+    for pat in _RECALL_PATTERNS_SIMPLE:
+        if pat.search(text):
+            return False
+    return True
 
 
 async def build_visual_kb_context(image_description: str) -> tuple:
@@ -376,7 +456,8 @@ async def process_chat(
             image_failed = True
 
     # Build KB context from conversation topic (dynamic memory pool)
-    kb_context = await build_knowledge_context(channel_id, user_text)
+    _simple = is_simple_message(user_text) and not image_bytes
+    kb_context = await build_knowledge_context(channel_id, user_text, simple=_simple)
 
     # Build long-term memory context (active always; passive if recall phrase detected)
     memory_context = await build_memory_context(user_text)
@@ -435,19 +516,14 @@ async def process_chat(
                 context_images.append(result)
 
     # KB image thumbnails from title-name match in user text (text-only path)
-    if not image_bytes and len(context_images) < _MAX_CTX_IMAGES:
-        all_img_entries = database.get_all_entries(limit=200)
-        text_lower = user_text.lower() if user_text else ""
-        for entry in all_img_entries:
-            if entry.get("entry_type") != "image":
-                continue
-            title = (entry.get("title") or "").strip()
-            if len(title) >= 2 and title.lower() in text_lower:
-                entry_id = entry.get("id")
-                if entry_id:
-                    result = database.get_kb_image_thumb(entry_id)
-                    if result:
-                        context_images.append(result)
+    # Uses a pre-built in-memory index to avoid loading hundreds of entries per message.
+    if not image_bytes and len(context_images) < _MAX_CTX_IMAGES and user_text:
+        text_lower = user_text.lower()
+        for title_lower, entry_id in _get_kb_image_title_index().items():
+            if title_lower in text_lower:
+                result = database.get_kb_image_thumb(entry_id)
+                if result:
+                    context_images.append(result)
             if len(context_images) >= _MAX_CTX_IMAGES:
                 break
 
@@ -1092,6 +1168,9 @@ async def addcharimage_cmd(
         except Exception:
             pass
 
+    if added:
+        _invalidate_char_images_ctx()
+
     new_count = database.get_character_image_count()
     embed = discord.Embed(
         title="🖼️ 角色外貌圖片批量新增結果",
@@ -1118,6 +1197,7 @@ async def remember_cmd(ctx, title: str, *, content: str):
     if not await check_command_role(ctx):
         return
     entry_id = database.add_text_entry(title, content)
+    _invalidate_kb_title_index()
     embed = discord.Embed(
         title="📝 已保存到知識庫",
         color=discord.Color.green(),
@@ -1166,6 +1246,7 @@ async def setdesc_cmd(ctx, entry_id: int, *, description: str):
         return
     success = database.update_image_description(entry_id, description)
     if success:
+        _invalidate_kb_title_index()
         embed = discord.Embed(title="✅ 描述已更新", color=discord.Color.green())
         embed.add_field(name="🖼️ Entry", value=f"#{entry_id} — {entry['title']}", inline=False)
         embed.add_field(name="📄 New Description", value=description[:1000], inline=False)
@@ -1343,6 +1424,9 @@ async def saveimage_cmd(
             await progress_msg.delete()
         except Exception:
             pass
+
+    if success_count > 0:
+        _invalidate_kb_title_index()
 
     entry_id = main_entry_id
     final_desc = user_desc
