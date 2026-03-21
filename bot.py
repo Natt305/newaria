@@ -69,17 +69,18 @@ def _invalidate_char_images_ctx() -> None:
 _kb_image_title_index: Optional[dict] = None
 
 def _get_kb_image_title_index() -> dict:
-    """Return {lowercase_title: entry_id} for all image-type KB entries.
+    """Return {lowercase_title: entry_id} for ALL image-type KB entries.
     Built lazily on first call; invalidated by _invalidate_kb_title_index().
+    Uses database.get_image_entries() which has no limit cap.
     """
     global _kb_image_title_index
     if _kb_image_title_index is not None:
         return _kb_image_title_index
-    entries = database.get_all_entries(limit=500)
+    entries = database.get_image_entries()
     _kb_image_title_index = {
         (e.get("title") or "").strip().lower(): e["id"]
         for e in entries
-        if e.get("entry_type") == "image" and len((e.get("title") or "").strip()) >= 2
+        if len((e.get("title") or "").strip()) >= 2
     }
     return _kb_image_title_index
 

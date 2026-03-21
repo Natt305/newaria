@@ -651,6 +651,11 @@ def get_all_entries(limit: int = 200) -> List[Dict[str, Any]]:
     return entries[:limit]
 
 
+def get_image_entries() -> List[Dict[str, Any]]:
+    """Return all image-type KB entries without any limit (for index building)."""
+    return [e for e in _load_all_knowledge_entries() if e.get("entry_type") == "image"]
+
+
 def get_entry_by_id(entry_id: int) -> Optional[Dict[str, Any]]:
     text_path = _text_entry_path(entry_id)
     if os.path.exists(text_path):
