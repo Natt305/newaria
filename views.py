@@ -104,22 +104,22 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
         label="背景",
         style=discord.TextStyle.paragraph,
         placeholder="描述角色的身份與背景...",
-        max_length=3000,
+        max_length=4000,
         required=False,
     )
     personality = discord.ui.TextInput(
         label="個性 / 說話風格",
         style=discord.TextStyle.paragraph,
         placeholder="描述說話語氣、習慣用語、個性特徵...",
-        max_length=3000,
+        max_length=4000,
         required=False,
     )
 
     def __init__(self, current_name: str = "", current_background: str = "", current_personality: str = ""):
         super().__init__()
         self.name.default = current_name[:50]
-        self.background.default = current_background[:3000]
-        self.personality.default = current_personality[:3000]
+        self.background.default = current_background[:4000]
+        self.personality.default = current_personality[:4000]
 
     async def on_submit(self, interaction: discord.Interaction):
         import bot as bot_module
@@ -129,12 +129,14 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
         success = database.set_character(new_name, new_bg, new_personality)
         if success:
             bot_module.conversation_contexts.clear()
-            embed = build_char_embed(
+            new_embed = build_char_embed(
                 new_name, new_bg, new_personality,
+                tab="background", bg_page=0,
                 title="✅ 角色已更新",
-                footer="對話歷史已清除以套用新角色。",
+                footer="對話歷史已清除以套用新角色。點擊下方按鈕可繼續編輯。",
             )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            new_view = CharacterView(new_name, new_bg, new_personality)
+            await interaction.response.edit_message(embed=new_embed, view=new_view)
         else:
             await interaction.response.send_message(
                 "❌ 發生錯誤，請重試。", ephemeral=True

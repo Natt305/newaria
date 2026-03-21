@@ -923,8 +923,8 @@ async def on_message(message: discord.Message):
     background="角色的背景與身份描述",
     personality="說話風格與個性描述（選填）",
 )
-async def setcharacter_cmd(ctx, name: str, background: str, *, personality: str = ""):
-    """設定機器人的角色: /setcharacter 名稱 背景 [個性]"""
+async def setcharacter_cmd(ctx, name: str, *, background: str = "", personality: str = ""):
+    """設定機器人的角色: /setcharacter 名稱 [背景] [個性] 或 !setcharacter 名稱 背景..."""
     if not await check_command_role(ctx):
         return
     success = database.set_character(name, background, personality)
