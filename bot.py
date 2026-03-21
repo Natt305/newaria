@@ -2323,6 +2323,7 @@ def main():
         print("[WARNING] Cloudflare API 認證未設定。圖像生成將被禁用。")
 
     database.init_db()
+    database.migrate_thumbnails()
     bot_name, _ = load_character()
     print(f"[Bot] 啟動角色: {bot_name}")
     print(f"[Bot] Groq: {'準備就緒' if GROQ_API_KEY else '遺失'}")
