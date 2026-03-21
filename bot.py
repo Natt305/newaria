@@ -371,6 +371,7 @@ async def send_with_suggestions(response_text: str, channel_id: str, reply_targe
         character_background=background,
         count=3,
         guiding_prompt=_suggestion_prompt,
+        language_sample=text[:200],
     )
     view = SuggestionView(suggestions, channel_id)
 

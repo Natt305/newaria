@@ -487,25 +487,33 @@ async def generate_suggestions(
     character_background: str,
     count: int = 3,
     guiding_prompt: str = "",
+    language_sample: str = "",
 ) -> list:
     """Generate short follow-up suggestion buttons (max 80 chars each).
 
-    If guiding_prompt is provided it fully replaces the default system instruction,
-    so callers can control the tone/style/content of suggestions.
+    language_sample should be a snippet of the bot's latest reply so the AI
+    can detect and mirror the correct language automatically.
+    If guiding_prompt is provided it is prepended to the default instruction.
     Returns concise suggestions suitable for Discord button labels.
     """
     import json
 
+    lang_instruction = ""
+    if language_sample and language_sample.strip():
+        lang_instruction = (
+            f"IMPORTANT: Write every suggestion in the EXACT same language as this sample text "
+            f"(detect it automatically — do NOT translate): \"{language_sample[:120]}\"\n"
+        )
+
     base = (
+        f"{lang_instruction}"
         f"You are {bot_name}. {character_background}\n"
         f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
-        f"Write them as the USER speaking to you — casual, warm, and conversational, like something you'd actually type to a friend.\n"
-        f"Each should be 40–75 characters. No punctuation at the end. No quotes.\n"
+        f"Write them as the USER speaking to you — casual, warm, and conversational.\n"
+        f"Each should be 10–75 characters. No punctuation at the end. No quotes.\n"
         f"Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
-        f'Example: ["That\'s so cool, what made you get into that", "Okay but wait, how does that actually work", "Can you show me a picture of that"]'
     )
     if guiding_prompt:
-        # Custom prompt guides tone/style/length; JSON requirement is always enforced
         system = f"{guiding_prompt}\n\n{base}"
     else:
         system = base
@@ -537,8 +545,4 @@ async def generate_suggestions(
     except Exception as e:
         print(f"[Groq] Suggestion parse error: {e}")
 
-    return [
-        "Hmm, tell me more about that",
-        "Wait, I want to know more",
-        "Okay that's interesting, go on",
-    ]
+    return []  # silently return no buttons rather than wrong-language fallbacks

@@ -90,8 +90,10 @@ async def generate_suggestions(
     character_background: str,
     count: int = 3,
     guiding_prompt: str = "",
+    language_sample: str = "",
 ) -> list:
     return await _mod().generate_suggestions(
         topic, bot_name, character_background,
         count=count, guiding_prompt=guiding_prompt,
+        language_sample=language_sample,
     )
