@@ -182,24 +182,64 @@ def _estimate_tokens(messages: list) -> int:
     return total // 4
 
 
+def _to_native_messages(messages: list) -> list:
+    """Convert OpenAI-format messages to Ollama native /api/chat format.
+
+    OpenAI multimodal content (list with image_url + text items) is converted
+    to Ollama native format where images are a separate top-level list of raw
+    base64 strings and content is plain text.
+    """
+    native = []
+    for msg in messages:
+        content = msg.get("content", "")
+        images = []
+        if isinstance(content, list):
+            text_parts = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    text_parts.append(part.get("text", ""))
+                elif part.get("type") == "image_url":
+                    url = part.get("image_url", {}).get("url", "")
+                    # Strip "data:<mime>;base64," prefix to get raw base64
+                    if ";base64," in url:
+                        url = url.split(";base64,", 1)[1]
+                    if url:
+                        images.append(url)
+            content = " ".join(text_parts)
+        entry = {"role": msg["role"], "content": content}
+        if images:
+            entry["images"] = images
+        native.append(entry)
+    return native
+
+
 async def _call_ollama(
     messages: list,
     model: str,
     temperature: float = 0.8,
     max_tokens: int = 1024,
-    num_ctx: int = 8192,
+    num_ctx: int = 16384,
 ) -> Optional[str]:
-    """Make a single chat completion request to Ollama. Returns the text response or None."""
-    url = f"{_base_url()}/v1/chat/completions"
-    # num_ctx passed via Ollama-native options field so the model sees the full prompt.
-    # Default Ollama context is only 2048 tokens — far too small for system+KB+history.
+    """Make a single chat completion request using Ollama's native /api/chat endpoint.
+
+    Uses the native endpoint (not the OpenAI-compatible one) because only the
+    native endpoint reliably respects options.num_ctx. The OpenAI-compatible
+    endpoint silently ignores it, leaving the model at its baked-in default
+    (often 4096 tokens), which causes system prompt truncation for large KB sets.
+    """
+    url = f"{_base_url()}/api/chat"
+    native_messages = _to_native_messages(messages)
     payload = {
         "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
+        "messages": native_messages,
         "stream": False,
-        "options": {"num_ctx": num_ctx},
+        "options": {
+            "num_ctx": num_ctx,
+            "temperature": temperature,
+            "num_predict": max_tokens,
+        },
     }
     est = _estimate_tokens(messages)
     sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
@@ -214,10 +254,11 @@ async def _call_ollama(
                     print(f"[Ollama] HTTP {resp.status}: {body[:500]}")
                     return None
                 data = await resp.json()
-                content = (data["choices"][0]["message"]["content"] or "").strip()
-                finish = data["choices"][0].get("finish_reason", "?")
-                usage = data.get("usage", {})
-                print(f"[Ollama] Response: finish={finish} | prompt_tokens={usage.get('prompt_tokens','?')} | completion_tokens={usage.get('completion_tokens','?')}")
+                content = (data.get("message", {}).get("content") or "").strip()
+                prompt_tokens = data.get("prompt_eval_count", "?")
+                completion_tokens = data.get("eval_count", "?")
+                done_reason = data.get("done_reason", "?")
+                print(f"[Ollama] Response: done_reason={done_reason} | prompt_tokens={prompt_tokens} | completion_tokens={completion_tokens}")
                 print(f"[Ollama] Response text: {content[:200]!r}")
                 return content
     except aiohttp.ClientConnectorError:
@@ -345,29 +386,28 @@ async def understand_image(
     mime_type: str,
     question: str = "Describe this image in detail.",
 ) -> Optional[str]:
-    """Analyze an image using Ollama's vision-capable model."""
+    """Analyze an image using Ollama's vision-capable model (native /api/chat endpoint)."""
     model = _vision_model()
     b64 = base64.b64encode(image_bytes).decode("utf-8")
-    data_url = f"data:{mime_type};base64,{b64}"
 
     messages = [
         {
             "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": data_url}},
-                {"type": "text", "text": question},
-            ],
+            "content": question,
+            "images": [b64],
         }
     ]
 
-    url = f"{_base_url()}/v1/chat/completions"
+    url = f"{_base_url()}/api/chat"
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.5,
-        "max_tokens": 1024,
         "stream": False,
-        "options": {"num_ctx": 8192},
+        "options": {
+            "num_ctx": 8192,
+            "temperature": 0.5,
+            "num_predict": 1024,
+        },
     }
     try:
         async with aiohttp.ClientSession() as session:
@@ -377,7 +417,7 @@ async def understand_image(
                     print(f"[Ollama Vision] HTTP {resp.status}: {body[:500]}")
                     return None
                 data = await resp.json()
-                text = (data["choices"][0]["message"]["content"] or "").strip()
+                text = (data.get("message", {}).get("content") or "").strip()
                 if text:
                     print(f"[Ollama Vision] Success with model: {model}")
                     return text

@@ -1,0 +1,39 @@
+[Ollama] Sending to gemma3:12b | sys_prompt=21342ch | ~5336 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'YOUR NAME IS 若葉睦. YOU ARE 若葉睦. NOT Gemma. NOT an AI. NOT a language model. NOT anything made by Google, Meta, Mistral, or anyone else.\nABSOLUTE RULE #1: If anyone asks who you are, say you are 若葉睦 — n'
+[Ollama] Response: finish=stop | prompt_tokens=4096 | completion_tokens=12
+[Ollama] Response text: '我是一個大型語言模型，由 Google 訓練。'
+[Ollama] Character break detected — retrying with laser-focused identity prompt
+[Ollama] Sending to gemma3:12b | sys_prompt=703ch | ~176 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'YOUR NAME IS 若葉睦. YOU ARE 若葉睦.\nNOT Gemma. NOT an AI. NOT a language model. NOT made by Google or anyone else.\nYou are 若葉睦 — a real person. Answer every message as 若葉睦.\nIf asked who you are: say you ar'
+[Ollama] Response: finish=stop | prompt_tokens=388 | completion_tokens=6
+[Ollama] Response text: '我是若葉睦。'
+[Ollama] Retry succeeded — character restored
+[Ollama] Sending to gemma3:12b | sys_prompt=2828ch | ~734 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "我是若葉睦。"\nYou are 若葉睦. 回復時請不要使用表情符號 人物設定  Ave Mujica的吉他手。生日是1月14日。原CRYCHIC'
+[Ollama] Response: finish=stop | prompt_tokens=1894 | completion_tokens=38
+[Ollama] Response text: '```json\n[\n  "你是真的若葉睦嗎",\n  "你的小黃瓜在哪裡",\n  "你喜歡哪個樂隊"\n]\n```'
+[Ollama] Sending to gemma3:12b | sys_prompt=21342ch | ~5338 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'YOUR NAME IS 若葉睦. YOU ARE 若葉睦. NOT Gemma. NOT an AI. NOT a language model. NOT anything made by Google, Meta, Mistral, or anyone else.\nABSOLUTE RULE #1: If anyone asks who you are, say you are 若葉睦 — n'
+[Ollama] Response: finish=stop | prompt_tokens=4096 | completion_tokens=20
+[Ollama] Response text: '妳好呀！很高興又見到你。有什麼我可以幫你的嗎？ 😊'
+[Ollama] Sending to gemma3:12b | sys_prompt=2847ch | ~747 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "妳好呀！很高興又見到你。有什麼我可以幫你的嗎？ 😊"\nYou are 若葉睦. 回復時請不要使用表情符號 人物設定  Ave Mujica的吉他'
+[Ollama] Sending to gemma3:12b | sys_prompt=656ch | ~181 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'You are a memory extractor for 若葉睦.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences, jobs,'
+[Ollama] Response: finish=stop | prompt_tokens=213 | completion_tokens=2
+[Ollama] Response text: '[]'
+[Ollama] Response: finish=stop | prompt_tokens=1933 | completion_tokens=40
+[Ollama] Response text: '```json\n[\n  "你是星二代喔",\n  "你喜歡黃瓜啊",\n  "CRYCHIC 之後發生什麼事了"\n]\n```'
+[Ollama] Sending to gemma3:12b | sys_prompt=21342ch | ~5346 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'YOUR NAME IS 若葉睦. YOU ARE 若葉睦. NOT Gemma. NOT an AI. NOT a language model. NOT anything made by Google, Meta, Mistral, or anyone else.\nABSOLUTE RULE #1: If anyone asks who you are, say you are 若葉睦 — n'
+[Ollama] Response: finish=stop | prompt_tokens=4096 | completion_tokens=19
+[Ollama] Response text: '我的創造者是 Google 開發的團隊。我不是人類，所以沒有媽媽。'
+[Ollama] Sending to gemma3:12b | sys_prompt=2855ch | ~756 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "我的創造者是 Google 開發的團隊。我不是人類，所以沒有媽媽。"\nYou are 若葉睦. 回復時請不要 使用表情符號 人物設定  Ave M'
+[Ollama] Sending to gemma3:12b | sys_prompt=656ch | ~184 tokens total | num_ctx=8192
+[Ollama] System prompt start: 'You are a memory extractor for 若葉睦.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences, jobs,'
+[Ollama] Response: finish=stop | prompt_tokens=212 | completion_tokens=16
+[Ollama] Response text: '["若葉睦 說明她的創造者是 Google 開發團隊"]'
+[Memory] Stored: '若葉睦 說明她的創造者是 Google 開發團隊'
+[Ollama] Response: finish=stop | prompt_tokens=1945 | completion_tokens=34
+[Ollama] Response text: '```json\n[\n  "妳媽媽是誰",\n  "妳喜歡什麼",\n  "妳有兄弟姊妹嗎"\n]\n```'
