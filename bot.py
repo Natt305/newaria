@@ -77,6 +77,7 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
         "(in any language including Chinese: 生成、畫、繪、製作、創作、圖片、圖像、插圖), "
         "you MUST reply with EXACTLY this format and NOTHING ELSE:\n"
         "[IMAGE: <rich English prompt>]\n"
+        "CRITICAL: The keyword must be IMAGE in English capital letters. NEVER write [圖像生成:...] or [圖像:...] or any Chinese variant — ONLY [IMAGE: ...].\n"
         "Rules for the image prompt:\n"
         "  1. Always write in English, even if the user asked in Chinese.\n"
         "  2. Be specific and descriptive — include subject, style, lighting, colors, mood, and setting.\n"
@@ -85,6 +86,7 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
         "  5. Do NOT explain that you are generating an image.\n"
         "Good example: [IMAGE: a young woman playing electric guitar on a neon-lit Tokyo street at night, cinematic lighting, vibrant colors, anime style]\n"
         "Bad example: Sure! Here you go: [IMAGE: cat]\n"
+        "Bad example: [圖像生成: 一個女孩]\n"
     )
     if character_images_context:
         lines = [l for l in character_images_context.splitlines() if l.strip()]

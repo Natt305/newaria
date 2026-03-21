@@ -69,7 +69,10 @@ IMAGE_REQUEST_PATTERNS = [
     re.compile(r"(圖片|圖像|照片|插圖).{0,10}(生成|製作|創作)", re.I),
 ]
 
-_IMAGE_MARKER_RE = re.compile(r"\[IMAGE:\s*(.+?)\]", re.I | re.S)
+_IMAGE_MARKER_RE = re.compile(
+    r"\[(?:IMAGE|圖像生成|圖像|生成圖像|生成图像|图像生成|图像|GENERATE IMAGE|GEN IMAGE):\s*(.+?)\]",
+    re.I | re.S,
+)
 
 _SELF_REF_RE = re.compile(
     r"\b(selfie|self.?portrait|photo of me|picture of me|my face|my photo|my picture|"
