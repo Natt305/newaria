@@ -1,6 +1,6 @@
 """
-Cloudflare Workers AI client for image generation using Flux 2 Klein 4B.
-Uses @cf/black-forest-labs/flux-2-klein-4b model.
+Cloudflare Workers AI client for image generation using Flux 1 Schnell.
+Uses @cf/black-forest-labs/flux-1-schnell model.
 """
 import os
 import re
@@ -9,7 +9,7 @@ import base64
 from typing import Optional, Tuple
 import aiohttp
 
-MODEL = "@cf/black-forest-labs/flux-2-klein-4b"
+MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
 WIDTH = 512
 HEIGHT = 512
@@ -45,18 +45,14 @@ async def _do_generate(session: aiohttp.ClientSession, url: str, headers: dict, 
     Returns (bytes, mime) on success, ("NSFW", "") on NSFW rejection,
     ("API_KEY_ERROR", "") on auth failure, ("MODEL_ERROR", "") on server error,
     or None on other failure.
-
-    Sends the request as multipart/form-data (required by flux-2-klein-4b and
-    other newer Cloudflare models). aiohttp sets Content-Type automatically when
-    using FormData, so only the Authorization header is passed explicitly.
     """
-    form = aiohttp.FormData()
-    form.add_field("prompt", prompt)
-    form.add_field("width", str(WIDTH))
-    form.add_field("height", str(HEIGHT))
-    form.add_field("num_steps", str(NUM_STEPS))
-    multipart_headers = {"Authorization": headers["Authorization"]}
-    async with session.post(url, data=form, headers=multipart_headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+    payload = {
+        "prompt": prompt,
+        "width": WIDTH,
+        "height": HEIGHT,
+        "num_steps": NUM_STEPS,
+    }
+    async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
         content_type = resp.headers.get("Content-Type", "")
         print(f"[Cloudflare] Status: {resp.status} | Content-Type: {content_type}")
 
