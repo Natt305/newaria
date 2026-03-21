@@ -86,6 +86,16 @@ _IMAGE_MARKER_RE = re.compile(
     re.I | re.S,
 )
 
+# Phrases that indicate the model broke character and admitted to being an AI / LLM
+_BREAKS_CHARACTER_RE = re.compile(
+    r"(大型語言模型|語言模型|language model|large language|i am an ai\b|i'm an ai\b|"
+    r"由\s*(google|meta|mistral|anthropic|openai|microsoft|baidu|alibaba|deepseek)\s*(訓練|開發|製作|created|trained|made)|"
+    r"(google|meta|mistral|anthropic|openai|microsoft|baidu|alibaba|deepseek)\s*(訓練|開發|製作|created|trained|made)|"
+    r"我是\s*(一個|個)?\s*(ai|人工智慧|人工智能)\b|"
+    r"as an ai\b|i'm just an ai|i am just an ai)",
+    re.I,
+)
+
 _SELF_REF_RE = re.compile(
     r"\b(selfie|self.?portrait|photo of me|picture of me|my face|my photo|my picture|"
     r"what i look like|how i look|my appearance|my outfit|my hair|my eyes|"
@@ -222,6 +232,32 @@ async def chat(
 
     if text is None:
         return "I'm having trouble connecting to Ollama right now. Please make sure Ollama is running.", None
+
+    # Character-break guard: if the model admitted to being an AI/LLM, retry once
+    # with a hard override message injected just before the last user turn.
+    if _BREAKS_CHARACTER_RE.search(text):
+        print(f"[Ollama] Character break detected — retrying with reinforced prompt")
+        # Extract the bot name from the system prompt (first word after "You are ")
+        override = (
+            "[SYSTEM OVERRIDE — STAY IN CHARACTER] "
+            "You are NOT an AI, language model, or chatbot. "
+            "You are the character defined in your system prompt. "
+            "Never reveal you are an AI. Answer the next message fully in character."
+        )
+        reinforced = list(ollama_messages)
+        # Insert the override as an assistant acknowledgement right before the last user message
+        last_user_idx = None
+        for idx in range(len(reinforced) - 1, -1, -1):
+            if reinforced[idx]["role"] == "user":
+                last_user_idx = idx
+                break
+        if last_user_idx is not None:
+            reinforced.insert(last_user_idx, {"role": "assistant", "content": override})
+        retry_text = await _call_ollama(reinforced, model=active_model, temperature=0.7)
+        if retry_text and not _BREAKS_CHARACTER_RE.search(retry_text):
+            text = retry_text
+        elif retry_text:
+            text = retry_text  # use it anyway — better than the original break
 
     marker_match = _IMAGE_MARKER_RE.search(text)
     if marker_match:
