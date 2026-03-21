@@ -1,6 +1,6 @@
 """
-Cloudflare Workers AI client for image generation using Flux 2.
-Uses @cf/black-forest-labs/flux-2-dev model.
+Cloudflare Workers AI client for image generation using Flux 2 Klein 4B.
+Uses @cf/black-forest-labs/flux-2-klein-4b model.
 """
 import os
 import re
@@ -9,11 +9,11 @@ import base64
 from typing import Optional, Tuple
 import aiohttp
 
-MODEL = "@cf/black-forest-labs/flux-1-schnell"
+MODEL = "@cf/black-forest-labs/flux-2-klein-4b"
 
 WIDTH = 512
 HEIGHT = 512
-NUM_STEPS = 4
+NUM_STEPS = 6
 
 # Words that Cloudflare's NSFW filter falsely flags even in innocent contexts.
 # Each entry is (pattern, replacement). Applied before the first request.
