@@ -7,8 +7,39 @@ import os
 import asyncio
 import re
 import base64
+import time
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from groq import AsyncGroq
+
+# ── Per-day exhaustion tracking ───────────────────────────────────────────────
+# Maps model_name -> Unix timestamp when it was marked exhausted.
+# A model is considered exhausted until the next midnight UTC after that point.
+_daily_exhausted: dict[str, float] = {}
+
+def _mark_daily_exhausted(model: str) -> None:
+    """Record that this model hit its daily token limit."""
+    _daily_exhausted[model] = time.time()
+    print(f"[Groq] {model} hit daily token limit — skipping until midnight UTC.")
+
+def _is_daily_exhausted(model: str) -> bool:
+    """Return True if the model is still within its daily-exhaustion window."""
+    ts = _daily_exhausted.get(model)
+    if ts is None:
+        return False
+    exhausted_at = datetime.fromtimestamp(ts, tz=timezone.utc)
+    next_midnight = (exhausted_at + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    if datetime.now(timezone.utc) >= next_midnight:
+        del _daily_exhausted[model]   # expired — remove so it's tried again
+        return False
+    return True
+
+def _is_daily_limit_error(err: str) -> bool:
+    """Return True if the error string indicates a daily/total quota, not a per-minute spike."""
+    markers = ("per_day", "per day", "daily", "tokens_per_day", "day limit", "24-hour")
+    return any(m in err for m in markers)
 
 _DEFAULT_CHAT_MODEL   = "llama-3.3-70b-versatile"
 _DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -402,6 +433,13 @@ async def chat(
     else:
         models_to_try = [model] + [m for m in FALLBACK_MODELS if m != model]
 
+    # Skip models that already hit their daily token limit today
+    available = [m for m in models_to_try if not _is_daily_exhausted(m)]
+    if len(available) < len(models_to_try):
+        skipped = [m for m in models_to_try if _is_daily_exhausted(m)]
+        print(f"[Groq] Skipping daily-exhausted models: {skipped}")
+    models_to_try = available
+
     for attempt_model in models_to_try:
         try:
             response = await client.chat.completions.create(
@@ -436,8 +474,11 @@ async def chat(
                 print(f"[Groq] Model {attempt_model} unavailable, trying next...")
                 continue
             if "rate limit" in err or "429" in err:
-                print(f"[Groq] Rate limited on {attempt_model}, trying next...")
-                await asyncio.sleep(2)
+                if _is_daily_limit_error(err):
+                    _mark_daily_exhausted(attempt_model)
+                else:
+                    print(f"[Groq] Rate limited on {attempt_model}, trying next...")
+                    await asyncio.sleep(2)
                 continue
             print(f"[Groq] Error with {attempt_model}: {e}")
             continue
