@@ -954,10 +954,11 @@ async def setcharacter_cmd(ctx, name: str, *, background: str):
     success = database.set_character(name, background)
     if success:
         conversation_contexts.clear()
-        embed = discord.Embed(title="✅ 角色已更新", color=discord.Color.gold())
-        embed.add_field(name="🏷️ 名稱", value=name, inline=True)
-        embed.add_field(name="📖 背景", value=background[:1000], inline=False)
-        embed.set_footer(text="對話歷史已清除。隨時可按「編輯角色」更新設定。")
+        embed = ui.build_char_embed(
+            name, background,
+            title="✅ 角色已更新",
+            footer="對話歷史已清除。隨時可按「編輯角色」更新設定。",
+        )
         view = ui.CharacterView(name, background)
         await ctx.reply(embed=embed, view=view, mention_author=False)
     else:
@@ -972,12 +973,7 @@ async def character_cmd(ctx):
     bot_name, background = load_character()
     image_count = database.get_character_image_count()
 
-    embed = discord.Embed(title="🎭 目前角色", color=discord.Color.gold())
-    embed.add_field(name="🏷️ 名稱", value=bot_name, inline=True)
-    if image_count:
-        embed.add_field(name="🖼️ 外貌圖片", value=f"{image_count} 張", inline=True)
-    embed.add_field(name="📖 背景", value=background[:1000], inline=False)
-    embed.set_footer(text="點擊下方按鈕可編輯角色設定或瀏覽外貌圖庫。")
+    embed = ui.build_char_embed(bot_name, background, image_count=image_count)
 
     file = None
     if image_count >= 1:

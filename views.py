@@ -962,27 +962,114 @@ class CharacterGalleryView(discord.ui.View):
             item.disabled = True
 
 
+def _bg_chunks(background: str) -> list:
+    """Split character background into 1024-char pages for pagination."""
+    text = background or "（未設定背景）"
+    return [text[i:i + _CONTENT_PAGE_SIZE] for i in range(0, max(1, len(text)), _CONTENT_PAGE_SIZE)]
+
+
+def build_char_embed(
+    bot_name: str,
+    background: str,
+    bg_page: int = 0,
+    image_count: int = 0,
+    title: str = "🎭 目前角色",
+    color: discord.Color = discord.Color.gold(),
+    footer: str = "點擊下方按鈕可編輯角色設定或瀏覽外貌圖庫。",
+) -> discord.Embed:
+    """Build the character profile embed for a given background page."""
+    embed = discord.Embed(title=title, color=color)
+    embed.add_field(name="🏷️ 名稱", value=bot_name, inline=True)
+    if image_count:
+        embed.add_field(name="🖼️ 外貌圖片", value=f"{image_count} 張", inline=True)
+
+    chunks = _bg_chunks(background)
+    total = len(chunks)
+    page = max(0, min(bg_page, total - 1))
+
+    field_name = "📖 背景"
+    if total > 1:
+        field_name += f"　第 {page + 1} / {total} 頁"
+    embed.add_field(name=field_name, value=chunks[page], inline=False)
+
+    if footer:
+        embed.set_footer(text=footer)
+    return embed
+
+
 class CharacterView(discord.ui.View):
-    """Shown by !character — lets the user edit the bot's character and browse appearance photos."""
+    """Shown by !character — lets the user edit the bot's character and browse appearance photos.
+
+    When the background exceeds 1024 characters, ◀ / ▶ buttons let the user
+    page through it without leaving the view.
+    """
 
     def __init__(self, bot_name: str, background: str, image_count: int = 0):
         super().__init__(timeout=120)
         self.bot_name = bot_name
         self.background = background
         self.image_count = image_count
+        self.bg_page = 0
+        self.bg_total = len(_bg_chunks(background))
+        self._build_buttons()
+
+    def _get_embed(self) -> discord.Embed:
+        return build_char_embed(self.bot_name, self.background, self.bg_page, self.image_count)
+
+    def _build_buttons(self):
+        self.clear_items()
+
+        # Row 0: background pagination (only when > 1 page)
+        if self.bg_total > 1:
+            prev_btn = discord.ui.Button(
+                emoji="◀️", label="上一頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=self.bg_page == 0, row=0,
+            )
+            prev_btn.callback = self._prev_page
+
+            counter_btn = discord.ui.Button(
+                label=f"第 {self.bg_page + 1} / {self.bg_total} 頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=True, row=0,
+            )
+
+            next_btn = discord.ui.Button(
+                emoji="▶️", label="下一頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=self.bg_page >= self.bg_total - 1, row=0,
+            )
+            next_btn.callback = self._next_page
+
+            self.add_item(prev_btn)
+            self.add_item(counter_btn)
+            self.add_item(next_btn)
+
+        # Row 1 (or 0 if no pagination): action buttons
+        action_row = 1 if self.bg_total > 1 else 0
 
         edit_btn = discord.ui.Button(
-            label="編輯角色", style=discord.ButtonStyle.primary, emoji="✏️", row=0
+            label="編輯角色", style=discord.ButtonStyle.primary, emoji="✏️", row=action_row,
         )
         edit_btn.callback = self._edit_character
         self.add_item(edit_btn)
 
-        if image_count > 1:
+        if self.image_count > 1:
             gallery_btn = discord.ui.Button(
-                label="外貌圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=0
+                label="外貌圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=action_row,
             )
             gallery_btn.callback = self._open_gallery
             self.add_item(gallery_btn)
+
+    async def _prev_page(self, interaction: discord.Interaction):
+        self.bg_page = max(0, self.bg_page - 1)
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
+
+    async def _next_page(self, interaction: discord.Interaction):
+        self.bg_page = min(self.bg_total - 1, self.bg_page + 1)
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
 
     async def _edit_character(self, interaction: discord.Interaction):
         modal = EditCharacterModal(self.bot_name, self.background)
