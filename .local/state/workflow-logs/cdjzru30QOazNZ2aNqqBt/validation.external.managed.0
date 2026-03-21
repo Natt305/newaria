@@ -1,0 +1,31 @@
+VERDICT: APPROVED_WITH_COMMENTS
+
+The implementation substantially satisfies the task: Ollama backend was added with matching public interface, routing is centralized in `ai_backend.py`, callers in `bot.py`/`views.py` were switched via import alias, `tokens.txtVERDICT: APPROVED_WITH_COMMENTS
+` includes the new backend config keys, and startup logging now reports active Ol
+lama backend/model settings.
+
+Critical analysis:
+- `ollama_ai.py` correctly mirrorThe implementation substantially satisfies the task: Ollama backend was added with matching public interface, routing is centralized in `ai_backend.py`, callers in `bot.py`/`views.py` were switched via import alias, `tokens.txt` includes the new backend config keys, and startup logging now reports active Ollama backend/model settings.
+s the required functions (`chat`, `understand_image`, `extract_me
+mories`, `Critical analysis:
+generate_suggestions`, `enhance_image_prompt`, `generate_image_comment`, `is_self_referential_image`, `is_recall_request`, `response_declines_image`, `user_wants_image`) and uses Ollama’s OpenAI-compatible `/v1/chat/completions` endpoint.
+- Backend defaulting behavior is correct at selection level (`AI_BACKEND` unset -> Groq).
+- Non-blocking but important regression: `ai_backend.chat()` defaults `model=""` and always forwards that argument. For Groq, this overrides `groq_ai.chat`’s default model and triggers an initial invalid-model request before fallbacks. Functionality usually recovers, but this is not “unchanged Groq behavior” and adds unnecessary failure/latency on every default call.
+- Startup logs are good for Ollama, but Groq path logs only backend (not model). This is likely acceptable but slightly weaker than “backend and model active” wording.
+
+Security: none observed (no serious auth, secret-handling, injection, or privilege regressions introduced by this diff).
+
+Next actions:
+1. Fix `ai_backend.chat` to preserve backend-native defaults (e.g., `model: Optional[str] = None` and only pass `model` when provided).
+2. (Optional) Log the effective Groq model in launcher for parity with Ollama model visibility.
+3. Smoke-test one chat + one vision flow under both `AI_BACKEND=groq` and `AI_BACKEND=ollama` to confirm parity.- `ollama_ai.py` correctly mirrors the required functions (`chat`, `understand_image`, `extract_memories`, `generate_suggestions`, `enhance_image_prompt`, `generate_image_comment`, `is_self_referential_image`, `is_recall_request`, `response_declines_image`, `user_wants_image`) and uses Ollama’s OpenAI-compatible `/v1/chat/completions` endpoint.
+- Backend defaulting behavior is correct at selection level (`AI_BACKEND` unset -> Groq).
+- Non-blocking but important regression: `ai_backend.chat()` defaults `model=""` and always forwards that argument. For Groq, this overrides `groq_ai.chat`’s default model and triggers an initial invalid-model request before fallbacks. Functionality usually recovers, but this is not “unchanged Groq behavior” and adds unnecessary failure/latency on every default call.
+- Startup logs are good for Ollama, but Groq path logs only backend (not model). This is likely acceptable but slightly weaker than “backend and model active” wording.
+
+Security: none observed (no serious auth, secret-handling, injection, or privilege regressions introduced by this diff).
+
+Next actions:
+1. Fix `ai_backend.chat` to preserve backend-native defaults (e.g., `model: Optional[str] = None` and only pass `model` when provided).
+2. (Optional) Log the effective Groq model in launcher for parity with Ollama model visibility.
+3. Smoke-test one chat + one vision flow under both `AI_BACKEND=groq` and `AI_BACKEND=ollama` to confirm parity.

@@ -1,0 +1,37 @@
+VERDICT: REJECTED
+The diff implements core plumbing (thumbnail creation/storage, retrieval helpers, backend multimodal parameter wiring), but it misses key task requirements in `bot.py` for when thumbnails are actually selected and sent.
+
+Critical fiVERDICT: REJECTED
+ndings:
+- **MisThe diff implements core plumbing (thumbnail creation/storage, retrieval helpers, backend multimodal parameter wiring), but it misses key task requirements in `bot.py` for when thumbnails are actually selected and sent.
+sing self-referential image trigger path for character thu
+mbnails (blocking):** Requirement says character thumbnailCritical findings:
+s must be sent for appearance queries **or self-referential image generation**. Current logic only sends character thumbs when `is_appearance_query(user_text)` and `not image_bytes`. It does not reuse/extend `is_self_referential_image` logic for user requests like “draw yourself/selfie of you”.
+- **Missing KB title-match thumbnail path (blocking):** Requirement says KB thumbs should be sent when either visual overlap matches (`build_visual_kb_context`) **or title-name match** (`_enrich_image_prompt_with_kb`). Current implementation only collects thumbnails from `visual_kb_matched` and never from title-match results.
+- **Thumbnail cap can exceed spec:** Character thumbs capped at 2 + KB thumbs capped at 2 allows up to 4 images. Task expectation is max ~2–3 total.
+
+What is done correctly:
+- `database.py`: thumbnails generated on `add_character_image`, `add_image_entry`, `add_image_to_entry`; thumb filename persisted; delete paths clean up thumbs; retrieval helpers added (`get_character_image_thumb`, `get_kb_image_thumb`).
+- Startup migration function exists (`migrate_thumbnails`) and launcher invokes it.
+- `ai_backend.py`, `groq_ai.py`, `ollama_ai.py`: `context_images` parameter added and multimodal injection implemented into last user message.
+
+Security: none observed (no serious auth/injection/secrets regression tied to this task).
+
+Next actions:
+1. In `process_chat`, include character thumbnail loading when request is self-referential (reuse/extend existing self-referential regex logic, not just appearance regex).
+2. Add KB thumbnail selection for title-name matches (from `_enrich_image_prompt_with_kb`-style matching), not only visual-upload matches.
+3. Enforce a **single global cap** (e.g., max 3 total context thumbnails) across character + KB images before calling `chat()`.- **Missing self-referential image trigger path for character thumbnails (blocking):** Requirement says character thumbnails must be sent for appearance queries **or self-referential image generation**. Current logic only sends character thumbs when `is_appearance_query(user_text)` and `not image_bytes`. It does not reuse/extend `is_self_referential_image` logic for user requests like “draw yourself/selfie of you”.
+- **Missing KB title-match thumbnail path (blocking):** Requirement says KB thumbs should be sent when either visual overlap matches (`build_visual_kb_context`) **or title-name match** (`_enrich_image_prompt_with_kb`). Current implementation only collects thumbnails from `visual_kb_matched` and never from title-match results.
+- **Thumbnail cap can exceed spec:** Character thumbs capped at 2 + KB thumbs capped at 2 allows up to 4 images. Task expectation is max ~2–3 total.
+
+What is done correctly:
+- `database.py`: thumbnails generated on `add_character_image`, `add_image_entry`, `add_image_to_entry`; thumb filename persisted; delete paths clean up thumbs; retrieval helpers added (`get_character_image_thumb`, `get_kb_image_thumb`).
+- Startup migration function exists (`migrate_thumbnails`) and launcher invokes it.
+- `ai_backend.py`, `groq_ai.py`, `ollama_ai.py`: `context_images` parameter added and multimodal injection implemented into last user message.
+
+Security: none observed (no serious auth/injection/secrets regression tied to this task).
+
+Next actions:
+1. In `process_chat`, include character thumbnail loading when request is self-referential (reuse/extend existing self-referential regex logic, not just appearance regex).
+2. Add KB thumbnail selection for title-name matches (from `_enrich_image_prompt_with_kb`-style matching), not only visual-upload matches.
+3. Enforce a **single global cap** (e.g., max 3 total context thumbnails) across character + KB images before calling `chat()`.
