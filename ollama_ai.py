@@ -168,30 +168,58 @@ def user_wants_image(messages: list) -> Optional[str]:
     return None
 
 
+def _estimate_tokens(messages: list) -> int:
+    """Rough token estimate: ~4 chars per token across all message content."""
+    total = 0
+    for m in messages:
+        c = m.get("content", "")
+        if isinstance(c, str):
+            total += len(c)
+        elif isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    total += len(part.get("text", ""))
+    return total // 4
+
+
 async def _call_ollama(
     messages: list,
     model: str,
     temperature: float = 0.8,
     max_tokens: int = 1024,
+    num_ctx: int = 8192,
 ) -> Optional[str]:
     """Make a single chat completion request to Ollama. Returns the text response or None."""
     url = f"{_base_url()}/v1/chat/completions"
+    # num_ctx passed via Ollama-native options field so the model sees the full prompt.
+    # Default Ollama context is only 2048 tokens — far too small for system+KB+history.
     payload = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "stream": False,
+        "options": {"num_ctx": num_ctx},
     }
+    est = _estimate_tokens(messages)
+    sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
+    print(f"[Ollama] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total | num_ctx={num_ctx}")
+    if messages and messages[0]["role"] == "system":
+        print(f"[Ollama] System prompt start: {messages[0]['content'][:200]!r}")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
-                    print(f"[Ollama] HTTP {resp.status}: {body[:200]}")
+                    print(f"[Ollama] HTTP {resp.status}: {body[:500]}")
                     return None
                 data = await resp.json()
-                return (data["choices"][0]["message"]["content"] or "").strip()
+                content = (data["choices"][0]["message"]["content"] or "").strip()
+                finish = data["choices"][0].get("finish_reason", "?")
+                usage = data.get("usage", {})
+                print(f"[Ollama] Response: finish={finish} | prompt_tokens={usage.get('prompt_tokens','?')} | completion_tokens={usage.get('completion_tokens','?')}")
+                print(f"[Ollama] Response text: {content[:200]!r}")
+                return content
     except aiohttp.ClientConnectorError:
         print(f"[Ollama] Cannot connect to {_base_url()} — is Ollama running?")
         return None
@@ -339,13 +367,14 @@ async def understand_image(
         "temperature": 0.5,
         "max_tokens": 1024,
         "stream": False,
+        "options": {"num_ctx": 8192},
     }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
-                    print(f"[Ollama Vision] HTTP {resp.status}: {body[:200]}")
+                    print(f"[Ollama Vision] HTTP {resp.status}: {body[:500]}")
                     return None
                 data = await resp.json()
                 text = (data["choices"][0]["message"]["content"] or "").strip()
