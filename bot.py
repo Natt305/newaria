@@ -532,8 +532,13 @@ async def process_chat(
 
         # Enrich prompt with KB image references, then enhance
         enriched_prompt, _kb_matches = await _enrich_image_prompt_with_kb(image_prompt)
-        # Only inject character appearance context for self-referential prompts (selfie, etc.)
-        char_images_ctx = build_character_images_context() if groq_ai.is_self_referential_image(image_prompt) else ""
+        # Inject character appearance context when the user OR the generated prompt
+        # is self-referential. We check user_text too because the model often expands
+        # "draw yourself" into a description, losing the "me/myself" language before
+        # this check runs.
+        char_images_ctx = build_character_images_context() if (
+            groq_ai.is_self_referential_image(user_text) or groq_ai.is_self_referential_image(image_prompt)
+        ) else ""
         enriched_prompt = await groq_ai.enhance_image_prompt(enriched_prompt, character_context=char_images_ctx)
 
         async with channel.typing():
