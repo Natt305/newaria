@@ -48,7 +48,7 @@ data/
 
 ### Editing data directly
 
-- **Character**: open `data/character/profile.json`, change `name` and `background`, save — takes effect on next message.
+- **Character**: open `data/character/profile.json`, change `name`, `background`, and/or `personality`, save — takes effect on next message.
 - **Memories**: open `data/memories/memories.json`, edit or delete entries in the JSON array, save.
 - **Knowledge entries**: open any `data/knowledge/<id>.json`, edit `title`, `content`, or `tags`, save.
 - **Image descriptions**: open `data/knowledge/images/<id>.json`, edit `image_description`, save.

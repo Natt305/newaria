@@ -101,25 +101,36 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
         max_length=50,
     )
     background = discord.ui.TextInput(
-        label="個性 / 背景",
+        label="背景",
         style=discord.TextStyle.paragraph,
-        placeholder="描述角色的個性、語氣和背景...",
-        max_length=4000,
+        placeholder="描述角色的身份與背景...",
+        max_length=3000,
+        required=False,
+    )
+    personality = discord.ui.TextInput(
+        label="個性 / 說話風格",
+        style=discord.TextStyle.paragraph,
+        placeholder="描述說話語氣、習慣用語、個性特徵...",
+        max_length=3000,
+        required=False,
     )
 
-    def __init__(self, current_name: str = "", current_background: str = ""):
+    def __init__(self, current_name: str = "", current_background: str = "", current_personality: str = ""):
         super().__init__()
         self.name.default = current_name[:50]
-        self.background.default = current_background[:4000]
+        self.background.default = current_background[:3000]
+        self.personality.default = current_personality[:3000]
 
     async def on_submit(self, interaction: discord.Interaction):
         import bot as bot_module
-        success = database.set_character(str(self.name), str(self.background))
+        new_name = str(self.name)
+        new_bg = str(self.background)
+        new_personality = str(self.personality)
+        success = database.set_character(new_name, new_bg, new_personality)
         if success:
             bot_module.conversation_contexts.clear()
-            new_bg = str(self.background)
             embed = build_char_embed(
-                str(self.name), new_bg,
+                new_name, new_bg, new_personality,
                 title="✅ 角色已更新",
                 footer="對話歷史已清除以套用新角色。",
             )
@@ -962,29 +973,45 @@ def _bg_chunks(background: str) -> list:
     return [text[i:i + _CONTENT_PAGE_SIZE] for i in range(0, max(1, len(text)), _CONTENT_PAGE_SIZE)]
 
 
+def _personality_chunks(personality: str) -> list:
+    """Split personality into 1024-char pages for pagination."""
+    text = personality or "（未設定個性）"
+    return [text[i:i + _CONTENT_PAGE_SIZE] for i in range(0, max(1, len(text)), _CONTENT_PAGE_SIZE)]
+
+
 def build_char_embed(
     bot_name: str,
     background: str,
+    personality: str = "",
+    tab: str = "background",
     bg_page: int = 0,
     image_count: int = 0,
     title: str = "🎭 目前角色",
     color: discord.Color = discord.Color.gold(),
     footer: str = "點擊下方按鈕可編輯角色設定或瀏覽外貌圖庫。",
 ) -> discord.Embed:
-    """Build the character profile embed for a given background page."""
+    """Build the character profile embed. tab='background' or 'personality'."""
     embed = discord.Embed(title=title, color=color)
     embed.add_field(name="🏷️ 名稱", value=bot_name, inline=True)
     if image_count:
         embed.add_field(name="🖼️ 外貌圖片", value=f"{image_count} 張", inline=True)
 
-    chunks = _bg_chunks(background)
-    total = len(chunks)
-    page = max(0, min(bg_page, total - 1))
-
-    field_name = "📖 背景"
-    if total > 1:
-        field_name += f"　第 {page + 1} / {total} 頁"
-    embed.add_field(name=field_name, value=chunks[page], inline=False)
+    if tab == "personality":
+        chunks = _personality_chunks(personality)
+        total = len(chunks)
+        page = max(0, min(bg_page, total - 1))
+        field_name = "💬 個性 / 說話風格"
+        if total > 1:
+            field_name += f"　第 {page + 1} / {total} 頁"
+        embed.add_field(name=field_name, value=chunks[page], inline=False)
+    else:
+        chunks = _bg_chunks(background)
+        total = len(chunks)
+        page = max(0, min(bg_page, total - 1))
+        field_name = "📖 背景"
+        if total > 1:
+            field_name += f"　第 {page + 1} / {total} 頁"
+        embed.add_field(name=field_name, value=chunks[page], inline=False)
 
     if footer:
         embed.set_footer(text=footer)
@@ -992,46 +1019,77 @@ def build_char_embed(
 
 
 class CharacterView(discord.ui.View):
-    """Shown by !character — lets the user edit the bot's character and browse appearance photos.
+    """Shown by /character — lets the user browse background and personality tabs,
+    paginate long text, edit all fields via modal, and open the image gallery.
 
-    When the background exceeds 1024 characters, ◀ / ▶ buttons let the user
-    page through it without leaving the view.
+    Layout:
+      Row 0: 📖 背景 | 💬 個性  (tab selector)
+      Row 1: ◀ 上一頁 | 第 x/y 頁 | 下一頁  (only when > 1 page)
+      Row 2: ✏️ 編輯角色 | 🖼️ 外貌圖庫
     """
 
-    def __init__(self, bot_name: str, background: str, image_count: int = 0):
+    def __init__(self, bot_name: str, background: str, personality: str = "", image_count: int = 0):
         super().__init__(timeout=120)
         self.bot_name = bot_name
         self.background = background
+        self.personality = personality
         self.image_count = image_count
+        self.tab = "background"
         self.bg_page = 0
-        self.bg_total = len(_bg_chunks(background))
         self._build_buttons()
 
+    def _current_chunks(self) -> list:
+        if self.tab == "personality":
+            return _personality_chunks(self.personality)
+        return _bg_chunks(self.background)
+
     def _get_embed(self) -> discord.Embed:
-        return build_char_embed(self.bot_name, self.background, self.bg_page, self.image_count)
+        return build_char_embed(
+            self.bot_name, self.background, self.personality,
+            tab=self.tab, bg_page=self.bg_page, image_count=self.image_count,
+        )
 
     def _build_buttons(self):
         self.clear_items()
+        chunks = self._current_chunks()
+        total = len(chunks)
 
-        # Row 0: background pagination (only when > 1 page)
-        if self.bg_total > 1:
+        # Row 0: tab selector
+        bg_tab = discord.ui.Button(
+            label="📖 背景",
+            style=discord.ButtonStyle.primary if self.tab == "background" else discord.ButtonStyle.secondary,
+            row=0,
+        )
+        bg_tab.callback = self._switch_background
+        self.add_item(bg_tab)
+
+        pers_tab = discord.ui.Button(
+            label="💬 個性",
+            style=discord.ButtonStyle.primary if self.tab == "personality" else discord.ButtonStyle.secondary,
+            row=0,
+        )
+        pers_tab.callback = self._switch_personality
+        self.add_item(pers_tab)
+
+        # Row 1: pagination (only when > 1 page)
+        if total > 1:
             prev_btn = discord.ui.Button(
                 emoji="◀️", label="上一頁",
                 style=discord.ButtonStyle.secondary,
-                disabled=self.bg_page == 0, row=0,
+                disabled=self.bg_page == 0, row=1,
             )
             prev_btn.callback = self._prev_page
 
             counter_btn = discord.ui.Button(
-                label=f"第 {self.bg_page + 1} / {self.bg_total} 頁",
+                label=f"第 {self.bg_page + 1} / {total} 頁",
                 style=discord.ButtonStyle.secondary,
-                disabled=True, row=0,
+                disabled=True, row=1,
             )
 
             next_btn = discord.ui.Button(
                 emoji="▶️", label="下一頁",
                 style=discord.ButtonStyle.secondary,
-                disabled=self.bg_page >= self.bg_total - 1, row=0,
+                disabled=self.bg_page >= total - 1, row=1,
             )
             next_btn.callback = self._next_page
 
@@ -1039,21 +1097,31 @@ class CharacterView(discord.ui.View):
             self.add_item(counter_btn)
             self.add_item(next_btn)
 
-        # Row 1 (or 0 if no pagination): action buttons
-        action_row = 1 if self.bg_total > 1 else 0
-
+        # Row 2: action buttons
         edit_btn = discord.ui.Button(
-            label="編輯角色", style=discord.ButtonStyle.primary, emoji="✏️", row=action_row,
+            label="編輯角色", style=discord.ButtonStyle.primary, emoji="✏️", row=2,
         )
         edit_btn.callback = self._edit_character
         self.add_item(edit_btn)
 
         if self.image_count > 1:
             gallery_btn = discord.ui.Button(
-                label="外貌圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=action_row,
+                label="外貌圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=2,
             )
             gallery_btn.callback = self._open_gallery
             self.add_item(gallery_btn)
+
+    async def _switch_background(self, interaction: discord.Interaction):
+        self.tab = "background"
+        self.bg_page = 0
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
+
+    async def _switch_personality(self, interaction: discord.Interaction):
+        self.tab = "personality"
+        self.bg_page = 0
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
 
     async def _prev_page(self, interaction: discord.Interaction):
         self.bg_page = max(0, self.bg_page - 1)
@@ -1061,13 +1129,14 @@ class CharacterView(discord.ui.View):
         await interaction.response.edit_message(embed=self._get_embed(), view=self)
 
     async def _next_page(self, interaction: discord.Interaction):
-        self.bg_page = min(self.bg_total - 1, self.bg_page + 1)
+        total = len(self._current_chunks())
+        self.bg_page = min(total - 1, self.bg_page + 1)
         self._build_buttons()
         await interaction.response.edit_message(embed=self._get_embed(), view=self)
 
     async def _edit_character(self, interaction: discord.Interaction):
         try:
-            modal = EditCharacterModal(self.bot_name, self.background)
+            modal = EditCharacterModal(self.bot_name, self.background, self.personality)
             await interaction.response.send_modal(modal)
         except Exception as e:
             print(f"[View] EditCharacter modal error: {type(e).__name__}: {e}")
