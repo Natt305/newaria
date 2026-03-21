@@ -1009,12 +1009,14 @@ async def setcharacter_cmd(ctx, name: str, background: str, personality: str = "
     success = database.set_character(name, background, personality, looks)
     if success:
         conversation_contexts.clear()
+        image_count = database.get_character_image_count()
         embed = ui.build_char_embed(
             name, background, personality, looks,
             title="✅ 角色已更新",
             footer="對話歷史已清除。隨時可按「編輯角色」更新設定。",
+            image_count=image_count,
         )
-        view = ui.CharacterView(name, background, personality, looks)
+        view = ui.CharacterView(name, background, personality, looks, image_count=image_count)
         await ctx.reply(embed=embed, view=view, mention_author=False)
     else:
         await ctx.reply("❌ 更新角色時發生錯誤，請重試。", mention_author=False)
