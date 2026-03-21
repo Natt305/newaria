@@ -173,7 +173,9 @@ _SELF_REF_RE = re.compile(
     r"\b(selfie|self.?portrait|photo of me|picture of me|my face|my photo|my picture|"
     r"what i look like|how i look|my appearance|my outfit|my hair|my eyes|"
     r"myself|me posing|me standing|me sitting|portrait of me)\b"
-    r"|自拍|我的照片|我的樣子|我的臉|我的外貌|拍一張我|我的自拍",
+    r"|自拍|我的照片|我的樣子|我的臉|我的外貌|拍一張我|我的自拍"
+    r"|妳自己|你自己|妳的樣子|你的樣子|妳的外觀|你的外觀|妳的外表|你的外表"
+    r"|畫妳自己|畫你自己|生成妳|生成你|妳的模樣|你的模樣",
     re.I,
 )
 
@@ -357,11 +359,18 @@ async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> 
     char_block = ""
     if character_context and character_context.strip():
         char_block = (
-            f"\nThe image may involve the character whose appearance is described below. "
-            f"If the prompt is self-referential (e.g. 'selfie', 'photo of me', 'my face', 'what I look like'), "
-            f"use these appearance details as the subject of the image:\n"
+            f"\nCRITICAL — This prompt is about the character described below. "
+            f"You MUST use these appearance details as the subject of the image. "
+            f"Art style MUST be 'anime-style illustration, 2D art' — never traditional painting, "
+            f"ink wash, photography, or any other style:\n"
             f"{character_context.strip()}\n"
         )
+
+    anime_rule = (
+        "- Art style: MUST be 'anime-style illustration, 2D art' — never ink wash, "
+        "traditional painting, photography, or 3D render.\n"
+        if character_context else ""
+    )
 
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
@@ -372,6 +381,7 @@ async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> 
         "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
         "- Always write in English.\n"
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
+        f"{anime_rule}"
         "- Aim for 20-60 words.\n"
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
         "Good output: vibrant cherry blossom park in Kyoto at sunset, soft golden light, "
