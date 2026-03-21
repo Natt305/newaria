@@ -143,42 +143,6 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
             )
 
 
-class EditPersonalityModal(discord.ui.Modal, title="編輯個性 / 說話風格"):
-    personality = discord.ui.TextInput(
-        label="個性 / 說話風格",
-        style=discord.TextStyle.paragraph,
-        placeholder="描述說話語氣、習慣用語、個性特徵...",
-        max_length=4000,
-        required=False,
-    )
-
-    def __init__(self, current_personality: str = ""):
-        super().__init__()
-        self.personality.default = current_personality[:4000]
-
-    async def on_submit(self, interaction: discord.Interaction):
-        import bot as bot_module
-        new_personality = str(self.personality)
-        char = database.get_character()
-        name = char.get("name", "")
-        background = char.get("background", "")
-        success = database.set_character(name, background, new_personality)
-        if success:
-            bot_module.conversation_contexts.clear()
-            new_embed = build_char_embed(
-                name, background, new_personality,
-                tab="personality", bg_page=0,
-                title="✅ 個性已更新",
-                footer="對話歷史已清除以套用新個性。點擊下方按鈕可繼續編輯。",
-            )
-            new_view = CharacterView(name, background, new_personality, tab="personality")
-            await interaction.response.edit_message(embed=new_embed, view=new_view)
-        else:
-            await interaction.response.send_message(
-                "❌ 發生錯誤，請重試。", ephemeral=True
-            )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 確認 刪除
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1063,16 +1027,16 @@ class CharacterView(discord.ui.View):
     Layout:
       Row 0: 📖 背景 | 💬 個性  (tab selector)
       Row 1: ◀ 上一頁 | 第 x/y 頁 | 下一頁  (only when > 1 page)
-      Row 2: ✏️ 編輯角色 | ✏️ 編輯個性 | 🖼️ 外貌圖庫
+      Row 2: ✏️ 編輯角色 | 🖼️ 外貌圖庫
     """
 
-    def __init__(self, bot_name: str, background: str, personality: str = "", image_count: int = 0, tab: str = "background"):
+    def __init__(self, bot_name: str, background: str, personality: str = "", image_count: int = 0):
         super().__init__(timeout=120)
         self.bot_name = bot_name
         self.background = background
         self.personality = personality
         self.image_count = image_count
-        self.tab = tab
+        self.tab = "background"
         self.bg_page = 0
         self._build_buttons()
 
@@ -1142,12 +1106,6 @@ class CharacterView(discord.ui.View):
         edit_btn.callback = self._edit_character
         self.add_item(edit_btn)
 
-        edit_pers_btn = discord.ui.Button(
-            label="編輯個性", style=discord.ButtonStyle.secondary, emoji="✏️", row=2,
-        )
-        edit_pers_btn.callback = self._edit_personality
-        self.add_item(edit_pers_btn)
-
         if self.image_count > 1:
             gallery_btn = discord.ui.Button(
                 label="外貌圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=2,
@@ -1184,20 +1142,6 @@ class CharacterView(discord.ui.View):
             await interaction.response.send_modal(modal)
         except Exception as e:
             print(f"[View] EditCharacter modal error: {type(e).__name__}: {e}")
-            try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(f"❌ 開啟編輯器時發生錯誤: {type(e).__name__}", ephemeral=True)
-                else:
-                    await interaction.response.send_message(f"❌ 開啟編輯器時發生錯誤: {type(e).__name__}", ephemeral=True)
-            except Exception:
-                pass
-
-    async def _edit_personality(self, interaction: discord.Interaction):
-        try:
-            modal = EditPersonalityModal(self.personality)
-            await interaction.response.send_modal(modal)
-        except Exception as e:
-            print(f"[View] EditPersonality modal error: {type(e).__name__}: {e}")
             try:
                 if interaction.response.is_done():
                     await interaction.followup.send(f"❌ 開啟編輯器時發生錯誤: {type(e).__name__}", ephemeral=True)
