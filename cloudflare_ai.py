@@ -1,6 +1,6 @@
 """
-Cloudflare Workers AI client for image generation using Flux 2 Klein 4B.
-Uses @cf/black-forest-labs/flux-2-klein-4b model (multipart/form-data API).
+Cloudflare Workers AI client for image generation using Flux 1 Schnell.
+Uses @cf/black-forest-labs/flux-1-schnell model (JSON API).
 """
 import os
 import re
@@ -9,11 +9,11 @@ import base64
 from typing import Optional, Tuple
 import aiohttp
 
-MODEL = "@cf/black-forest-labs/flux-2-klein-4b"
+MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
 WIDTH = 512
 HEIGHT = 512
-NUM_STEPS = 6
+NUM_STEPS = 4
 
 # Words that Cloudflare's NSFW filter falsely flags even in innocent contexts.
 # Each entry is (pattern, replacement). Applied before the first request.
@@ -46,12 +46,13 @@ async def _do_generate(session: aiohttp.ClientSession, url: str, headers: dict, 
     ("API_KEY_ERROR", "") on auth failure, ("MODEL_ERROR", "") on server error,
     or None on other failure.
     """
-    form = aiohttp.FormData(default_to_multipart=True)
-    form.add_field("prompt", prompt)
-    form.add_field("width", str(WIDTH))
-    form.add_field("height", str(HEIGHT))
-    form.add_field("steps", str(NUM_STEPS))
-    async with session.post(url, data=form, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+    payload = {
+        "prompt": prompt,
+        "width": WIDTH,
+        "height": HEIGHT,
+        "num_steps": NUM_STEPS,
+    }
+    async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
         content_type = resp.headers.get("Content-Type", "")
         print(f"[Cloudflare] Status: {resp.status} | Content-Type: {content_type}")
 
@@ -124,7 +125,7 @@ async def _do_generate(session: aiohttp.ClientSession, url: str, headers: dict, 
 
 
 async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
-    """Generate an image using Cloudflare Workers AI Flux 2 Klein 4B model.
+    """Generate an image using Cloudflare Workers AI Flux 1 Schnell model.
 
     Automatically sanitizes prompts that contain terms Cloudflare's NSFW filter
     incorrectly flags (e.g. "cucumber"). If the sanitised prompt is still rejected
@@ -140,6 +141,7 @@ async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{MODEL}"
     headers = {
         "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json",
     }
 
     # Pre-sanitize: replace known false-positive NSFW terms before first send
