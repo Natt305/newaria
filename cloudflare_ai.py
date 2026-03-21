@@ -1,6 +1,6 @@
 """
-Cloudflare Workers AI client for image generation using Flux 1 Schnell.
-Uses @cf/black-forest-labs/flux-1-schnell model.
+Cloudflare Workers AI client for image generation using Flux 2 Klein 4B.
+Uses @cf/black-forest-labs/flux-2-klein-4b model (multipart/form-data API).
 """
 import os
 import re
@@ -9,7 +9,7 @@ import base64
 from typing import Optional, Tuple
 import aiohttp
 
-MODEL = "@cf/black-forest-labs/flux-1-schnell"
+MODEL = "@cf/black-forest-labs/flux-2-klein-4b"
 
 WIDTH = 512
 HEIGHT = 512
@@ -46,13 +46,12 @@ async def _do_generate(session: aiohttp.ClientSession, url: str, headers: dict, 
     ("API_KEY_ERROR", "") on auth failure, ("MODEL_ERROR", "") on server error,
     or None on other failure.
     """
-    payload = {
-        "prompt": prompt,
-        "width": WIDTH,
-        "height": HEIGHT,
-        "num_steps": NUM_STEPS,
-    }
-    async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+    form = aiohttp.FormData()
+    form.add_field("prompt", prompt)
+    form.add_field("width", str(WIDTH))
+    form.add_field("height", str(HEIGHT))
+    form.add_field("steps", str(NUM_STEPS))
+    async with session.post(url, data=form, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
         content_type = resp.headers.get("Content-Type", "")
         print(f"[Cloudflare] Status: {resp.status} | Content-Type: {content_type}")
 
@@ -125,7 +124,7 @@ async def _do_generate(session: aiohttp.ClientSession, url: str, headers: dict, 
 
 
 async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
-    """Generate an image using Cloudflare Workers AI Flux 1 Schnell model.
+    """Generate an image using Cloudflare Workers AI Flux 2 Klein 4B model.
 
     Automatically sanitizes prompts that contain terms Cloudflare's NSFW filter
     incorrectly flags (e.g. "cucumber"). If the sanitised prompt is still rejected
@@ -141,7 +140,6 @@ async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{MODEL}"
     headers = {
         "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json",
     }
 
     # Pre-sanitize: replace known false-positive NSFW terms before first send
