@@ -510,7 +510,6 @@ async def process_chat(
         )
         return
     if image_failed:
-        await _bar_delete()
         await reply_target.reply(
             "⚠️ 圖像分析暫時無法使用，將僅回應文字內容。",
             mention_author=False,
@@ -600,8 +599,8 @@ async def process_chat(
 
     if image_prompt and _cf_ready():
         # Send any pre-text first (usually None for seamless generation)
+        # Bar stays visible — it will be deleted right before the image reply
         if response_text:
-            await _bar_delete()
             await send_with_suggestions(response_text, channel_id, reply_target)
 
         # Enrich prompt with KB image references (always useful, no LLM call)
