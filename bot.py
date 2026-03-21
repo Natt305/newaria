@@ -456,9 +456,10 @@ async def process_chat(
         if response_text:
             await send_with_suggestions(response_text, channel_id, reply_target)
 
-        # Enrich prompt with KB image references, then enhance with character appearance
+        # Enrich prompt with KB image references, then enhance
         enriched_prompt, _kb_matches = await _enrich_image_prompt_with_kb(image_prompt)
-        char_images_ctx = build_character_images_context()
+        # Only inject character appearance context for self-referential prompts (selfie, etc.)
+        char_images_ctx = build_character_images_context() if groq_ai.is_self_referential_image(image_prompt) else ""
         enriched_prompt = await groq_ai.enhance_image_prompt(enriched_prompt, character_context=char_images_ctx)
 
         async with channel.typing():

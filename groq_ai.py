@@ -71,6 +71,20 @@ IMAGE_REQUEST_PATTERNS = [
 
 _IMAGE_MARKER_RE = re.compile(r"\[IMAGE:\s*(.+?)\]", re.I | re.S)
 
+_SELF_REF_RE = re.compile(
+    r"\b(selfie|self.?portrait|photo of me|picture of me|my face|my photo|my picture|"
+    r"what i look like|how i look|my appearance|my outfit|my hair|my eyes|"
+    r"myself|me posing|me standing|me sitting|portrait of me)\b"
+    r"|自拍|我的照片|我的樣子|我的臉|我的外貌|拍一張我|我的自拍",
+    re.I,
+)
+
+
+def is_self_referential_image(prompt: str) -> bool:
+    """Return True if an image prompt is about the bot's own appearance."""
+    return bool(_SELF_REF_RE.search(prompt))
+
+
 # ── Memory helpers ────────────────────────────────────────────────────────────
 
 _RECALL_RE = re.compile(
