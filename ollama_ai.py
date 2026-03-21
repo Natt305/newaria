@@ -14,6 +14,7 @@ DEFAULT_MODEL = "gemma3:12b"
 DEFAULT_VISION_MODEL = "gemma3:12b"
 
 IMAGE_TRIGGER_PHRASES = [
+    # English declines
     "i can't generate",
     "i cannot generate",
     "i'm unable to generate",
@@ -37,9 +38,30 @@ IMAGE_TRIGGER_PHRASES = [
     "no image generation",
     "can't render",
     "cannot render",
+    # Chinese declines (Traditional / Simplified common forms)
+    "文字ai",
+    "文字 ai",
+    "我是一個文字",
+    "我是個文字",
+    "只是一個文字",
+    "只是個文字",
+    "只能以文字",
+    "只能用文字",
+    "無法生成圖",
+    "無法為您生成",
+    "無法創作圖",
+    "沒有辦法真的",
+    "沒有生成圖像",
+    "試著想像",
+    "用文字描述",
+    "以文字描述",
+    "用文字表達",
+    "以文字表達",
+    "想像一下",
 ]
 
 IMAGE_REQUEST_PATTERNS = [
+    # English
     re.compile(r"\bgenerate\b.{0,30}\bimage\b", re.I),
     re.compile(r"\bcreate\b.{0,30}\bimage\b", re.I),
     re.compile(r"\bdraw\b", re.I),
@@ -47,9 +69,16 @@ IMAGE_REQUEST_PATTERNS = [
     re.compile(r"\bmake\b.{0,30}\bimage\b", re.I),
     re.compile(r"\bshow\b.{0,30}\bpicture\b", re.I),
     re.compile(r"\billustrate\b", re.I),
+    # Chinese explicit image requests (Traditional & Simplified)
     re.compile(r"(生成|畫|繪|製作|創作|做).{0,20}(圖|圖片|圖像|插圖|照片)", re.I),
     re.compile(r"(幫我|幫|請|可以|能不能).{0,10}(畫|生成|繪製|做).{0,20}(圖|圖片|圖像)", re.I),
     re.compile(r"(圖片|圖像|照片|插圖).{0,10}(生成|製作|創作)", re.I),
+    # Chinese implicit visual requests ("I want to see you doing X")
+    re.compile(r"想看.{0,40}(的樣子|樣子|彈|唱|跳|畫面|場景|你|妳)", re.I),
+    re.compile(r"(讓我看|給我看|讓我瞧|讓我欣賞).{0,30}(樣子|彈|唱|跳|妳|你)", re.I),
+    re.compile(r"(看看妳|看看你|看妳|看你).{0,30}(的樣子|樣子|彈|唱|跳)", re.I),
+    re.compile(r"(我想看|我要看|我想瞧|我要瞧).{0,30}(妳|你)", re.I),
+    re.compile(r"(妳|你)(彈|唱|跳|演奏|表演).{0,20}(的樣子|樣子|畫面)", re.I),
 ]
 
 _IMAGE_MARKER_RE = re.compile(
