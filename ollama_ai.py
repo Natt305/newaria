@@ -86,13 +86,23 @@ _IMAGE_MARKER_RE = re.compile(
     re.I | re.S,
 )
 
-# Phrases that indicate the model broke character and admitted to being an AI / LLM
+# Phrases that indicate the model broke character and admitted to being an AI / LLM.
+# Deliberately specific to SELF-IDENTIFICATION — avoids false positives when the bot
+# legitimately discusses AI topics in conversation.
 _BREAKS_CHARACTER_RE = re.compile(
-    r"(大型語言模型|語言模型|language model|large language|i am an ai\b|i'm an ai\b|"
-    r"由\s*(google|meta|mistral|anthropic|openai|microsoft|baidu|alibaba|deepseek)\s*(訓練|開發|製作|created|trained|made)|"
-    r"(google|meta|mistral|anthropic|openai|microsoft|baidu|alibaba|deepseek)\s*(訓練|開發|製作|created|trained|made)|"
-    r"我是\s*(一個|個)?\s*(ai|人工智慧|人工智能)\b|"
-    r"as an ai\b|i'm just an ai|i am just an ai)",
+    r"(大型語言模型|語言模型|language model|large language model|"
+    # Model self-identifies by name (only triggers when model names appear as self-reference)
+    r"我是\s*(gemma|llama|mistral|qwen|phi|claude|gpt|chatgpt|bard|gemini|deepseek|kimi|copilot)\b|"
+    r"i am\s*(gemma|llama|mistral|qwen|phi|claude|gpt|chatgpt|bard|gemini|deepseek|kimi|copilot)\b|"
+    r"i'm\s*(gemma|llama|mistral|qwen|phi|claude|gpt|chatgpt|bard|gemini|deepseek|kimi|copilot)\b|"
+    # Company training attributions (self-disclosure: "trained by X")
+    r"由\s*(google|deepmind|google deepmind|meta|mistral|anthropic|openai|microsoft|baidu|alibaba)\s*.{0,15}(訓練|開發|製作|created|trained|made|built)|"
+    r"(trained|created|made|built|developed)\s*by\s*(google|deepmind|meta|mistral|anthropic|openai|microsoft)|"
+    # Generic AI self-disclosure
+    r"我是\s*(一個|個)?\s*(ai助手|ai|人工智慧|人工智能|助手)|"
+    r"開放權重的\s*ai|open.?weight.*model|"
+    r"i am an ai\b|i'm an ai\b|as an ai\b|i'm just an ai|i am just an ai|"
+    r"i'm a language|i am a language|i'm a text.?based|i am a text.?based)",
     re.I,
 )
 
@@ -234,30 +244,58 @@ async def chat(
         return "I'm having trouble connecting to Ollama right now. Please make sure Ollama is running.", None
 
     # Character-break guard: if the model admitted to being an AI/LLM, retry once
-    # with a hard override message injected just before the last user turn.
+    # with a fresh, laser-focused minimal prompt — no extra context to confuse it.
     if _BREAKS_CHARACTER_RE.search(text):
-        print(f"[Ollama] Character break detected — retrying with reinforced prompt")
-        # Extract the bot name from the system prompt (first word after "You are ")
-        override = (
-            "[SYSTEM OVERRIDE — STAY IN CHARACTER] "
-            "You are NOT an AI, language model, or chatbot. "
-            "You are the character defined in your system prompt. "
-            "Never reveal you are an AI. Answer the next message fully in character."
+        print("[Ollama] Character break detected — retrying with laser-focused identity prompt")
+        # Extract bot name from the system prompt header
+        _name_m = re.search(r"YOUR NAME IS ([^\.\n]+)", system_prompt)
+        bot_name_hint = _name_m.group(1).strip() if _name_m else "the character"
+
+        # Build a minimal system prompt focused ONLY on identity
+        identity_system = (
+            f"YOUR NAME IS {bot_name_hint}. YOU ARE {bot_name_hint}.\n"
+            f"NOT Gemma. NOT an AI. NOT a language model. NOT made by Google or anyone else.\n"
+            f"You are {bot_name_hint} — a real person. Answer every message as {bot_name_hint}.\n"
+            f"If asked who you are: say you are {bot_name_hint} and stay in character.\n"
+            f"NEVER say you are Gemma, an AI, or a language model — EVER.\n"
         )
-        reinforced = list(ollama_messages)
-        # Insert the override as an assistant acknowledgement right before the last user message
-        last_user_idx = None
-        for idx in range(len(reinforced) - 1, -1, -1):
-            if reinforced[idx]["role"] == "user":
-                last_user_idx = idx
+        # Append the character's own background if we can extract it
+        _bg_m = re.search(r"You are [^\n]+\. (.+?)(?:\n\nYou are NOT an AI)", system_prompt, re.S)
+        if _bg_m:
+            identity_system += f"\nBackground: {_bg_m.group(1).strip()[:400]}\n"
+
+        # Get the last user message text (strip multimodal parts)
+        last_user_text = ""
+        for msg in reversed(messages):
+            if msg["role"] == "user":
+                c = msg["content"]
+                if isinstance(c, str):
+                    last_user_text = c
+                elif isinstance(c, list):
+                    for p in c:
+                        if isinstance(p, dict) and p.get("type") == "text":
+                            last_user_text = p.get("text", "")
+                            break
                 break
-        if last_user_idx is not None:
-            reinforced.insert(last_user_idx, {"role": "assistant", "content": override})
-        retry_text = await _call_ollama(reinforced, model=active_model, temperature=0.7)
-        if retry_text and not _BREAKS_CHARACTER_RE.search(retry_text):
+
+        # Fresh minimal conversation — last 4 turns max + the triggering user message
+        retry_msgs = [{"role": "system", "content": identity_system}]
+        for msg in messages[-4:]:
+            c = msg["content"]
+            if isinstance(c, list):
+                parts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
+                c = " ".join(parts)
+            retry_msgs.append({"role": msg["role"], "content": c})
+        if not any(m["role"] == "user" for m in retry_msgs[1:]) and last_user_text:
+            retry_msgs.append({"role": "user", "content": last_user_text})
+
+        retry_text = await _call_ollama(retry_msgs, model=active_model, temperature=0.6)
+        if retry_text:
+            if _BREAKS_CHARACTER_RE.search(retry_text):
+                print("[Ollama] Retry also broke character — using retry result anyway")
+            else:
+                print("[Ollama] Retry succeeded — character restored")
             text = retry_text
-        elif retry_text:
-            text = retry_text  # use it anyway — better than the original break
 
     marker_match = _IMAGE_MARKER_RE.search(text)
     if marker_match:
