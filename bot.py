@@ -447,26 +447,51 @@ async def process_chat(
         user_text or "[Image]", "user",
     )
 
-    # ── Collect thumbnails for visual context ─────────────────────────────────
+    # ── Collect thumbnails for visual context (global cap: 3 total) ───────────
     context_images: list = []
+    _MAX_CTX_IMAGES = 3
 
-    # Character thumbnails: only when user asks about appearance
-    if not image_bytes and is_appearance_query(user_text):
+    # Character thumbnails when:
+    #  (a) text-only query about Aria's appearance, OR
+    #  (b) user is requesting a self-referential image (e.g. "draw yourself")
+    wants_char_thumb = (
+        not image_bytes and is_appearance_query(user_text)
+    ) or groq_ai.is_self_referential_image(user_text)
+    if wants_char_thumb and len(context_images) < _MAX_CTX_IMAGES:
         char_images = database.list_character_images()
         for i, _ in enumerate(char_images, start=1):
             result = database.get_character_image_thumb(i)
             if result:
                 context_images.append(result)
-                if len(context_images) >= 2:
-                    break
+            if len(context_images) >= _MAX_CTX_IMAGES:
+                break
 
-    # KB image thumbnails: from entries that matched the uploaded image (capped at 2)
-    for m in visual_kb_matched[:2]:
+    # KB image thumbnails from visual upload match (build_visual_kb_context)
+    for m in visual_kb_matched:
+        if len(context_images) >= _MAX_CTX_IMAGES:
+            break
         entry_id = m.get("id")
         if entry_id:
             result = database.get_kb_image_thumb(entry_id)
             if result:
                 context_images.append(result)
+
+    # KB image thumbnails from title-name match in user text (text-only path)
+    if not image_bytes and len(context_images) < _MAX_CTX_IMAGES:
+        all_img_entries = database.get_all_entries(limit=200)
+        text_lower = user_text.lower() if user_text else ""
+        for entry in all_img_entries:
+            if entry.get("entry_type") != "image":
+                continue
+            title = (entry.get("title") or "").strip()
+            if len(title) >= 2 and title.lower() in text_lower:
+                entry_id = entry.get("id")
+                if entry_id:
+                    result = database.get_kb_image_thumb(entry_id)
+                    if result:
+                        context_images.append(result)
+            if len(context_images) >= _MAX_CTX_IMAGES:
+                break
 
     # Build system prompt with memory + KB context + visual KB matches
     system_prompt = build_system_prompt(
