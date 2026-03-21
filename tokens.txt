@@ -17,6 +17,7 @@ AI_BACKEND=groq
 # Groq API Key（從 https://console.groq.com/keys 獲取）
 GROQ_API_KEY=
 # 文字模型（留空使用預設 llama-3.3-70b-versatile；達到速率上限時自動依優先順序切換）
+
 # 可填入任何 Groq 支援的模型 ID（完整清單見 console.groq.com/docs/models）：
 #
 #  【Tier 1 — 大型生產模型，品質最高】

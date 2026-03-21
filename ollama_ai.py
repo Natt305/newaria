@@ -275,8 +275,8 @@ async def chat(
     # with a fresh, laser-focused minimal prompt — no extra context to confuse it.
     if _BREAKS_CHARACTER_RE.search(text):
         print("[Ollama] Character break detected — retrying with laser-focused identity prompt")
-        # Extract bot name from the system prompt header
-        _name_m = re.search(r"YOUR NAME IS ([^\.\n]+)", system_prompt)
+        # Extract bot name from the system prompt ("You are {name}.")
+        _name_m = re.search(r"^You are ([^\.\n]+)\.", system_prompt)
         bot_name_hint = _name_m.group(1).strip() if _name_m else "the character"
 
         # Build a minimal system prompt focused ONLY on identity
