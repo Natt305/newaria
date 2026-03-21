@@ -13,6 +13,35 @@ import aiohttp
 DEFAULT_MODEL = "gemma3:12b"
 DEFAULT_VISION_MODEL = "gemma3:12b"
 
+# Unicode ranges used for language detection
+_CJK_RE        = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]')   # Chinese chars
+_KANA_RE       = re.compile(r'[\u3040-\u309f\u30a0-\u30ff]')                 # Japanese kana
+_HANGUL_RE     = re.compile(r'[\uac00-\ud7af]')                              # Korean
+
+def _lang_reinforcement(messages: list) -> str:
+    """Return a one-line CRITICAL instruction matching the user's script.
+
+    Reads the last user message to detect the writing system in use so Ollama
+    is reminded to respond in the same language even for uncommon topics.
+    Returns an empty string when plain ASCII/English is detected.
+    """
+    last_user = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            c = m.get("content", "")
+            last_user = c if isinstance(c, str) else " ".join(
+                p.get("text", "") for p in c if isinstance(p, dict)
+            )
+            break
+
+    if _KANA_RE.search(last_user):
+        return "CRITICAL: Respond ONLY in Japanese (日本語). Never switch to English.\n"
+    if _HANGUL_RE.search(last_user):
+        return "CRITICAL: Respond ONLY in Korean (한국어). Never switch to English.\n"
+    if _CJK_RE.search(last_user):
+        return "CRITICAL: Respond ONLY in Traditional Chinese (繁體中文). Never use English or Simplified Chinese.\n"
+    return ""
+
 IMAGE_TRIGGER_PHRASES = [
     "i can't generate",
     "i cannot generate",
@@ -168,9 +197,13 @@ async def chat(
     else:
         active_model = model if model else _model()
 
+    # Prepend a hard language instruction so Ollama doesn't drift to English
+    lang_hint = _lang_reinforcement(messages)
+    effective_system = (lang_hint + system_prompt) if system_prompt else lang_hint
+
     ollama_messages = []
-    if system_prompt:
-        ollama_messages.append({"role": "system", "content": system_prompt})
+    if effective_system:
+        ollama_messages.append({"role": "system", "content": effective_system})
 
     recent = messages[-20:]
     for i, msg in enumerate(recent):
