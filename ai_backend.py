@@ -44,9 +44,12 @@ def user_wants_image(messages: list) -> Optional[str]:
 async def chat(
     messages: list,
     system_prompt: str = "",
-    model: str = "",
+    model: Optional[str] = None,
 ) -> tuple[str, Optional[str]]:
-    return await _mod().chat(messages, system_prompt=system_prompt, model=model)
+    kwargs = {"system_prompt": system_prompt}
+    if model:
+        kwargs["model"] = model
+    return await _mod().chat(messages, **kwargs)
 
 
 async def understand_image(
