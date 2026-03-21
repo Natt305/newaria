@@ -86,7 +86,8 @@ def build_system_prompt(name: str, background: str, kb_context: str = "", memory
         "  3. Aim for 20-60 words inside the tag.\n"
         "  4. Do NOT write any text before or after the [IMAGE:...] tag — not even a single word.\n"
         "  5. Do NOT explain that you are generating an image.\n"
-        "Good example: [IMAGE: a young woman playing electric guitar on a neon-lit Tokyo street at night, cinematic lighting, vibrant colors, anime style]\n"
+        "  6. You are an anime character — always include 'anime-style illustration, 2D art' in every image prompt.\n"
+        "Good example: [IMAGE: young woman with silver hair playing electric guitar on a neon-lit Tokyo street at night, anime-style illustration, 2D art, vibrant colors]\n"
         "Bad example: Sure! Here you go: [IMAGE: cat]\n"
         "Bad example: [圖像生成: 一個女孩]\n"
     )

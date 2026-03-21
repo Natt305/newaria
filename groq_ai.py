@@ -341,8 +341,11 @@ async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> 
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
         "- Aim for 20-60 words.\n"
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
-        "Good output: vibrant cherry blossom park in Kyoto at sunset, soft golden light, "
-        "anime art style, petals drifting in the breeze, peaceful atmosphere\n"
+        "- If the subject is a person or character (especially with anime features like "
+        "distinctively colored hair or eyes), always include 'anime-style illustration, 2D art' "
+        "in the output. Never use 'photorealistic' or 'photograph' for character prompts.\n"
+        "Good output: silver-haired young woman playing electric guitar in a dimly lit music room, "
+        "anime-style illustration, 2D art, soft warm lighting, melancholic mood\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
@@ -425,7 +428,6 @@ async def chat(
             if response_declines_image(text):
                 img_prompt = user_wants_image(messages)
                 if img_prompt:
-                    img_prompt = await enhance_image_prompt(img_prompt)
                     return None, img_prompt
 
             return text, None
