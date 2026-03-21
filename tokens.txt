@@ -6,9 +6,28 @@
 # Discord Bot Token（從 https://discord.com/developers/applications 獲取）
 DISCORD_BOT_TOKEN=
 
+# ================================================================
+#  AI 後端設定 / AI Backend Configuration
+#  選擇 "groq" 或 "ollama"（預設為 groq）
+#  Choose "groq" or "ollama" (default: groq)
+# ================================================================
+AI_BACKEND=groq
+
+# --- Groq 設定（AI_BACKEND=groq 時使用）---
 # Groq API Key（從 https://console.groq.com/keys 獲取）
 GROQ_API_KEY=
 
+# --- Ollama 設定（AI_BACKEND=ollama 時使用）---
+# Ollama 伺服器位址（預設 http://localhost:11434）
+OLLAMA_BASE_URL=http://localhost:11434
+# 文字模型（預設 gemma3:12b）
+OLLAMA_MODEL=gemma3:12b
+# 視覺模型，用於圖片理解（預設 gemma3:12b，支援多模態）
+OLLAMA_VISION_MODEL=gemma3:12b
+
+# ================================================================
+#  Cloudflare 圖像生成（可選）
+# ================================================================
 # Cloudflare API Token（從 https://dash.cloudflare.com/profile/api-tokens 獲取）
 CLOUDFLARE_API_TOKEN=
 

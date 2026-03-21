@@ -1,13 +1,13 @@
 # AriaBot — 少女樂團機器人
 
-A Discord AI bot powered by Groq (text), Cloudflare Workers AI (image generation), and file-based plain-text storage.
+A Discord AI bot powered by a configurable AI backend (Ollama or Groq), Cloudflare Workers AI (image generation), and file-based plain-text storage.
 
 ## Architecture
 
 - **Language**: Python 3.11
 - **Bot framework**: discord.py 2.x with hybrid commands (prefix `!` and slash `/`)
-- **Text AI**: Groq — `llama-3.3-70b-versatile` (with fallbacks)
-- **Vision AI**: Groq vision models — tries Llama 4 Scout, Llama 3.2 90B/11B in order
+- **Text AI**: Configurable — Ollama (local, default `gemma3:12b`) or Groq (`llama-3.3-70b-versatile`)
+- **Vision AI**: Configurable — Ollama vision model or Groq vision models
 - **Image generation**: Cloudflare Workers AI (Flux)
 - **Storage**: Plain JSON/image files (human-editable) + SQLite for conversation history only
 
@@ -17,12 +17,14 @@ A Discord AI bot powered by Groq (text), Cloudflare Workers AI (image generation
 |------|------|
 | `launcher.py` | Entry point — loads tokens.txt, checks env vars, then calls `bot.main()` |
 | `bot.py` | All Discord commands, event handlers, conversation logic |
+| `ai_backend.py` | Router — delegates AI calls to groq_ai or ollama_ai based on `AI_BACKEND` env var |
 | `groq_ai.py` | Groq API client — text chat, image understanding, memory extraction |
+| `ollama_ai.py` | Ollama API client — same interface as groq_ai, uses local Ollama server |
 | `cloudflare_ai.py` | Cloudflare Workers AI — image generation |
 | `database.py` | File-based storage for character, memories, knowledge; SQLite for history |
 | `views.py` | Discord UI components (buttons, modals, paginated views) |
 | `help_config.py` | User-facing help text |
-| `tokens.txt` | Fill in API keys here (alternative to Replit Secrets) |
+| `tokens.txt` | Fill in API keys and backend config here (alternative to Replit Secrets) |
 
 ## Data Folder Layout
 
@@ -52,14 +54,18 @@ data/
 - **Image descriptions**: open `data/knowledge/images/<id>.json`, edit `image_description`, save.
 - **Delete an entry**: delete the corresponding `.json` file (and image file for image entries).
 
-## Required Secrets
+## Configuration
 
 Set these in `tokens.txt` **or** as Replit Secrets (Secrets take priority):
 
 | Key | Required | Purpose |
 |-----|----------|---------|
 | `DISCORD_BOT_TOKEN` | ✅ | Bot login |
-| `GROQ_API_KEY` | ✅ | Text chat & vision |
+| `AI_BACKEND` | Optional | `groq` (default) or `ollama` |
+| `GROQ_API_KEY` | If using Groq | Text chat & vision |
+| `OLLAMA_BASE_URL` | If using Ollama | Ollama server URL (default: `http://localhost:11434`) |
+| `OLLAMA_MODEL` | If using Ollama | Chat model (default: `gemma3:12b`) |
+| `OLLAMA_VISION_MODEL` | If using Ollama | Vision model (default: `gemma3:12b`) |
 | `CLOUDFLARE_API_TOKEN` | Optional | Image generation |
 | `CLOUDFLARE_ACCOUNT_ID` | Optional | Image generation |
 

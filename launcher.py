@@ -69,7 +69,7 @@ def load_permissions_file(base_path: str):
 def main():
     print("=" * 60)
     print("  少女樂團機器人 (AriaBot)")
-    print("  Powered by Groq + Cloudflare Workers AI + SQLite")
+    print("  Powered by Ollama / Groq + Cloudflare Workers AI + SQLite")
     print("=" * 60)
     print()
 
@@ -82,8 +82,19 @@ def main():
         print("[Error] DISCORD_BOT_TOKEN is not set. Add it to tokens.txt or as a Replit Secret.")
         sys.exit(1)
 
-    if not os.environ.get("GROQ_API_KEY"):
-        print("[Warning] GROQ_API_KEY is not set. Text chat will be unavailable.")
+    backend = os.environ.get("AI_BACKEND", "groq").strip().lower()
+    if backend == "ollama":
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        model = os.environ.get("OLLAMA_MODEL", "gemma3:12b")
+        vision_model = os.environ.get("OLLAMA_VISION_MODEL", "gemma3:12b")
+        print(f"[AI] Backend: Ollama @ {base_url}")
+        print(f"[AI] Chat model: {model}")
+        print(f"[AI] Vision model: {vision_model}")
+    else:
+        if not os.environ.get("GROQ_API_KEY"):
+            print("[Warning] GROQ_API_KEY is not set. Text chat will be unavailable.")
+        else:
+            print("[AI] Backend: Groq")
 
     if not os.environ.get("CLOUDFLARE_API_TOKEN") or not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
         print("[Warning] Cloudflare config is incomplete. Image generation will be disabled.")

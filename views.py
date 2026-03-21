@@ -7,7 +7,7 @@ from typing import Optional
 import discord
 import database
 import cloudflare_ai
-import groq_ai
+import ai_backend as groq_ai
 
 PAGE_SIZE = 5
 
