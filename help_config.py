@@ -31,8 +31,8 @@ USER_HELP_SECTIONS: List[Tuple[str, str]] = [
 ADMIN_HELP_SECTIONS: List[Tuple[str, str]] = [
     (
         "🎭 角色設定",
-        '`/setcharacter "名稱" <背景>` 或 `!setcharacter "名稱" <背景>`\n'
-        "　設定角色名稱與背景故事。\n"
+        '`/setcharacter "名稱" <背景> [個性] [外貌]` 或 `!setcharacter "名稱" <背景> [個性] [外貌]`\n'
+        "　設定角色名稱、背景、個性說話風格與外貌描述。\n"
         "`/character` 或 `!character`\n"
         "　查看目前角色設定；可在圖庫中新增/移除外貌圖。\n"
         "`/addcharimage [attachment 1–10]` 或 `!addcharimage (附上圖片)`\n"

@@ -38,6 +38,7 @@ DEFAULT_CHARACTER = {
         "妳可以分析圖像、生成藝術作品，並記住用戶與妳分享的信息。"
     ),
     "personality": "",
+    "looks": "",
 }
 
 
@@ -73,15 +74,16 @@ def get_character() -> Dict[str, str]:
                 data = json.load(f)
             if "name" in data and "background" in data:
                 data.setdefault("personality", "")
+                data.setdefault("looks", "")
                 return data
         except Exception as e:
             print(f"[DB] Warning: could not read character/profile.json: {e}")
     return dict(DEFAULT_CHARACTER)
 
 
-def set_character(name: str, background: str, personality: str = "") -> bool:
+def set_character(name: str, background: str, personality: str = "", looks: str = "") -> bool:
     try:
-        data = {"name": name, "background": background, "personality": personality}
+        data = {"name": name, "background": background, "personality": personality, "looks": looks}
         with open(CHARACTER_JSON, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         print(f"[DB] Character saved → {CHARACTER_JSON}")
@@ -97,6 +99,7 @@ def _ensure_character_json():
             DEFAULT_CHARACTER["name"],
             DEFAULT_CHARACTER["background"],
             DEFAULT_CHARACTER["personality"],
+            DEFAULT_CHARACTER["looks"],
         )
 
 

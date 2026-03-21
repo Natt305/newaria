@@ -114,28 +114,37 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
         max_length=4000,
         required=False,
     )
+    looks = discord.ui.TextInput(
+        label="外貌描述",
+        style=discord.TextStyle.paragraph,
+        placeholder="描述角色的外表、髮色、眼睛、服裝風格等...",
+        max_length=4000,
+        required=False,
+    )
 
-    def __init__(self, current_name: str = "", current_background: str = "", current_personality: str = ""):
+    def __init__(self, current_name: str = "", current_background: str = "", current_personality: str = "", current_looks: str = ""):
         super().__init__()
         self.name.default = current_name[:50]
         self.background.default = current_background[:4000]
         self.personality.default = current_personality[:4000]
+        self.looks.default = current_looks[:4000]
 
     async def on_submit(self, interaction: discord.Interaction):
         import bot as bot_module
         new_name = str(self.name)
         new_bg = str(self.background)
         new_personality = str(self.personality)
-        success = database.set_character(new_name, new_bg, new_personality)
+        new_looks = str(self.looks)
+        success = database.set_character(new_name, new_bg, new_personality, new_looks)
         if success:
             bot_module.conversation_contexts.clear()
             new_embed = build_char_embed(
-                new_name, new_bg, new_personality,
+                new_name, new_bg, new_personality, new_looks,
                 tab="background", bg_page=0,
                 title="✅ 角色已更新",
                 footer="對話歷史已清除以套用新角色。點擊下方按鈕可繼續編輯。",
             )
-            new_view = CharacterView(new_name, new_bg, new_personality)
+            new_view = CharacterView(new_name, new_bg, new_personality, new_looks)
             await interaction.response.edit_message(embed=new_embed, view=new_view)
         else:
             await interaction.response.send_message(
@@ -985,10 +994,17 @@ def _personality_chunks(personality: str) -> list:
     return [text[i:i + _CONTENT_PAGE_SIZE] for i in range(0, max(1, len(text)), _CONTENT_PAGE_SIZE)]
 
 
+def _looks_chunks(looks: str) -> list:
+    """Split looks into 1024-char pages for pagination."""
+    text = looks or "（未設定外貌）"
+    return [text[i:i + _CONTENT_PAGE_SIZE] for i in range(0, max(1, len(text)), _CONTENT_PAGE_SIZE)]
+
+
 def build_char_embed(
     bot_name: str,
     background: str,
     personality: str = "",
+    looks: str = "",
     tab: str = "background",
     bg_page: int = 0,
     image_count: int = 0,
@@ -996,7 +1012,7 @@ def build_char_embed(
     color: discord.Color = discord.Color.gold(),
     footer: str = "點擊下方按鈕可編輯角色設定或瀏覽外貌圖庫。",
 ) -> discord.Embed:
-    """Build the character profile embed. tab='background' or 'personality'."""
+    """Build the character profile embed. tab='background', 'personality', or 'looks'."""
     embed = discord.Embed(title=title, color=color)
     embed.add_field(name="🏷️ 名稱", value=bot_name, inline=True)
     if image_count:
@@ -1007,6 +1023,14 @@ def build_char_embed(
         total = len(chunks)
         page = max(0, min(bg_page, total - 1))
         field_name = "💬 個性 / 說話風格"
+        if total > 1:
+            field_name += f"　第 {page + 1} / {total} 頁"
+        embed.add_field(name=field_name, value=chunks[page], inline=False)
+    elif tab == "looks":
+        chunks = _looks_chunks(looks)
+        total = len(chunks)
+        page = max(0, min(bg_page, total - 1))
+        field_name = "🎨 外貌描述"
         if total > 1:
             field_name += f"　第 {page + 1} / {total} 頁"
         embed.add_field(name=field_name, value=chunks[page], inline=False)
@@ -1025,20 +1049,21 @@ def build_char_embed(
 
 
 class CharacterView(discord.ui.View):
-    """Shown by /character — lets the user browse background and personality tabs,
+    """Shown by /character — lets the user browse background, personality, and looks tabs,
     paginate long text, edit all fields via modal, and open the image gallery.
 
     Layout:
-      Row 0: 📖 背景 | 💬 個性  (tab selector)
+      Row 0: 📖 背景 | 💬 個性 | 🎨 外貌  (tab selector)
       Row 1: ◀ 上一頁 | 第 x/y 頁 | 下一頁  (only when > 1 page)
       Row 2: ✏️ 編輯角色 | 🖼️ 外貌圖庫
     """
 
-    def __init__(self, bot_name: str, background: str, personality: str = "", image_count: int = 0):
+    def __init__(self, bot_name: str, background: str, personality: str = "", looks: str = "", image_count: int = 0):
         super().__init__(timeout=120)
         self.bot_name = bot_name
         self.background = background
         self.personality = personality
+        self.looks = looks
         self.image_count = image_count
         self.tab = "background"
         self.bg_page = 0
@@ -1047,11 +1072,13 @@ class CharacterView(discord.ui.View):
     def _current_chunks(self) -> list:
         if self.tab == "personality":
             return _personality_chunks(self.personality)
+        if self.tab == "looks":
+            return _looks_chunks(self.looks)
         return _bg_chunks(self.background)
 
     def _get_embed(self) -> discord.Embed:
         return build_char_embed(
-            self.bot_name, self.background, self.personality,
+            self.bot_name, self.background, self.personality, self.looks,
             tab=self.tab, bg_page=self.bg_page, image_count=self.image_count,
         )
 
@@ -1076,6 +1103,14 @@ class CharacterView(discord.ui.View):
         )
         pers_tab.callback = self._switch_personality
         self.add_item(pers_tab)
+
+        looks_tab = discord.ui.Button(
+            label="🎨 外貌",
+            style=discord.ButtonStyle.primary if self.tab == "looks" else discord.ButtonStyle.secondary,
+            row=0,
+        )
+        looks_tab.callback = self._switch_looks
+        self.add_item(looks_tab)
 
         # Row 1: pagination (only when > 1 page)
         if total > 1:
@@ -1129,6 +1164,12 @@ class CharacterView(discord.ui.View):
         self._build_buttons()
         await interaction.response.edit_message(embed=self._get_embed(), view=self)
 
+    async def _switch_looks(self, interaction: discord.Interaction):
+        self.tab = "looks"
+        self.bg_page = 0
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
+
     async def _prev_page(self, interaction: discord.Interaction):
         self.bg_page = max(0, self.bg_page - 1)
         self._build_buttons()
@@ -1142,7 +1183,7 @@ class CharacterView(discord.ui.View):
 
     async def _edit_character(self, interaction: discord.Interaction):
         try:
-            modal = EditCharacterModal(self.bot_name, self.background, self.personality)
+            modal = EditCharacterModal(self.bot_name, self.background, self.personality, self.looks)
             await interaction.response.send_modal(modal)
         except Exception as e:
             print(f"[View] EditCharacter modal error: {type(e).__name__}: {e}")

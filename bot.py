@@ -34,9 +34,9 @@ conversation_contexts: dict = {}
 MAX_HISTORY = 10
 
 
-def load_character() -> tuple[str, str, str]:
+def load_character() -> tuple[str, str, str, str]:
     char = database.get_character()
-    return char["name"], char["background"], char.get("personality", "")
+    return char["name"], char["background"], char.get("personality", ""), char.get("looks", "")
 
 
 _char_images_ctx_cache: Optional[str] = None
@@ -91,7 +91,7 @@ def _invalidate_kb_title_index() -> None:
     _kb_image_title_index = None
 
 
-def build_system_prompt(name: str, background: str, personality: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "") -> str:
+def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "") -> str:
     prompt = (
         f"You are {name}. {background}\n\n"
         f"You are NOT an AI — you ARE {name}, a real person with your own personality. Never break character.\n"
@@ -110,6 +110,8 @@ def build_system_prompt(name: str, background: str, personality: str = "", kb_co
     )
     if personality:
         prompt += f"\n[Speaking style — follow this exactly when composing every reply]\n{personality}\n"
+    if looks:
+        prompt += f"\n[Your physical appearance — describe in first person when relevant]\n{looks}\n"
     if character_images_context:
         prompt += (
             f"\n[Your appearance — describe in first person as if you naturally know how you look]\n"
@@ -402,7 +404,7 @@ async def send_with_suggestions(response_text: str, channel_id: str, reply_targe
         return
 
     topic = await get_suggestion_topic(channel_id)
-    bot_name, background, _ = load_character()
+    bot_name, background, *_ = load_character()
     suggestions = await groq_ai.generate_suggestions(
         topic=topic,
         bot_name=bot_name,
@@ -432,7 +434,7 @@ async def process_chat(
     image_mime: Optional[str] = None,
 ):
     """Core chat handler — used by on_message and button callbacks."""
-    bot_name, background, personality = load_character()
+    bot_name, background, personality, looks = load_character()
 
     image_analysis = ""
     image_failed = False
@@ -530,7 +532,7 @@ async def process_chat(
 
     # Build system prompt with memory + KB context + visual KB matches
     system_prompt = build_system_prompt(
-        bot_name, background, personality,
+        bot_name, background, personality, looks,
         kb_context=kb_context,
         memory_context=memory_context,
         visual_kb_context=visual_kb_context,
@@ -807,7 +809,7 @@ COMMAND_USAGE = {
     "forget":              "用法: `!forget <id>`\n例如: `!forget 3`",
     "setdesc":             "用法: `!setdesc <id> <描述>`\n例如: `!setdesc 3 這是一張夕陽圖`",
     "remember":            '用法: `!remember "標題" <內容>`\n例如: `!remember "筆記" 這是我的筆記`',
-    "setcharacter":        '用法: `/setcharacter 名稱 背景 [個性]`\n例如: `/setcharacter 小助手 妳是一個友善的助手 說話簡短、溫柔、帶點害羞`\n個性為選填，描述說話風格',
+    "setcharacter":        '用法: `/setcharacter 名稱 背景 [個性] [外貌]`\n例如: `/setcharacter 小助手 妳是一個友善的助手 說話簡短、溫柔、帶點害羞 銀色長髮、藍色眼睛`\n個性與外貌均為選填',
     "saveimage":           '用法: `!saveimage "標題"` (需附上圖像)',
     "generate":            "用法: `!generate <提示詞>`\n例如: `!generate 一隻在森林裡的貓`",
     "setstatus":           "用法: `!setstatus <文字> [activity_type] [status]`\n例如: `!setstatus 少女樂團 listening online`",
@@ -999,20 +1001,21 @@ async def on_message(message: discord.Message):
     name="角色名稱",
     background="角色的背景與身份描述",
     personality="說話風格與個性描述（選填）",
+    looks="外貌描述（選填）",
 )
-async def setcharacter_cmd(ctx, name: str, background: str, *, personality: str = ""):
-    """設定機器人的角色: /setcharacter 名稱 背景 [個性] 或 !setcharacter 名稱 背景 [個性]"""
+async def setcharacter_cmd(ctx, name: str, background: str, personality: str = "", *, looks: str = ""):
+    """設定機器人的角色: /setcharacter 名稱 背景 [個性] [外貌] 或 !setcharacter 名稱 背景 [個性] [外貌]"""
     if not await check_command_role(ctx):
         return
-    success = database.set_character(name, background, personality)
+    success = database.set_character(name, background, personality, looks)
     if success:
         conversation_contexts.clear()
         embed = ui.build_char_embed(
-            name, background, personality,
+            name, background, personality, looks,
             title="✅ 角色已更新",
             footer="對話歷史已清除。隨時可按「編輯角色」更新設定。",
         )
-        view = ui.CharacterView(name, background, personality)
+        view = ui.CharacterView(name, background, personality, looks)
         await ctx.reply(embed=embed, view=view, mention_author=False)
     else:
         await ctx.reply("❌ 更新角色時發生錯誤，請重試。", mention_author=False)
@@ -1023,10 +1026,10 @@ async def character_cmd(ctx):
     """檢視機器人的目前角色: !character"""
     if not await check_command_role(ctx):
         return
-    bot_name, background, personality = load_character()
+    bot_name, background, personality, looks = load_character()
     image_count = database.get_character_image_count()
 
-    embed = ui.build_char_embed(bot_name, background, personality, image_count=image_count)
+    embed = ui.build_char_embed(bot_name, background, personality, looks, image_count=image_count)
 
     file = None
     if image_count >= 1:
@@ -1039,7 +1042,7 @@ async def character_cmd(ctx):
             file = discord.File(io.BytesIO(img_bytes), filename=f"char_preview.{ext}")
             embed.set_image(url=f"attachment://char_preview.{ext}")
 
-    view = ui.CharacterView(bot_name, background, personality, image_count=image_count)
+    view = ui.CharacterView(bot_name, background, personality, looks, image_count=image_count)
     if file:
         await ctx.reply(embed=embed, file=file, view=view, mention_author=False)
     else:
@@ -2335,7 +2338,7 @@ async def permissions_cmd(ctx):
 @bot.hybrid_command(name="help", description="顯示使用者指令說明")
 async def help_cmd(ctx):
     """顯示使用者說明: !help 或 /help"""
-    bot_name, background, _ = load_character()
+    bot_name, background, *_ = load_character()
     embed = discord.Embed(
         title=f"{bot_name} — 指令說明",
         description=background[:500] + ("..." if len(background) > 500 else ""),
