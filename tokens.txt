@@ -32,8 +32,7 @@ GROQ_API_KEY=
 #   groq/compound                     Groq Compound（工具增強）
 #   groq/compound-mini                Groq Compound Mini
 #
-#  【Tier 4 — 最輕量最快，作為最後備援】
-#   llama-3.1-8b-instant           8B  560 T/s  131K ctx
+#  【最終備援 — 若所有 Groq 模型均失敗，自動切換至 Ollama（若已設定）】
 GROQ_MODEL=
 # 視覺模型，用於圖片理解（留空使用預設 meta-llama/llama-4-scout-17b-16e-instruct）
 # 可選：

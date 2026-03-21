@@ -60,8 +60,7 @@ FALLBACK_MODELS = [
     "moonshotai/kimi-k2-instruct-0905",
     "groq/compound",
     "groq/compound-mini",
-    # Tier 4
-    "llama-3.1-8b-instant",
+    # Tier 4 removed — Ollama is used as the final fallback instead
 ]
 
 IMAGE_TRIGGER_PHRASES = [
@@ -416,7 +415,18 @@ async def chat(
             print(f"[Groq] Error with {attempt_model}: {e}")
             continue
 
-    return "I'm having trouble connecting to my text AI right now. Please try again in a moment.", None
+    # All Groq models exhausted — attempt Ollama as a last resort
+    print("[Groq] All models failed. Falling back to Ollama...")
+    try:
+        import ollama_ai
+        return await ollama_ai.chat(
+            messages,
+            system_prompt=system_prompt,
+            context_images=context_images,
+        )
+    except Exception as e:
+        print(f"[Groq→Ollama] Fallback also failed: {e}")
+        return "I'm having trouble connecting to my AI right now. Please try again in a moment.", None
 
 
 async def generate_image_comment(
