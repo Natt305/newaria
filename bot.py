@@ -633,9 +633,9 @@ _suggestions_enabled: bool = True
 _suggestion_prompt: str = ""
 
 _memory_enabled: bool = True
-_memory_length: int = 20
+_memory_length: int = 50
 _passive_memory_enabled: bool = True
-_passive_memory_length: int = 50
+_passive_memory_length: int = 200
 _command_roles: dict = {}
 
 
@@ -813,8 +813,8 @@ COMMAND_USAGE = {
     "saveimage":           '用法: `!saveimage "標題"` (需附上圖像)',
     "generate":            "用法: `!generate <提示詞>`\n例如: `!generate 一隻在森林裡的貓`",
     "setstatus":           "用法: `!setstatus <文字> [activity_type] [status]`\n例如: `!setstatus 少女樂團 listening online`",
-    "memorylength":        "用法: `!memorylength <數字>`\n例如: `!memorylength 30`",
-    "passivememorylength": "用法: `!passivememorylength <數字>`\n例如: `!passivememorylength 80`",
+    "memorylength":        "用法: `!memorylength <數字>`\n例如: `!memorylength 50`\n預設: 50",
+    "passivememorylength": "用法: `!passivememorylength <數字>`\n例如: `!passivememorylength 200`\n預設: 200",
 }
 
 
@@ -892,9 +892,9 @@ async def on_ready():
     # Restore persisted memory settings
     global _memory_enabled, _memory_length, _passive_memory_enabled, _passive_memory_length
     _memory_enabled = bool(database.get_setting("memory_enabled"))
-    _memory_length = int(database.get_setting("memory_length") or 20)
+    _memory_length = int(database.get_setting("memory_length") or 50)
     _passive_memory_enabled = bool(database.get_setting("passive_memory_enabled"))
-    _passive_memory_length = int(database.get_setting("passive_memory_length") or 50)
+    _passive_memory_length = int(database.get_setting("passive_memory_length") or 200)
     mem_count = database.count_memories()
     print(f"[Bot] 長期記憶: {'開啟' if _memory_enabled else '關閉'} (近期 {_memory_length} 條 | 深層記憶: {'開啟' if _passive_memory_enabled else '關閉'} 最多 {_passive_memory_length} 條 | 已儲存 {mem_count} 條)")
 
@@ -1934,14 +1934,14 @@ async def passivememory_cmd(ctx):
 
 
 @bot.hybrid_command(name="passivememorylength", description="設定被動記憶搜索的最大條數")
-@app_commands.describe(length="被動記憶搜索的最大條數 (1–200，預設 50)")
+@app_commands.describe(length="被動記憶搜索的最大條數 (1–500，預設 200)")
 async def passivememorylength_cmd(ctx, length: int):
     """設定被動記憶長度: !passivememorylength <數字>"""
     if not await check_command_role(ctx):
         return
     global _passive_memory_length
-    if not 1 <= length <= 200:
-        await ctx.reply("❌ 請輸入 1 到 200 之間的數字。", mention_author=False)
+    if not 1 <= length <= 500:
+        await ctx.reply("❌ 請輸入 1 到 500 之間的數字。", mention_author=False)
         return
     _passive_memory_length = length
     database.set_setting("passive_memory_length", length)

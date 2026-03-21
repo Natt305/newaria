@@ -305,9 +305,9 @@ _SETTINGS_DEFAULTS = {
     "suggestions_enabled":    True,
     "suggestion_prompt":      "",
     "memory_enabled":         True,
-    "memory_length":          20,
+    "memory_length":          50,
     "passive_memory_enabled": True,
-    "passive_memory_length":  50,
+    "passive_memory_length":  200,
     "command_roles":          dict(_DEFAULT_COMMAND_ROLES),
 }
 

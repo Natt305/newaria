@@ -61,9 +61,9 @@ ADMIN_HELP_SECTIONS: List[Tuple[str, str]] = [
     (
         "🧠 長期記憶",
         "`/memory` — 開啟或關閉主動記憶 (每次對話自動注入最近記憶)\n"
-        "`/memorylength <數字>` — 設定主動記憶注入條數 (預設 20)\n"
+        "`/memorylength <數字>` — 設定主動記憶注入條數 (預設 50)\n"
         "`/passivememory` — 開啟或關閉被動記憶 (用戶詢問時搜索深層記憶庫)\n"
-        "`/passivememorylength <數字>` — 設定深層搜索條數 (預設 50)\n"
+        "`/passivememorylength <數字>` — 設定深層搜索條數 (預設 200)\n"
         "`/memories` — 分頁瀏覽所有記憶\n"
         "`/clearmemory` — 清除自己的記憶\n"
         "`/clearmemory @用戶` — 清除指定用戶的記憶 (需管理員)\n"
