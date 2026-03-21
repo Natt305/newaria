@@ -66,6 +66,30 @@ IMAGE_TRIGGER_PHRASES = [
     "no image generation",
     "can't render",
     "cannot render",
+    # Ollama / gemma-style declines
+    "i can't directly show",
+    "i cannot directly show",
+    "i can't show you images",
+    "i cannot show you images",
+    "i can't show you pictures",
+    "i cannot show you pictures",
+    "i can't share images",
+    "i cannot share images",
+    "i'm not able to show",
+    "i am not able to show",
+    "i don't have the capability to generate",
+    "i do not have the capability to generate",
+    "i'm not capable of generating",
+    "i am not capable of generating",
+    "i can't actually generate",
+    "i cannot actually generate",
+    "images you're requesting",
+    "the images you're requesting",
+    "i'd describe them as follows",
+    "i would describe them as follows",
+    "based on my recent memories",
+    "i can describe",
+    "let me describe",
 ]
 
 IMAGE_REQUEST_PATTERNS = [
@@ -79,6 +103,11 @@ IMAGE_REQUEST_PATTERNS = [
     re.compile(r"(生成|畫|繪|製作|創作|做).{0,20}(圖|圖片|圖像|插圖|照片)", re.I),
     re.compile(r"(幫我|幫|請|可以|能不能).{0,10}(畫|生成|繪製|做).{0,20}(圖|圖片|圖像)", re.I),
     re.compile(r"(圖片|圖像|照片|插圖).{0,10}(生成|製作|創作)", re.I),
+    # "photo/picture of you" — possession style (妳彈吉他的照片, 你的照片, etc.)
+    re.compile(r"(你|妳|她|他|您).{0,30}(照片|圖片|圖像|相片|自拍)", re.I),
+    re.compile(r"(照片|相片|圖片|圖像).{0,10}(給我|看看|看一下|分享)", re.I),
+    re.compile(r"\b(photo|picture|image|pic)\b.{0,20}\bof\b", re.I),
+    re.compile(r"\bshow me\b.{0,30}\b(photo|picture|image|pic|what you look)\b", re.I),
 ]
 
 _IMAGE_MARKER_RE = re.compile(
@@ -238,6 +267,14 @@ async def chat(
         if img_prompt:
             img_prompt = await enhance_image_prompt(img_prompt)
             return None, img_prompt
+
+    # Final fallback: model responded with text but the user had asked for an image
+    # (e.g. gemma3 described the image instead of outputting [IMAGE:...]).
+    # Still trigger Cloudflare image generation from the user's original request.
+    img_prompt = user_wants_image(messages)
+    if img_prompt:
+        img_prompt = await enhance_image_prompt(img_prompt)
+        return None, img_prompt
 
     return text, None
 
