@@ -138,13 +138,14 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
         success = database.set_character(new_name, new_bg, new_personality, new_looks)
         if success:
             bot_module.conversation_contexts.clear()
+            image_count = database.get_character_image_count()
             new_embed = build_char_embed(
                 new_name, new_bg, new_personality, new_looks,
-                tab="background", bg_page=0,
+                tab="background", bg_page=0, image_count=image_count,
                 title="✅ 角色已更新",
                 footer="對話歷史已清除以套用新角色。點擊下方按鈕可繼續編輯。",
             )
-            new_view = CharacterView(new_name, new_bg, new_personality, new_looks)
+            new_view = CharacterView(new_name, new_bg, new_personality, new_looks, image_count=image_count)
             await interaction.response.edit_message(embed=new_embed, view=new_view)
         else:
             await interaction.response.send_message(
@@ -1145,7 +1146,7 @@ class CharacterView(discord.ui.View):
         edit_btn.callback = self._edit_character
         self.add_item(edit_btn)
 
-        if self.image_count > 1:
+        if self.image_count >= 1:
             gallery_btn = discord.ui.Button(
                 label="外貌圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=2,
             )
