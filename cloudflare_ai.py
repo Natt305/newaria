@@ -46,7 +46,7 @@ async def _do_generate(session: aiohttp.ClientSession, url: str, headers: dict, 
     ("API_KEY_ERROR", "") on auth failure, ("MODEL_ERROR", "") on server error,
     or None on other failure.
     """
-    form = aiohttp.FormData()
+    form = aiohttp.FormData(default_to_multipart=True)
     form.add_field("prompt", prompt)
     form.add_field("width", str(WIDTH))
     form.add_field("height", str(HEIGHT))
