@@ -301,7 +301,7 @@ async def understand_image(
                 temperature=0.5,
                 max_tokens=1024,
             )
-            text = (response.choices[0].message.content or "").strip()
+            text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
             if text:
                 print(f"[Groq Vision] Success with model: {model}")
                 return text
