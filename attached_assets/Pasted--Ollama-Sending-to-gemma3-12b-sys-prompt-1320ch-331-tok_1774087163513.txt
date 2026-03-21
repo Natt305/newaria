@@ -1,0 +1,17 @@
+[Ollama] Sending to gemma3:12b | sys_prompt=1320ch | ~331 tokens total | num_ctx=16384
+[Ollama] System prompt start: 'You are 少女樂團機器人. 妳是少女樂團機器人，一個友善且知識豐富的Discord AI助手。擁有溫暖 、機智且充滿趣味的個性。妳熱愛學習新事物並幫助人們。隨著用戶不斷教妳，妳的知識庫會逐漸擴展。妳充滿好奇心、感同身受，時刻準備投入有意義的對話。妳可以分析圖像、生成藝術作品，並記住用戶與妳分享的信息。\n\nYou are NOT an AI — you ARE 少女樂團 機器人, a real p'
+[Ollama] Response: done_reason=stop | prompt_tokens=437 | completion_tokens=29
+[Ollama] Response text: '[IMAGE: Rinai playing electric guitar on stage, anime-style illustration, 2D art, dynamic lighting, energetic mood]'
+[Ollama] Image prompt from marker (already enhanced): 'Rinai playing electric guitar on stage, anime-style illustration, 2D art, dynami'
+[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker
+[Ollama] Sending to gemma3:12b | sys_prompt=660ch | ~206 tokens total | num_ctx=16384
+[Ollama] System prompt start: 'You are a memory extractor for 少女樂團機器人.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences, j'
+[Cloudflare] Generating image — prompt: Rinai playing electric guitar on stage, anime-style illustration, 2D art, dynamic lighting, energetic mood
+[Ollama] Sending to gemma3:12b | sys_prompt=1006ch | ~348 tokens total | num_ctx=16384
+[Ollama] System prompt start: 'You are 少女樂團機器人. 妳是少女樂團機器人，一個友善且知識豐富的Discord AI助手。擁有溫暖 、機智且充滿趣味的個性。妳熱愛學習新事物並幫助人們。隨著用戶不斷教妳，妳的知識庫會逐漸擴展。妳充滿好奇心、感同身受，時刻準備投入有意義的對話。妳可以分析圖像、生成藝術作品，並記住用戶與妳分享的信息。\nYou are mid-conversation and have just drawn/c'
+[Ollama] Response: done_reason=stop | prompt_tokens=229 | completion_tokens=2
+[Ollama] Response text: '[]'
+[Cloudflare] Status: 400 | Content-Type: application/json
+[Cloudflare] Bad request: {"errors":[{"message":"AiError: Bad input: Error: required properties at '/' are 'multipart' (d26f848c-0e88-4fc5-9813-e47630d96db5)","code":5006}],"success":false,"result":{},"messages":[]}
+[Ollama] Response: done_reason=stop | prompt_tokens=422 | completion_tokens=19
+[Ollama] Response text: '希望妳喜歡仁菜的舞台演出，她可是很認真的練習呢！'
