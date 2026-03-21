@@ -459,8 +459,8 @@ async def process_chat(
         not image_bytes and is_appearance_query(user_text)
     ) or groq_ai.is_self_referential_image(user_text)
     if wants_char_thumb and len(context_images) < _MAX_CTX_IMAGES:
-        char_images = database.list_character_images()
-        for i, _ in enumerate(char_images, start=1):
+        char_count = database.get_character_image_count()
+        for i in range(1, char_count + 1):
             result = database.get_character_image_thumb(i)
             if result:
                 context_images.append(result)
