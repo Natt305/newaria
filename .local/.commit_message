@@ -1,0 +1,47 @@
+feat: add 5-stage progress bar to process_chat (Task #7)
+
+Every chat message now shows a live progress indicator while the bot
+processes the reply.
+
+## What was implemented
+
+- At the start of `process_chat` a reply is sent immediately:
+    ⬜⬜⬜⬜⬜ 思考中
+- Five internal checkpoints advance the bar one block at a time:
+    Stage 1 — after image analysis (or skipped for text-only)
+    Stage 2 — after KB context is built
+    Stage 3 — after memory context is built
+    Stage 4 — after the AI chat call returns
+    Stage 5 — just before the final reply is dispatched
+- The bar is deleted before every exit path (text reply, image reply,
+  all error/warning replies) so it never lingers.
+
+## Implementation details
+
+Three closures defined inside `process_chat`:
+  `_prog(n)`       — builds the emoji string for n filled blocks out of 5
+  `_bar_set(n)`    — edits the bar message silently (try/except)
+  `_bar_delete()`  — deletes bar, sets _bar_msg=None (idempotent)
+
+Initial bar send is wrapped in try/except — permission errors never break
+chat flow. All bar edits/deletes are equally silent.
+
+## Edge cases handled and fixed (post review)
+
+- `image_failed + no user_text`: bar deleted before error reply, returns.
+- `image_failed + user_text` (warning, non-terminal): bar stays alive so
+  stages 4 and 5 still advance correctly; bar is cleaned up at final reply.
+- `image_prompt + response_text` (pre-text + image path): bar stays visible
+  during send_with_suggestions for pre-text, then advances to stage 5 during
+  image generation, and is deleted right before the image reply.
+- Text-only path: _bar_set(5) → _bar_delete() → send_with_suggestions.
+- Image generation path: _bar_set(5) visible during generate_image,
+  _bar_delete() just before the final image reply.
+- Cloudflare key missing path: bar deleted before error reply.
+- SuggestionButton: calls process_chat directly — inherits bar automatically.
+
+## Deviations from plan
+
+None. Exactly 5 stages, fixed "思考中" label, uniform across all paths.
+Top-level try/finally (optional hardening) was not implemented to avoid
+restructuring the entire 200-line function body.

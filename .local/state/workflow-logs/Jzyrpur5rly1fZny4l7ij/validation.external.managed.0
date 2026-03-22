@@ -1,0 +1,53 @@
+VERDICT: APPROVED_WITH_COMMENTS
+
+The diff implements the three requested debloating optimizations with correct core behavior and no blocking functional defects.
+
+Critical findings / analysis:
+- **Simple-message KB trimming** is implemented end-to-eVERDICT: APPROVED_WITH_COMMENTS
+nd:
+  - Added `is_simple_message(text)` with length cap, CN/EN question 
+detection, and recall-trigger exclusion.
+  - `process_chat()` nowThe diff implements the three requested debloating optimizations with correct core behavior and no blocking functional defects.
+ computes `_simple` (disabled for image messages) and pas
+ses `simple=_simple` into `build_knowledge_context()Critical findings / analysis:
+`.
+  - `build_knowledge_context(..., simple=True)` n- **Simple-message KB trimming** is implemented end-to-end:
+ow returns only starred relevant entries (or empty string   - Added `is_simple_message(text)` with length cap, CN/EN question detection, and recall-trigger exclusion.
+if none), while preserving full behavior for non-simple messages  - `process_chat()` now computes `_simple` (disabled for image messages) and passes `simple=_simple` into `build_knowledge_context()`.
+.
+- **Character image context caching** is correctly added:
+    - `build_knowledge_context(..., simple=True)` now returns only starred relevant entries (or empty string if none), while preserving full behavior for non-simple messages.
+- `build_character_images_context()` now uses module-level- **Character image context caching** is correctly added:
+ cache.
+  - `_invalidate_char_images_ctx()` added and ca  - `build_character_images_context()` now uses module-level cache.
+lled after successful add (`/addcharimage`) and gallery removal (`CharacterGalleryView._remove`).
+- **Pre-built KB image title index** is implemented:
+  - Added lazy in-memory `{lower_title: entry_id}` index and invalidation helper.
+  - Replaced per-message `get_all_entries(limit=200)` scan in `process_chat()` with indexed lookup.
+  - Invalidation wired for key KB mutation paths in this flow: `/remember`, `/saveimage` success, `/setdesc` success, and deletion confirm path in `views.py` used by `/forget` and delete buttons.
+
+Why not full APPROVED:
+- The index builder still uses `get_all_entries(limit=500)`, so it is not truly unbounded “all image entries.” This is likely acceptable versus prior limit-200 behavior, but it is a mild semantic gap from the wording “built from image-only entries” (which may imply full coverage).
+
+Security:
+- None observed (no new serious authz/injection/secret-handling regressions in this diff).
+
+Next actions:
+1. If strict full-coverage is required, remove/raise the hard limit in `_get_kb_image_title_index()` or add paginated/full-load retrieval for image titles.
+2. Optionally add a small unit/integration check for cache invalidation correctness after add/remove/delete flows.
+3. Optionally document that duplicate image titles collapse to one entry in the index (dict semantics).  - `_invalidate_char_images_ctx()` added and called after successful add (`/addcharimage`) and gallery removal (`CharacterGalleryView._remove`).
+- **Pre-built KB image title index** is implemented:
+  - Added lazy in-memory `{lower_title: entry_id}` index and invalidation helper.
+  - Replaced per-message `get_all_entries(limit=200)` scan in `process_chat()` with indexed lookup.
+  - Invalidation wired for key KB mutation paths in this flow: `/remember`, `/saveimage` success, `/setdesc` success, and deletion confirm path in `views.py` used by `/forget` and delete buttons.
+
+Why not full APPROVED:
+- The index builder still uses `get_all_entries(limit=500)`, so it is not truly unbounded “all image entries.” This is likely acceptable versus prior limit-200 behavior, but it is a mild semantic gap from the wording “built from image-only entries” (which may imply full coverage).
+
+Security:
+- None observed (no new serious authz/injection/secret-handling regressions in this diff).
+
+Next actions:
+1. If strict full-coverage is required, remove/raise the hard limit in `_get_kb_image_title_index()` or add paginated/full-load retrieval for image titles.
+2. Optionally add a small unit/integration check for cache invalidation correctness after add/remove/delete flows.
+3. Optionally document that duplicate image titles collapse to one entry in the index (dict semantics).
