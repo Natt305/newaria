@@ -12,3 +12,9 @@ id = "rSQ9M7TCxUr-P4pcem0H7"
 uri = "file://attached_assets/_guitar_test.png"
 type = "image"
 title = "Mortis playing guitar (768×768, 4 steps)"
+
+[[outputs]]
+id = "wvehl3bZp1Cw7oCLFPmmq"
+uri = "file://attached_assets/_test_dreamshaper_mortis.png"
+type = "image"
+title = "Dreamshaper-8-LCM test (768×768, negative prompts for lashes)"
