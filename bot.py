@@ -373,7 +373,7 @@ async def build_visual_kb_context(image_description: str) -> tuple:
     parts: list[str] = []
     valid_matches: list = []
     for m in matches:
-        desc = (m.get("display_description") or "").strip()
+        desc = (m.get("appearance_description") or "").strip()
         title = m.get("title", "Untitled")
         if desc:
             snippet = desc[:500] + ("..." if len(desc) > 500 else "")
@@ -589,28 +589,6 @@ async def process_chat(
             result = database.get_character_image_thumb(i)
             if result:
                 context_images.append(result)
-            if len(context_images) >= _MAX_CTX_IMAGES:
-                break
-
-    # KB image thumbnails from visual upload match (build_visual_kb_context)
-    for m in visual_kb_matched:
-        if len(context_images) >= _MAX_CTX_IMAGES:
-            break
-        entry_id = m.get("id")
-        if entry_id:
-            result = database.get_kb_image_thumb(entry_id)
-            if result:
-                context_images.append(result)
-
-    # KB image thumbnails from title-name match in user text (text-only path)
-    # Uses a pre-built in-memory index to avoid loading hundreds of entries per message.
-    if not image_bytes and len(context_images) < _MAX_CTX_IMAGES and user_text:
-        text_lower = user_text.lower()
-        for title_lower, entry_id in _get_kb_image_title_index().items():
-            if title_lower in text_lower:
-                result = database.get_kb_image_thumb(entry_id)
-                if result:
-                    context_images.append(result)
             if len(context_images) >= _MAX_CTX_IMAGES:
                 break
 
@@ -1348,6 +1326,19 @@ async def forget_cmd(ctx, entry_id: int):
     await ctx.reply(embed=embed, view=view, mention_author=False)
 
 
+@bot.hybrid_command(name="setdesc", description="[已停用] 請改用 /editdesc 或 /editappearance")
+@app_commands.describe(entry_id="圖像條目編號", description="[此指令已停用]")
+async def setdesc_compat_cmd(ctx, entry_id: int = 0, *, description: str = ""):
+    """舊版 setdesc 相容性提示 — 已被 editdesc 與 editappearance 取代"""
+    await ctx.reply(
+        "⚠️ `/setdesc` 已停用。\n\n"
+        "請改用以下兩個指令：\n"
+        "• `/editdesc <id>` — 編輯使用者描述 (背景設定 / 劇情說明)\n"
+        "• `/editappearance <id>` — 編輯外貌描述 (Bot 專用，用於圖像生成)",
+        mention_author=False,
+    )
+
+
 @bot.hybrid_command(name="editdesc", description="編輯知識庫圖像條目的使用者描述 (背景設定)")
 @app_commands.describe(entry_id="圖像條目編號")
 async def editdesc_cmd(ctx, entry_id: int):
@@ -1756,7 +1747,7 @@ async def generate_cmd(ctx, *, prompt: str):
 
     await ctx.defer()
 
-    enriched_prompt, kb_matches = await _enrich_image_prompt_with_kb(prompt)
+    enriched_prompt, kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(prompt)
     result = await cloudflare_ai.generate_image(enriched_prompt)
 
     if result == ("API_KEY_ERROR", ""):

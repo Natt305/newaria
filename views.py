@@ -685,7 +685,7 @@ def _build_kb_embed(entries: list, page: int, total_pages: int, total_count: int
     for entry in entries:
         icon = "🖼️" if entry["entry_type"] == "image" else "📝"
         if entry["entry_type"] == "image":
-            val = entry.get("display_description") or entry.get("appearance_description") or ""
+            val = entry.get("display_description") or ""
         else:
             val = entry.get("content") or ""
         preview = val[:80].replace("\n", " ") + ("…" if len(val) > 80 else "")
