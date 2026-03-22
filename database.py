@@ -298,6 +298,8 @@ _DEFAULT_COMMAND_ROLES: Dict[str, Optional[str]] = {
     "setthinking":           "__admin__",
     "clearthinking":         "__admin__",
     "helpsetting":           "__admin__",
+    "setimagestyle":         "__admin__",
+    "clearimagestyle":       "__admin__",
     "generate":              None,
     "help":                  None,
 }
@@ -310,6 +312,7 @@ _SETTINGS_DEFAULTS = {
     "passive_memory_enabled": True,
     "passive_memory_length":  200,
     "command_roles":          dict(_DEFAULT_COMMAND_ROLES),
+    "image_style":            "",
 }
 
 
@@ -344,6 +347,21 @@ def set_setting(key: str, value) -> bool:
     if ok:
         print(f"[DB] Setting '{key}' = {repr(value)}")
     return ok
+
+
+def get_image_style() -> str:
+    """Return the stored image style suffix (empty string if not set)."""
+    return str(get_setting("image_style") or "")
+
+
+def set_image_style(style: str) -> bool:
+    """Persist the image style suffix used for every generation."""
+    return set_setting("image_style", style.strip())
+
+
+def clear_image_style() -> bool:
+    """Remove the image style suffix."""
+    return set_setting("image_style", "")
 
 
 def get_command_roles() -> Dict[str, Optional[str]]:

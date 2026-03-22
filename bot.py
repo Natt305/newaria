@@ -720,6 +720,12 @@ async def process_chat(
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
+        # Append the global style lock suffix (if configured) to enforce
+        # a consistent art style across every generation.
+        _style_suffix = database.get_image_style()
+        if _style_suffix:
+            enriched_prompt = enriched_prompt.rstrip(" ,;") + ", " + _style_suffix
+
         async with channel.typing():
             result, comment = await asyncio.gather(
                 cloudflare_ai.generate_image(enriched_prompt),
@@ -1184,6 +1190,38 @@ async def character_cmd(ctx):
         await ctx.reply(embed=embed, file=file, view=view, mention_author=False)
     else:
         await ctx.reply(embed=embed, view=view, mention_author=False)
+
+
+@bot.hybrid_command(name="setimagestyle", description="設定圖像生成的固定畫風後綴，讓每次生成的風格一致")
+@app_commands.describe(style="畫風描述（英文），會附加到每次生成的提示詞末尾")
+async def setimagestyle_cmd(ctx, *, style: str):
+    """鎖定圖像生成畫風: /setimagestyle <style>
+    例如: /setimagestyle 2D anime illustration, clean cel-shading, sharp black outlines, vivid colors"""
+    if not await check_command_role(ctx):
+        return
+    ok = database.set_image_style(style)
+    if ok:
+        embed = discord.Embed(
+            title="🎨 圖像畫風已設定",
+            description=f"```\n{style[:1000]}\n```",
+            color=discord.Color.blue(),
+        )
+        embed.set_footer(text="此後綴將自動附加在每次生成的提示詞末尾，確保風格一致。")
+        await ctx.reply(embed=embed, mention_author=False)
+    else:
+        await ctx.reply("❌ 設定失敗，請重試。", mention_author=False)
+
+
+@bot.hybrid_command(name="clearimagestyle", description="清除圖像生成的固定畫風後綴")
+async def clearimagestyle_cmd(ctx):
+    """清除圖像畫風鎖定: /clearimagestyle"""
+    if not await check_command_role(ctx):
+        return
+    ok = database.clear_image_style()
+    if ok:
+        await ctx.reply("✅ 畫風後綴已清除，圖像生成將不再強制套用固定風格。", mention_author=False)
+    else:
+        await ctx.reply("❌ 清除失敗，請重試。", mention_author=False)
 
 
 @bot.hybrid_command(name="addcharimage", description="新增外貌參考圖片到角色設定 (最多 10 張，可批量上傳)")
