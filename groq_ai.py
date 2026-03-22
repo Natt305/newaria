@@ -139,6 +139,14 @@ IMAGE_TRIGGER_PHRASES = [
     "用文字表達",
     "以文字表達",
     "想像一下",
+    # Generic Chinese "cannot provide / cannot share" — common model refusals for image requests
+    "無法提供",
+    "沒辦法提供",
+    "不能提供照片",
+    "不能提供圖",
+    "無法分享照片",
+    "無法分享圖",
+    "沒辦法分享",
 ]
 
 IMAGE_REQUEST_PATTERNS = [
@@ -507,11 +515,33 @@ async def chat(
         print(f"[Groq] Skipping daily-exhausted models: {skipped}")
     models_to_try = available
 
+    # Pre-build a text-only copy of groq_messages for non-vision fallbacks.
+    # When context_images are present, the last user message contains multimodal
+    # content (image_url parts). Text-only models reject that payload, so we strip
+    # the image parts and keep only the text part.
+    def _text_only_messages(msgs: list) -> list:
+        result = []
+        for m in msgs:
+            content = m["content"]
+            if isinstance(content, list):
+                # Extract the text part from a multimodal content list
+                text_parts = [p["text"] for p in content if p.get("type") == "text"]
+                content = " ".join(text_parts)
+            result.append({"role": m["role"], "content": content})
+        return result
+
+    groq_messages_text_only = _text_only_messages(groq_messages) if context_images else groq_messages
+
     for attempt_model in models_to_try:
+        # Use text-only messages when falling back to a model that can't handle images
+        is_vision_model = attempt_model in VISION_MODELS
+        messages_for_attempt = groq_messages if (not context_images or is_vision_model) else groq_messages_text_only
+        if context_images and not is_vision_model:
+            print(f"[Groq] Falling back to text-only mode for non-vision model {attempt_model}")
         try:
             response = await client.chat.completions.create(
                 model=attempt_model,
-                messages=groq_messages,
+                messages=messages_for_attempt,
                 temperature=0.8,
                 max_tokens=1024,
             )
