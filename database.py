@@ -143,16 +143,16 @@ def get_character_image(index: int) -> Optional[tuple]:
 
 
 def _make_thumbnail(image_bytes: bytes) -> Optional[bytes]:
-    """Generate a 256×256 JPEG thumbnail from image bytes using Pillow.
+    """Generate a 512×512 JPEG thumbnail from image bytes using Pillow.
     Returns JPEG bytes on success, or None if Pillow is unavailable / image is corrupt."""
     try:
         from PIL import Image
         import io as _io
         img = Image.open(_io.BytesIO(image_bytes))
         img = img.convert("RGB")
-        img.thumbnail((256, 256), Image.LANCZOS)
+        img.thumbnail((512, 512), Image.LANCZOS)
         buf = _io.BytesIO()
-        img.save(buf, format="JPEG", quality=60, optimize=True)
+        img.save(buf, format="JPEG", quality=80, optimize=True)
         return buf.getvalue()
     except Exception as e:
         print(f"[DB] Thumbnail generation failed: {e}")
@@ -1038,16 +1038,14 @@ def _migrate_old_sqlite():
 # ── Init ──────────────────────────────────────────────────────────────────────
 
 def migrate_thumbnails():
-    """One-time migration: generate thumbnails for any existing images that lack them.
-    Safe to call on every startup — skips images that already have a thumb."""
+    """Regenerate thumbnails for all images at the current target resolution.
+    Safe to call on every startup — always regenerates to pick up resolution changes."""
     generated = 0
 
     # Character images
     images = _read_char_images()
     changed = False
     for info in images:
-        if info.get("thumb"):
-            continue
         src_path = os.path.join(CHARACTER_IMAGES_DIR, info["filename"])
         if not os.path.exists(src_path):
             continue
@@ -1079,8 +1077,6 @@ def migrate_thumbnails():
         img_list = meta.get("images", [])
         changed = False
         for img_info in img_list:
-            if img_info.get("thumb"):
-                continue
             src_path = os.path.join(IMAGES_DIR, img_info["filename"])
             if not os.path.exists(src_path):
                 continue
@@ -1101,7 +1097,7 @@ def migrate_thumbnails():
                 json.dump(meta, f, ensure_ascii=False, indent=2)
 
     if generated:
-        print(f"[DB] migrate_thumbnails: generated {generated} thumbnail(s)")
+        print(f"[DB] migrate_thumbnails: regenerated {generated} thumbnail(s) at 512x512")
 
 
 def init_db():
