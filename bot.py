@@ -384,7 +384,12 @@ async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
             desc = (entry.get("image_description") or "").strip()
             if desc:
                 matched.append((title, desc))
-                subject_references[title] = desc  # full description for grounding
+                # Keep the LONGEST (most detailed) description when multiple entries
+                # share the same title. A manually curated description is typically
+                # much longer than a brief auto-generated one and should win.
+                existing = subject_references.get(title, "")
+                if len(desc) > len(existing):
+                    subject_references[title] = desc
 
     if not matched:
         return image_prompt, [], {}
