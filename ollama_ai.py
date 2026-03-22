@@ -780,7 +780,32 @@ async def enhance_image_prompt(
             f"Text: {raw_prompt}"
         )
     else:
-        user_content = f"Image request: {raw_prompt}"
+        # No reference photos — text-only path.
+        # Inject authoritative character data directly into the user turn so it cannot be ignored.
+        _char_snippets: list = []
+        if subject_references:
+            for _sname, _sdesc in subject_references.items():
+                _char_snippets.append(
+                    f"[MANDATORY APPEARANCE FOR '{_sname}' — COPY EVERY DETAIL EXACTLY]\n"
+                    f"{_sdesc.strip()}\n"
+                    f"[END OF '{_sname}' APPEARANCE — every piece above MUST appear in your output]"
+                )
+        if character_context and character_context.strip():
+            _char_snippets.append(
+                f"[MANDATORY CHARACTER APPEARANCE — COPY EVERY DETAIL EXACTLY]\n"
+                f"{character_context.strip()}\n"
+                f"[END OF CHARACTER APPEARANCE — every piece above MUST appear in your output]"
+            )
+        if _char_snippets:
+            user_content = (
+                f"Image request: {raw_prompt}\n\n"
+                + "\n\n".join(_char_snippets)
+                + "\n\nCRITICAL: your output MUST reproduce the outfit, hair, eyes, skin, and all "
+                "accessories EXACTLY as listed above. Do NOT invent, swap, or omit any piece. "
+                "Do NOT summarize the outfit — list every individual garment."
+            )
+        else:
+            user_content = f"Image request: {raw_prompt}"
     messages_list = [{"role": "user", "content": user_content}]
     if has_images:
         print(f"[Ollama] enhance_image_prompt: using vision model with {len(reference_images)} reference image(s)")

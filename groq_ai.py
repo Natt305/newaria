@@ -695,7 +695,34 @@ async def enhance_image_prompt(
             f"Text: {raw_prompt}"
         )
     else:
-        user_content = f"Image request: {raw_prompt}"
+        # No reference photos — text-only path.
+        # LLMs attend much more reliably to user-message content than deep system-prompt
+        # blocks.  When we have authoritative character data (subject refs or character
+        # context), echo it directly into the user turn so it cannot be ignored.
+        _char_snippets: list[str] = []
+        if subject_references:
+            for _sname, _sdesc in subject_references.items():
+                _char_snippets.append(
+                    f"[MANDATORY APPEARANCE FOR '{_sname}' — COPY EVERY DETAIL EXACTLY]\n"
+                    f"{_sdesc.strip()}\n"
+                    f"[END OF '{_sname}' APPEARANCE — every piece above MUST appear in your output]"
+                )
+        if character_context and character_context.strip():
+            _char_snippets.append(
+                f"[MANDATORY CHARACTER APPEARANCE — COPY EVERY DETAIL EXACTLY]\n"
+                f"{character_context.strip()}\n"
+                f"[END OF CHARACTER APPEARANCE — every piece above MUST appear in your output]"
+            )
+        if _char_snippets:
+            user_content = (
+                f"Image request: {raw_prompt}\n\n"
+                + "\n\n".join(_char_snippets)
+                + "\n\nCRITICAL: your output MUST reproduce the outfit, hair, eyes, skin, and all "
+                "accessories EXACTLY as listed above. Do NOT invent, swap, or omit any piece. "
+                "Do NOT summarize the outfit — list every individual garment."
+            )
+        else:
+            user_content = f"Image request: {raw_prompt}"
     messages_list = [{"role": "user", "content": user_content}]
 
     # When reference images are provided, pass them via context_images so chat()
