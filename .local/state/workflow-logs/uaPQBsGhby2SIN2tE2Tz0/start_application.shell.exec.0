@@ -1,6 +1,0 @@
-============================================================
-  少女樂團機器人 (AriaBot)
-  Powered by Ollama / Groq + Cloudflare Workers AI + SQLite
-============================================================
-
-[Error] DISCORD_BOT_TOKEN is not set. Add it to tokens.txt or as a Replit Secret.
