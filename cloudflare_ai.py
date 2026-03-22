@@ -148,6 +148,12 @@ async def generate_image(prompt: str) -> Optional[Tuple[bytes, str]]:
     clean_prompt = _sanitize_prompt(prompt)
     if clean_prompt != prompt:
         print(f"[Cloudflare] Prompt sanitized: {prompt[:80]!r} → {clean_prompt[:80]!r}")
+
+    # Cloudflare hard limit: /prompt must be <= 2048 characters
+    if len(clean_prompt) > 2048:
+        clean_prompt = clean_prompt[:2045] + "..."
+        print(f"[Cloudflare] Prompt truncated to 2048 chars")
+
     print(f"[Cloudflare] Generating image — prompt: {clean_prompt[:120]}")
 
     try:

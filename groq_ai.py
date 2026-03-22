@@ -163,6 +163,7 @@ IMAGE_REQUEST_PATTERNS = [
 ]
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+_THINK_RE_UNCLOSED = re.compile(r"<think>.*", re.DOTALL)
 
 _IMAGE_MARKER_RE = re.compile(
     r"\[(?:IMAGE|圖像生成|圖像|生成圖像|生成图像|图像生成|图像|GENERATE IMAGE|GEN IMAGE):\s*(.+?)\]",
@@ -512,9 +513,12 @@ async def enhance_image_prompt(
             model=DEFAULT_MODEL,
             context_images=reference_images if has_images else None,
         )
-        if enhanced and len(enhanced.strip()) > 5:
-            print(f"[Groq] Prompt enhanced: {enhanced}")
-            return enhanced.strip()
+        if enhanced:
+            enhanced = _THINK_RE.sub("", enhanced)
+            enhanced = _THINK_RE_UNCLOSED.sub("", enhanced).strip()
+            if len(enhanced) > 5:
+                print(f"[Groq] Prompt enhanced: {enhanced}")
+                return enhanced
     except Exception as e:
         print(f"[Groq] Prompt enhancement failed: {e}")
     return raw_prompt

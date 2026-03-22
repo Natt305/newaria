@@ -87,6 +87,7 @@ _IMAGE_MARKER_RE = re.compile(
 )
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+_THINK_RE_UNCLOSED = re.compile(r"<think>.*", re.DOTALL)
 
 # Phrases that indicate the model broke character and admitted to being an AI / LLM.
 # Deliberately specific to SELF-IDENTIFICATION — avoids false positives when the bot
@@ -613,9 +614,12 @@ async def enhance_image_prompt(
             system_prompt=system,
             context_images=reference_images if has_images else None,
         )
-        if enhanced and len(enhanced.strip()) > 5:
-            print(f"[Ollama] Prompt enhanced: {enhanced}")
-            return enhanced.strip()
+        if enhanced:
+            enhanced = _THINK_RE.sub("", enhanced)
+            enhanced = _THINK_RE_UNCLOSED.sub("", enhanced).strip()
+            if len(enhanced) > 5:
+                print(f"[Ollama] Prompt enhanced: {enhanced}")
+                return enhanced
     except Exception as e:
         print(f"[Ollama] Prompt enhancement failed: {e}")
     return raw_prompt
