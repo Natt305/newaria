@@ -411,26 +411,21 @@ async def enhance_image_prompt(
         "anime art style, petals drifting in the breeze, peaceful atmosphere\n"
     )
 
-    # Build the user message — multimodal when reference images are provided
+    messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
+
+    # When reference images are provided, pass them via context_images so chat()
+    # handles model selection (vision-first), multimodal message injection, and the
+    # full vision-model fallback chain — the same way it does for conversational calls.
     if has_images:
-        user_content = []
-        for img_bytes, img_mime in reference_images:
-            b64 = base64.b64encode(img_bytes).decode("utf-8")
-            data_url = f"data:{img_mime};base64,{b64}"
-            user_content.append({"type": "image_url", "image_url": {"url": data_url}})
-        user_content.append({"type": "text", "text": f"Image request: {raw_prompt}"})
-        messages_list = [{"role": "user", "content": user_content}]
-        # Vision model required when images are attached; use configured vision model first
-        configured_vision = _default_vision_model()
-        vision_order = [configured_vision] + [m for m in VISION_MODELS if m != configured_vision]
-        model_to_use = vision_order[0]
-        print(f"[Groq] enhance_image_prompt using vision model ({model_to_use}) with {len(reference_images)} reference image(s)")
-    else:
-        messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
-        model_to_use = DEFAULT_MODEL
+        print(f"[Groq] enhance_image_prompt: using vision model with {len(reference_images)} reference image(s)")
 
     try:
-        enhanced, *_ = await chat(messages_list, system_prompt=system, model=model_to_use)
+        enhanced, *_ = await chat(
+            messages_list,
+            system_prompt=system,
+            model=DEFAULT_MODEL,
+            context_images=reference_images if has_images else None,
+        )
         if enhanced and len(enhanced.strip()) > 5:
             print(f"[Groq] Prompt enhanced: {enhanced[:120]}")
             return enhanced.strip()

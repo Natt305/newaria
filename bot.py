@@ -600,8 +600,10 @@ async def process_chat(
                     _ref_images.append(thumb)
                 if len(_ref_images) >= _MAX_REF_IMAGES:
                     break
-        # Fill remaining slots with KB subject thumbnails (one per matched subject)
-        if _kb_subject_refs and len(_ref_images) < _MAX_REF_IMAGES:
+        # Fill remaining slots with KB subject thumbnails (one per matched subject).
+        # Gated on _kb_matches (not _kb_subject_refs) so subjects with no saved description
+        # but a title match still benefit from visual grounding.
+        if _kb_matches and len(_ref_images) < _MAX_REF_IMAGES:
             for entry in _kb_matches:
                 entry_id = entry.get("id")
                 if entry_id:
