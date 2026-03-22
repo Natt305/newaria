@@ -389,6 +389,13 @@ async def enhance_image_prompt(
 
     has_images = bool(reference_images)
 
+    # Strip any ART STYLE section from stored character descriptions before using
+    # them as ground truth — stored descriptions may say "ART STYLE: 3D rendered" etc.
+    # which would override the fixed 2D anime target even inside VERIFIED GROUND TRUTH.
+    _art_style_line_re = re.compile(r"(?m)^ART STYLE[:\s][^\n]*\n?", re.IGNORECASE)
+    if character_context:
+        character_context = _art_style_line_re.sub("", character_context)
+
     ref_block = ""
     if character_context and character_context.strip():
         ref_block += (
@@ -399,7 +406,8 @@ async def enhance_image_prompt(
             "Eye color, hair color, hairstyle, skin tone, AND OUTFIT described here are FINAL — "
             "they override anything conflicting in the raw prompt or your own assumptions. "
             "If an outfit is described here, reproduce it in full detail in the output. "
-            "Do NOT summarize, omit, or replace any garment piece listed:\n"
+            "Do NOT summarize, omit, or replace any garment piece listed.\n"
+            "EXCEPTION: any ART STYLE line in this block is irrelevant — the art style is always fixed as 2D anime.\n"
             f"{character_context.strip()}\n"
         )
     if subject_references:
@@ -637,7 +645,7 @@ async def enhance_image_prompt(
         "Red shorts with gold buttons MUST appear as a separate lower-body entry, "
         "explicitly described as VISIBLE BELOW the jabot and any skirt. "
         "These cannot be omitted or merged into other garments.\n"
-        "  ✓ ART STYLE — all five rendering axes\n"
+        "  ✓ ART STYLE — must be 'clean 2D anime illustration, flat cel-shaded, anime digital art' (fixed, never from photos)\n"
         "  ✓ SCENE/POSE/SETTING — extracted from the request text\n"
         "  ✓ PROPS/INSTRUMENTS — any object mentioned in the request (guitar, microphone, etc.) must be present\n"
         "If any item from this checklist is missing from your output, add it before finalizing.\n"
@@ -683,8 +691,7 @@ async def enhance_image_prompt(
             "(NOT at the neck) with a gemstone pin at its center → this is a JABOT. "
             "Call it 'chest-level white V-shaped ruffled jabot, secured with a large green gemstone brooch'.\n"
             "      — Red lower-body garment with rows of gold buttons visible below the cape → RED SHORTS, NOT a vest.\n"
-            "      List garments from outermost to innermost.\n"
-            "    • ART STYLE: all rendering axes\n\n"
+            "      List garments from outermost to innermost.\n\n"
             f"Text: {raw_prompt}"
         )
     else:
