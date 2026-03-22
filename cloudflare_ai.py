@@ -11,9 +11,9 @@ import aiohttp
 
 MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
-WIDTH = 512
-HEIGHT = 512
-NUM_STEPS = 4
+WIDTH = 768
+HEIGHT = 768
+NUM_STEPS = 8
 
 # Words that Cloudflare's NSFW filter falsely flags even in innocent contexts.
 # Each entry is (pattern, replacement). Applied before the first request.
