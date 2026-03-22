@@ -360,11 +360,12 @@ async def enhance_image_prompt(raw_prompt: str, character_context: str = "", sub
     ref_block = ""
     if character_context and character_context.strip():
         ref_block += (
-            "\n[CHARACTER APPEARANCE — GROUND TRUTH FROM REFERENCE PHOTOS]\n"
-            "The following are confirmed, factual appearance details for the character in this image.\n"
-            "You MUST use these EXACT physical traits. Do NOT invent, alter, or omit any of them.\n"
-            "Hair color, eye color, hairstyle, skin tone, and build described here are FINAL — "
-            "override anything conflicting in the raw prompt:\n"
+            "\n[CHARACTER APPEARANCE — VERIFIED GROUND TRUTH]\n"
+            "The following contains confirmed, factual appearance details for the character.\n"
+            "Sections marked HIGHEST PRIORITY must be followed exactly above all else.\n"
+            "You MUST use these physical traits. Do NOT invent, alter, or substitute any of them.\n"
+            "Eye color, hair color, hairstyle, and skin tone listed here are FINAL — "
+            "they override anything conflicting in the raw prompt or your own assumptions:\n"
             f"{character_context.strip()}\n"
         )
     if subject_references:

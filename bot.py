@@ -574,9 +574,20 @@ async def process_chat(
         # even when the prompt already came from the marker.
         # We check user_text too because the model often expands "draw yourself"
         # into a description, losing the "me/myself" language before this check runs.
-        char_images_ctx = build_character_images_context() if (
-            groq_ai.is_self_referential_image(user_text) or groq_ai.is_self_referential_image(image_prompt)
-        ) else ""
+        _is_self_ref = groq_ai.is_self_referential_image(user_text) or groq_ai.is_self_referential_image(image_prompt)
+        if _is_self_ref:
+            # Build character context with the manually-written `looks` field first
+            # (it is the authoritative, user-verified source for traits like eye color)
+            # followed by auto-generated photo descriptions as supplementary evidence.
+            _ctx_parts = []
+            if looks:
+                _ctx_parts.append(f"[Authoritative written appearance description — HIGHEST PRIORITY]\n{looks}")
+            _img_ctx = build_character_images_context()
+            if _img_ctx:
+                _ctx_parts.append(f"[Reference photo descriptions — use to fill in any gaps not covered above]\n{_img_ctx}")
+            char_images_ctx = "\n\n".join(_ctx_parts)
+        else:
+            char_images_ctx = ""
         # Run the LLM enhancement rewrite whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
         #   (b) character appearance context exists (self-referential prompt), OR
