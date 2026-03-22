@@ -461,7 +461,7 @@ async def enhance_image_prompt(
         "  * HUE FAMILY: e.g. 'warm olive-brown', 'gray-green', 'khaki', 'dusty brown-olive'\n"
         "  * SATURATION: explicitly state — 'very low saturation', 'muted', 'desaturated', "
         "'soft' — or 'vivid' if truly vivid\n"
-        "  * BRIGHTNESS: e.g. 'medium brightness', 'slightly dark', 'light'\n"
+        "  * BRIGHTNESS/CONTRAST: e.g. 'medium brightness', 'slightly dark', 'light'\n"
         "  Example: 'very low-saturation warm olive-brown eyes, muted and soft, medium brightness'\n"
         "  NOT: 'amber eyes' or 'honey-gold eyes' — too vague, forces model to render vivid warm amber\n"
         "- EYELASHES (three-axis required): describe lash appearance using ALL THREE axes:\n"
