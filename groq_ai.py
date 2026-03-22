@@ -414,8 +414,16 @@ async def enhance_image_prompt(
         "  * exact length: very long past waist, shoulder-length, short bob, etc.\n"
         "- Do NOT invent or add hairstyle elements (ahoge, twin-tails, clips, ribbons) "
         "that are not visible in the reference. Only describe what you actually see.\n"
-        "Good output: silver-white haired girl with very long straight hair, blunt straight bangs, "
-        "no ahoge, completely loose and flowing, golden amber eyes, anime art style\n"
+        "- EYE COLOR must be described with full precision — not just the hue but also its "
+        "brightness and vividness: e.g. 'bright vivid golden-amber eyes', 'pale icy blue eyes', "
+        "'deep dark brown eyes', 'warm luminous honey-gold eyes'. Never write just 'brown eyes' "
+        "or 'amber eyes' — always qualify the intensity and brightness you observe.\n"
+        "- COMPLEXION/SKIN TONE must also be precise: e.g. 'very pale porcelain skin', "
+        "'fair skin with a cool undertone', 'light warm ivory skin', 'soft peachy skin'. "
+        "Do not write just 'fair skin' — describe the exact shade and quality.\n"
+        "Good output: silver-white haired girl, very long straight hair, blunt straight bangs, "
+        "no ahoge, completely loose and flowing, bright vivid golden-amber eyes, "
+        "very pale cool porcelain skin, anime art style\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
