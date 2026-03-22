@@ -298,8 +298,6 @@ _DEFAULT_COMMAND_ROLES: Dict[str, Optional[str]] = {
     "setthinking":           "__admin__",
     "clearthinking":         "__admin__",
     "helpsetting":           "__admin__",
-    "setimagestyle":         "__admin__",
-    "clearimagestyle":       "__admin__",
     "generate":              None,
     "help":                  None,
 }
