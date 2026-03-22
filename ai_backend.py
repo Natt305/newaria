@@ -72,7 +72,7 @@ async def enhance_image_prompt(
     character_context: str = "",
     subject_references: dict = None,
     reference_images: list = None,
-) -> tuple:
+) -> str:
     return await _mod().enhance_image_prompt(
         raw_prompt,
         character_context=character_context,

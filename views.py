@@ -1213,17 +1213,16 @@ class CharacterView(discord.ui.View):
 class GenerateView(discord.ui.View):
     """Shown after !generate — lets the user regenerate or save to KB."""
 
-    def __init__(self, prompt: str, img_bytes: bytes, mime_type: str, negative_prompt: str = None):
+    def __init__(self, prompt: str, img_bytes: bytes, mime_type: str):
         super().__init__(timeout=120)
         self.prompt = prompt
         self.img_bytes = img_bytes
         self.mime_type = mime_type
-        self.negative_prompt = negative_prompt
 
     @discord.ui.button(label="重新生成", style=discord.ButtonStyle.primary, emoji="🔄")
     async def regenerate(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(thinking=True)
-        result = await cloudflare_ai.generate_image(self.prompt, negative_prompt=self.negative_prompt)
+        result = await cloudflare_ai.generate_image(self.prompt)
         if result and result not in [("API_KEY_ERROR", ""), ("MODEL_ERROR", "")]:
             new_bytes, new_mime = result
             self.img_bytes = new_bytes
@@ -1235,7 +1234,7 @@ class GenerateView(discord.ui.View):
                 description=f"**提示詞:** {self.prompt}",
                 color=discord.Color.purple(),
             )
-            await interaction.followup.send(embed=embed, file=file, view=GenerateView(self.prompt, new_bytes, new_mime, negative_prompt=self.negative_prompt))
+            await interaction.followup.send(embed=embed, file=file, view=GenerateView(self.prompt, new_bytes, new_mime))
         else:
             await interaction.followup.send(
                 "❌ 重新生成失敗，請嘗試修改提示詞後再試！", ephemeral=True

@@ -621,7 +621,7 @@ async def process_chat(
         #       so we rewrite using the verified database descriptions as ground truth.
         has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs)
         if not _prompt_from_marker or has_visual_refs:
-            enriched_prompt, _neg_prompt = await groq_ai.enhance_image_prompt(
+            enriched_prompt = await groq_ai.enhance_image_prompt(
                 enriched_prompt,
                 character_context=char_images_ctx,
                 subject_references=_kb_subject_refs if _kb_subject_refs else None,
@@ -629,12 +629,11 @@ async def process_chat(
             )
             print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)})")
         else:
-            _neg_prompt = None
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
         async with channel.typing():
             result, comment = await asyncio.gather(
-                cloudflare_ai.generate_image(enriched_prompt, negative_prompt=_neg_prompt),
+                cloudflare_ai.generate_image(enriched_prompt),
                 groq_ai.generate_image_comment(
                     image_prompt, bot_name, background, user_text, history=history
                 ),
@@ -1665,7 +1664,7 @@ async def generate_cmd(ctx, *, prompt: str):
     await ctx.defer()
 
     enriched_prompt, kb_matches = await _enrich_image_prompt_with_kb(prompt)
-    result = await cloudflare_ai.generate_image(enriched_prompt, negative_prompt=None)
+    result = await cloudflare_ai.generate_image(enriched_prompt)
 
     if result == ("API_KEY_ERROR", ""):
         await ctx.send(
@@ -1690,7 +1689,7 @@ async def generate_cmd(ctx, *, prompt: str):
             ref_titles = ", ".join(m.get("title", "") for m in kb_matches if m.get("title"))
             if ref_titles:
                 embed.set_footer(text=f"📚 知識庫參考: {ref_titles}")
-        view = ui.GenerateView(prompt, img_data, mime_type, negative_prompt=None)
+        view = ui.GenerateView(prompt, img_data, mime_type)
         await ctx.send(embed=embed, file=file, view=view)
     else:
         await ctx.send(
