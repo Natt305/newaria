@@ -102,6 +102,14 @@ def main():
 
     if not os.environ.get("CLOUDFLARE_API_TOKEN") or not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
         print("[Warning] Cloudflare config is incomplete. Image generation will be disabled.")
+    else:
+        import cloudflare_ai as _cf
+        _cf_key = os.environ.get("CF_IMAGE_MODEL", "flux").strip().lower()
+        _cf_model = _cf.active_model_name()
+        _cf_neg = _cf.uses_negative_prompt()
+        print(f"[Image] Model key:    {_cf_key}")
+        print(f"[Image] Model path:   {_cf_model}")
+        print(f"[Image] Negative prompt support: {'yes' if _cf_neg else 'no (Flux)'}")
 
     load_permissions_file(base_path)
 

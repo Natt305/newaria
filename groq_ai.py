@@ -365,12 +365,18 @@ def user_wants_image(messages: list) -> Optional[str]:
     return None
 
 
+def _uses_sdxl() -> bool:
+    """Return True when the active CF image model is an SDXL-family model."""
+    key = os.environ.get("CF_IMAGE_MODEL", "flux").strip().lower()
+    return key in ("sdxl", "sdxl-lightning", "sdxl_lightning", "dreamshaper")
+
+
 async def enhance_image_prompt(
     raw_prompt: str,
     character_context: str = "",
     subject_references: dict = None,
     reference_images: Optional[list] = None,
-) -> str:
+) -> tuple:
     """Translate and expand a raw (possibly Chinese) prompt into a rich English
     image-generation prompt suitable for Cloudflare Workers AI.
 
@@ -380,12 +386,15 @@ async def enhance_image_prompt(
         rewrite call uses a vision model that can literally see the reference photos,
         which significantly improves accuracy for traits like eye color and hair tone.
 
-    Returns the enhanced prompt, or the original if enhancement fails.
+    Returns (positive_prompt, negative_prompt_or_None).
+    negative_prompt is a non-None string only when an SDXL-family model is active.
+    Falls back to (raw_prompt, None) on any error.
     """
     client = _client()
     if not client:
-        return raw_prompt
+        return (raw_prompt, None)
 
+    sdxl = _uses_sdxl()
     has_images = bool(reference_images)
 
     ref_block = ""
@@ -429,17 +438,51 @@ async def enhance_image_prompt(
     else:
         image_note = ""
 
+    if sdxl:
+        output_format = (
+            "- Output EXACTLY TWO lines and nothing else:\n"
+            "  POSITIVE: <the image generation prompt, 20-70 words>\n"
+            "  NEGATIVE: <comma-separated list of features to explicitly exclude>\n"
+            "  For the NEGATIVE line include: low quality, blurry, distorted, watermark, "
+            "text, signature, ugly, deformed, bad anatomy, wrong proportions — plus any "
+            "character-specific traits that are absent (e.g. 'ahoge' if not in reference, "
+            "wrong hair colors, wrong eye colors). Do NOT include things the image should have.\n"
+            "  Good NEGATIVE example: ahoge, twin-tails, orange hair, teal hair, blue hair, "
+            "brown hair, amber eyes, dark eyes, low quality, blurry, distorted, watermark, "
+            "text, signature, ugly, deformed, bad anatomy\n"
+        )
+        good_output = (
+            "Good output:\n"
+            "POSITIVE: near-white silver-mint haired girl, very long straight hair, "
+            "blunt straight bangs with a small gap on the right side, longer side strands "
+            "framing the face, no ahoge, completely loose and flowing, "
+            "pale soft honey-gold eyes, very pale cool porcelain skin, anime art style\n"
+            "NEGATIVE: ahoge, twin-tails, orange hair, teal hair, blue hair, brown hair, "
+            "amber eyes, dark eyes, low quality, blurry, distorted, watermark, text, "
+            "signature, ugly, deformed, bad anatomy\n"
+        )
+    else:
+        output_format = (
+            "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+            "- Aim for 20-70 words.\n"
+        )
+        good_output = (
+            "Good output: near-white silver-mint haired girl, very long straight hair, "
+            "blunt straight bangs with a small gap on the right side, longer side strands "
+            "framing the face, no ahoge, completely loose and flowing, "
+            "pale soft honey-gold eyes, very pale cool porcelain skin, anime art style\n"
+        )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
-        "rewrite it as a single, rich English prompt for an AI image model.\n"
+        "rewrite it as a rich English prompt for an AI image model.\n"
         f"{image_note}"
         f"{ref_block}"
         "Rules:\n"
-        "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+        f"{output_format}"
         "- Always write in English.\n"
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
-        "- Aim for 20-70 words.\n"
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
         "- Physical details from references (hair color, eye color, hairstyle, skin tone) "
         "ALWAYS take priority over anything in the raw prompt. Incorporate them naturally.\n"
@@ -459,10 +502,7 @@ async def enhance_image_prompt(
         "very different from 'vivid amber' or 'dark orange-brown'. Match what you see.\n"
         "- COMPLEXION/SKIN TONE: describe exact shade, e.g. 'very pale porcelain skin', "
         "'fair skin with a cool undertone', 'light warm ivory skin'.\n"
-        "Good output: near-white silver-mint haired girl, very long straight hair, "
-        "blunt straight bangs with a small gap on the right side, longer side strands "
-        "framing the face, no ahoge, completely loose and flowing, "
-        "pale soft honey-gold eyes, very pale cool porcelain skin, anime art style\n"
+        f"{good_output}"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
@@ -481,11 +521,22 @@ async def enhance_image_prompt(
             context_images=reference_images if has_images else None,
         )
         if enhanced and len(enhanced.strip()) > 5:
-            print(f"[Groq] Prompt enhanced: {enhanced[:120]}")
-            return enhanced.strip()
+            text = enhanced.strip()
+            if sdxl:
+                pos_m = re.search(r"^POSITIVE:\s*(.+)", text, re.MULTILINE | re.IGNORECASE)
+                neg_m = re.search(r"^NEGATIVE:\s*(.+)", text, re.MULTILINE | re.IGNORECASE)
+                positive = pos_m.group(1).strip() if pos_m else text
+                negative = neg_m.group(1).strip() if neg_m else None
+                print(f"[Groq] Prompt enhanced (SDXL): {positive[:120]}")
+                if negative:
+                    print(f"[Groq] Negative prompt: {negative[:120]}")
+                return (positive, negative)
+            else:
+                print(f"[Groq] Prompt enhanced: {text[:120]}")
+                return (text, None)
     except Exception as e:
         print(f"[Groq] Prompt enhancement failed: {e}")
-    return raw_prompt
+    return (raw_prompt, None)
 
 
 async def chat(

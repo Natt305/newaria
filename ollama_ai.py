@@ -490,17 +490,30 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     return []
 
 
+def _uses_sdxl() -> bool:
+    """Return True when the active CF image model is an SDXL-family model."""
+    import os as _os
+    key = _os.environ.get("CF_IMAGE_MODEL", "flux").strip().lower()
+    return key in ("sdxl", "sdxl-lightning", "sdxl_lightning", "dreamshaper")
+
+
 async def enhance_image_prompt(
     raw_prompt: str,
     character_context: str = "",
     subject_references: dict = None,
     reference_images: list = None,
-) -> str:
+) -> tuple:
     """Translate and expand a raw prompt into a rich English image-generation prompt.
 
     subject_references: {name: description} for named KB subjects.
     reference_images: list of (bytes, mime_type) tuples passed to the vision model.
+
+    Returns (positive_prompt, negative_prompt_or_None).
+    negative_prompt is non-None only when an SDXL-family model is active.
+    Falls back to (raw_prompt, None) on any error.
     """
+    sdxl = _uses_sdxl()
+
     char_block = ""
     if character_context and character_context.strip():
         char_block = (
@@ -529,24 +542,47 @@ async def enhance_image_prompt(
         if has_images else ""
     )
 
+    if sdxl:
+        output_format = (
+            "- Output EXACTLY TWO lines and nothing else:\n"
+            "  POSITIVE: <the image generation prompt, 20-60 words>\n"
+            "  NEGATIVE: <comma-separated list of features to explicitly exclude>\n"
+            "  For the NEGATIVE line include: low quality, blurry, distorted, watermark, "
+            "text, signature, ugly, deformed, bad anatomy — plus any character-specific traits "
+            "that are absent (e.g. 'ahoge' if not in reference, wrong hair/eye colors).\n"
+        )
+        good_output = (
+            "Good output:\n"
+            "POSITIVE: silver-haired young woman playing electric guitar in a dimly lit music room, "
+            "anime-style illustration, 2D art, soft warm lighting, melancholic mood\n"
+            "NEGATIVE: ahoge, low quality, blurry, distorted, watermark, text, ugly, deformed\n"
+        )
+    else:
+        output_format = (
+            "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+            "- Aim for 20-60 words.\n"
+        )
+        good_output = (
+            "Good output: silver-haired young woman playing electric guitar in a dimly lit music room, "
+            "anime-style illustration, 2D art, soft warm lighting, melancholic mood\n"
+        )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
-        "rewrite it as a single, rich English prompt for an AI image model.\n"
+        "rewrite it as a rich English prompt for an AI image model.\n"
         f"{char_block}"
         f"{ref_block}"
         f"{image_note}"
         "Rules:\n"
-        "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+        f"{output_format}"
         "- Always write in English.\n"
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
-        "- Aim for 20-60 words.\n"
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
         "- If the subject is a person or character (especially with anime features like "
         "distinctively colored hair or eyes), always include 'anime-style illustration, 2D art' "
         "in the output. Never use 'photorealistic' or 'photograph' for character prompts.\n"
-        "Good output: silver-haired young woman playing electric guitar in a dimly lit music room, "
-        "anime-style illustration, 2D art, soft warm lighting, melancholic mood\n"
+        f"{good_output}"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
@@ -559,11 +595,23 @@ async def enhance_image_prompt(
             context_images=reference_images if has_images else None,
         )
         if enhanced and len(enhanced.strip()) > 5:
-            print(f"[Ollama] Prompt enhanced: {enhanced[:120]}")
-            return enhanced.strip()
+            import re as _re
+            text = enhanced.strip()
+            if sdxl:
+                pos_m = _re.search(r"^POSITIVE:\s*(.+)", text, _re.MULTILINE | _re.IGNORECASE)
+                neg_m = _re.search(r"^NEGATIVE:\s*(.+)", text, _re.MULTILINE | _re.IGNORECASE)
+                positive = pos_m.group(1).strip() if pos_m else text
+                negative = neg_m.group(1).strip() if neg_m else None
+                print(f"[Ollama] Prompt enhanced (SDXL): {positive[:120]}")
+                if negative:
+                    print(f"[Ollama] Negative prompt: {negative[:120]}")
+                return (positive, negative)
+            else:
+                print(f"[Ollama] Prompt enhanced: {text[:120]}")
+                return (text, None)
     except Exception as e:
         print(f"[Ollama] Prompt enhancement failed: {e}")
-    return raw_prompt
+    return (raw_prompt, None)
 
 
 async def generate_image_comment(
