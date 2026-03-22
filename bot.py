@@ -340,8 +340,8 @@ async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
     if not matched:
         return image_prompt, [], {}
 
-    # Include up to 400 chars of each description so physical traits aren't cut off
-    ref_parts = [f"{title}: {desc[:400]}" for title, desc in matched[:2]]
+    # Include up to 2000 chars of each description so physical traits aren't cut off
+    ref_parts = [f"{title}: {desc[:2000]}" for title, desc in matched[:2]]
     refs_text = "; ".join(ref_parts)
     enriched = f"{image_prompt}, appearance reference — {refs_text}"
     print(f"[Bot] KB image enrichment: {len(matched)} title match(es) applied to prompt")
