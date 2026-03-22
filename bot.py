@@ -605,11 +605,17 @@ async def process_chat(
                     _ref_images.append(thumb)
                 if len(_ref_images) >= _MAX_REF_IMAGES:
                     break
-        # Fill remaining slots with KB subject thumbnails (one per matched subject).
-        # Gated on _kb_matches (not _kb_subject_refs) so subjects with no saved description
-        # but a title match still benefit from visual grounding.
+        # Fill remaining slots with KB subject thumbnails — ONLY when the subject has
+        # no detailed stored description. If a subject already has a long authoritative
+        # text description (>200 chars), skip its thumbnail: the text IS the ground
+        # truth and passing a photo to the vision model only risks colour misreads.
         if _kb_matches and len(_ref_images) < _MAX_REF_IMAGES:
             for entry in _kb_matches:
+                title = (entry.get("title") or "").strip()
+                stored_desc = (_kb_subject_refs.get(title) or "").strip()
+                if len(stored_desc) > 200:
+                    print(f"[Bot] Skipping KB thumbnail for '{title}' — detailed text description present ({len(stored_desc)} chars)")
+                    continue
                 entry_id = entry.get("id")
                 if entry_id:
                     thumb = database.get_kb_image_thumb(entry_id)

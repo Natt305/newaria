@@ -405,35 +405,39 @@ async def enhance_image_prompt(
     if subject_references:
         for name, desc in subject_references.items():
             ref_block += (
-                f"\n[SUBJECT REFERENCE — {name.upper()} — GROUND TRUTH FROM REFERENCE PHOTOS]\n"
-                f"The following are confirmed, factual appearance details for '{name}'.\n"
-                f"You MUST use these EXACT physical traits whenever '{name}' appears in the prompt. "
-                f"Do NOT invent any feature not listed here:\n"
+                f"\n[SUBJECT REFERENCE — {name.upper()} — AUTHORITATIVE TEXT — HIGHEST PRIORITY]\n"
+                f"The following are the confirmed, verified appearance details for '{name}'. "
+                f"This text is the ABSOLUTE AUTHORITY for every physical trait listed. "
+                f"It overrides reference photos, raw prompt words, and any other source. "
+                f"You MUST reproduce every trait here exactly. "
+                f"Do NOT invent, alter, or omit any detail:\n"
                 f"{desc.strip()}\n"
+                f"\nCRITICAL — if reference photos are also attached, they do NOT override this text. "
+                f"Photos may only be used to understand pose, setting, or details NOT covered by this text. "
+                f"Every color, garment piece, and physical trait named above supersedes what any photo appears to show.\n"
             )
 
-    # When photos are present, resolve the text-vs-photo priority split explicitly:
-    # photos WIN for actual color values (they show ground truth), text is authoritative
-    # for structure (hairstyle shape, accessories, character identity).
+    # When photos are present, priority order is:
+    # [SUBJECT REFERENCE] text > [CHARACTER APPEARANCE] text > photos > raw prompt words.
+    # Photos fill in details not covered by the stored text descriptions.
     if has_images:
         image_note = (
             "\n[PRIORITY RULING — READ BEFORE EVERYTHING ELSE — MANDATORY OVERRIDES]\n"
-            "Reference photos are attached. Apply these overrides in strict order:\n"
+            "Reference photos are attached. Priority order (highest first):\n"
+            "  1. [SUBJECT REFERENCE] text blocks — absolute authority, override everything\n"
+            "  2. [CHARACTER APPEARANCE] text blocks — authoritative, override photos\n"
+            "  3. Reference photos — used only for details NOT covered by the text blocks above\n"
+            "  4. Raw prompt appearance words — DISCARD (written without photos, unreliable)\n"
             "\n"
-            "OVERRIDE 1 — COLORS ARE WRONG IN THE RAW PROMPT.\n"
-            "The raw image request was written WITHOUT access to reference photos. "
-            "Every color word in it (hair color, eye color, skin tone) is a guess or fabrication. "
-            "Treat ALL color words in the raw prompt as INCORRECT and DISCARD them completely. "
-            "Do NOT let any hair color, eye color, or skin tone word from the raw prompt appear in your output.\n"
-            "Instead: look at the reference photos and describe ONLY what you literally see. "
-            "If the raw prompt says 'silver hair' but the photo shows pale mint-green hair — write pale mint-green. "
-            "If the raw prompt says 'pink eyes' but the photo shows warm amber-brown eyes — write warm amber-brown. "
-            "There are NO exceptions to this rule.\n"
+            "OVERRIDE 1 — COLORS: discard raw prompt colors, but trust [SUBJECT REFERENCE] text.\n"
+            "The raw image request was written WITHOUT access to reference photos or verified data. "
+            "Every color word in the raw prompt (hair color, eye color, skin tone) is a guess — DISCARD them. "
+            "HOWEVER: any color stated in a [SUBJECT REFERENCE] or [CHARACTER APPEARANCE] block above "
+            "is verified and correct — use it exactly as written. "
+            "Only fall back to reading colors from the reference photos for traits NOT covered by those text blocks.\n"
             "\n"
-            "OVERRIDE 2 — OUTFIT IS WRONG IN THE RAW PROMPT.\n"
-            "The raw prompt's outfit description may be a rough guess. "
-            "Ignore it entirely. Reconstruct the outfit exclusively from what you see in the reference photos, "
-            "piece by piece, using the 5-axis format (color, type, material, fit, details).\n"
+            "OVERRIDE 2 — OUTFIT: if a [SUBJECT REFERENCE] block lists the outfit, reproduce it exactly. "
+            "Only reconstruct outfit from photos when no text description is present.\n"
             "\n"
             "OVERRIDE 3 — ART STYLE.\n"
             "Identify the 2D anime rendering style from the reference photos — "
