@@ -58,3 +58,11 @@ CLOUDFLARE_API_TOKEN=
 
 # Cloudflare Account ID（在 https://dash.cloudflare.com/ 右側欄位可找到）
 CLOUDFLARE_ACCOUNT_ID=
+
+#圖像生成模型選擇
+CF_IMAGE_MODEL=flux
+
+#flux
+#sdxl
+#sdxl-lightning
+#dreamshaper
