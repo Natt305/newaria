@@ -395,9 +395,11 @@ async def enhance_image_prompt(
             "\n[CHARACTER APPEARANCE — VERIFIED GROUND TRUTH]\n"
             "The following contains confirmed, factual appearance details for the character.\n"
             "Sections marked HIGHEST PRIORITY must be followed exactly above all else.\n"
-            "You MUST use these physical traits. Do NOT invent, alter, or substitute any of them.\n"
-            "Eye color, hair color, hairstyle, and skin tone listed here are FINAL — "
-            "they override anything conflicting in the raw prompt or your own assumptions:\n"
+            "You MUST use ALL of these physical traits in your output. Do NOT invent, alter, or substitute any of them.\n"
+            "Eye color, hair color, hairstyle, skin tone, AND OUTFIT described here are FINAL — "
+            "they override anything conflicting in the raw prompt or your own assumptions. "
+            "If an outfit is described here, reproduce it in full detail in the output. "
+            "Do NOT summarize, omit, or replace any garment piece listed:\n"
             f"{character_context.strip()}\n"
         )
     if subject_references:
@@ -552,18 +554,25 @@ async def enhance_image_prompt(
     )
 
     if has_images:
-        # Relabel the raw prompt so the model understands its appearance words are
-        # wrong fabrications — this prevents color/outfit bleed at the message level,
-        # rather than relying solely on system-prompt DISCARD rules which LLMs often
-        # ignore when conflicting text is salient in the user turn.
+        # Split the instruction into two explicit source directives:
+        # 1. From the text → scene/pose/setting only (appearance words are fabrications)
+        # 2. From the reference photos → ALL appearance (must be present in the output)
+        # This prevents the model from interpreting "don't copy appearance from text"
+        # as "omit appearance entirely" — a common failure mode.
         user_content = (
-            "Scene/pose/action/setting request — "
-            "IMPORTANT: the text below was generated WITHOUT any reference photos. "
-            "Every hair color, eye color, skin tone, and outfit description in it is a FABRICATION and must be treated as if it does not exist. "
-            "Use this text ONLY to extract: scene, pose, action, setting, mood, background, and lighting. "
-            "Do NOT copy any color word or clothing description from this text. "
-            "All appearance details (hair, eyes, skin, outfit) must come EXCLUSIVELY from the reference photos attached above.\n\n"
-            f"{raw_prompt}"
+            "Image request (reference photos attached above).\n\n"
+            "Your final output must be a single unified paragraph — no section headers, no labels, no bullet points.\n\n"
+            "Instructions for building the output:\n"
+            "  (1) SCENE/POSE/SETTING — read from the text below. "
+            "Extract only: scene, pose, action, setting, mood, background, lighting. "
+            "The text was written WITHOUT photos. "
+            "Every hair color, eye color, skin tone, and outfit word in it is a fabrication — "
+            "do NOT copy any of those into your output.\n"
+            "  (2) APPEARANCE — read from the reference photos. "
+            "Your output MUST include: hair color and style, eye color, skin tone, "
+            "complete outfit (every garment piece with all 5 axes), accessories, and art style. "
+            "An output that omits appearance is incomplete and wrong.\n\n"
+            f"Text: {raw_prompt}"
         )
     else:
         user_content = f"Image request: {raw_prompt}"
