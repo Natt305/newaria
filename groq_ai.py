@@ -409,19 +409,32 @@ async def enhance_image_prompt(
                 f"{desc.strip()}\n"
             )
 
-    image_note = (
-        "\nReference photos are attached. Observe them directly — use the actual hair color, "
-        "eye color, skin tone, hairstyle, and other visible traits you see in the photos "
-        "as the definitive source of truth. Text descriptions above provide supplementary context.\n"
-        if has_images else ""
-    )
+    # When photos are present, resolve the text-vs-photo priority split explicitly:
+    # photos WIN for actual color values (they show ground truth), text is authoritative
+    # for structure (hairstyle shape, accessories, character identity).
+    if has_images:
+        image_note = (
+            "\n[PRIORITY RULING — READ BEFORE EVERYTHING ELSE]\n"
+            "Reference photos are attached showing the actual character.\n"
+            "COLORS (hair color, eye color, skin tone lightness/darkness/saturation) — "
+            "use ONLY what you literally see in the photos. The text descriptions above may "
+            "use approximate or inaccurate color names. The photos are the final word.\n"
+            "STRUCTURE (hairstyle shape, bang style, what accessories are present, "
+            "character identity) — use the text descriptions above as the authority.\n"
+            "If the text says 'amber eyes' but the photo shows pale honey-gold eyes, "
+            "write 'pale honey-gold eyes' — follow the photo.\n"
+            "If the text says 'mint-green hair' but the photo shows near-white hair with "
+            "barely a hint of cool color, write exactly what the photo shows.\n"
+        )
+    else:
+        image_note = ""
 
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
         "rewrite it as a single, rich English prompt for an AI image model.\n"
-        f"{ref_block}"
         f"{image_note}"
+        f"{ref_block}"
         "Rules:\n"
         "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
         "- Always write in English.\n"
@@ -431,23 +444,25 @@ async def enhance_image_prompt(
         "- Physical details from references (hair color, eye color, hairstyle, skin tone) "
         "ALWAYS take priority over anything in the raw prompt. Incorporate them naturally.\n"
         "- HAIRSTYLE is critical — describe it precisely using ALL of the following dimensions:\n"
-        "  * bang style: blunt/straight-across, side-swept, parted, no bangs, etc.\n"
+        "  * bang style: blunt/straight-across, asymmetric with a gap/part on one side, "
+        "side-swept, parted center, no bangs, etc. — be specific about asymmetry if present\n"
         "  * whether hair is completely loose and flowing, or tied/braided/pinned\n"
         "  * presence or ABSENCE of an ahoge (antenna hair) — if not visible in reference, "
         "explicitly write 'no ahoge' in the prompt so the model does not add one\n"
+        "  * side-framing strands — note if longer strands frame the sides of the face\n"
         "  * exact length: very long past waist, shoulder-length, short bob, etc.\n"
         "- Do NOT invent or add hairstyle elements (ahoge, twin-tails, clips, ribbons) "
         "that are not visible in the reference. Only describe what you actually see.\n"
-        "- EYE COLOR must be described with full precision — not just the hue but also its "
-        "brightness and vividness: e.g. 'bright vivid golden-amber eyes', 'pale icy blue eyes', "
-        "'deep dark brown eyes', 'warm luminous honey-gold eyes'. Never write just 'brown eyes' "
-        "or 'amber eyes' — always qualify the intensity and brightness you observe.\n"
-        "- COMPLEXION/SKIN TONE must also be precise: e.g. 'very pale porcelain skin', "
-        "'fair skin with a cool undertone', 'light warm ivory skin', 'soft peachy skin'. "
-        "Do not write just 'fair skin' — describe the exact shade and quality.\n"
-        "Good output: silver-white haired girl, very long straight hair, blunt straight bangs, "
-        "no ahoge, completely loose and flowing, bright vivid golden-amber eyes, "
-        "very pale cool porcelain skin, anime art style\n"
+        "- HAIR COLOR: describe the exact shade precisely. 'Near-white with a barely-there "
+        "cool mint tint' is very different from 'mint-green' or 'teal'. Match what you see.\n"
+        "- EYE COLOR: describe hue AND saturation/brightness. 'Pale soft honey-gold' is "
+        "very different from 'vivid amber' or 'dark orange-brown'. Match what you see.\n"
+        "- COMPLEXION/SKIN TONE: describe exact shade, e.g. 'very pale porcelain skin', "
+        "'fair skin with a cool undertone', 'light warm ivory skin'.\n"
+        "Good output: near-white silver-mint haired girl, very long straight hair, "
+        "blunt straight bangs with a small gap on the right side, longer side strands "
+        "framing the face, no ahoge, completely loose and flowing, "
+        "pale soft honey-gold eyes, very pale cool porcelain skin, anime art style\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
