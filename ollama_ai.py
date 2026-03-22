@@ -647,7 +647,23 @@ async def enhance_image_prompt(
         "If you collapse the entire outfit into fewer than 4 separate entries, your output is WRONG.\n"
     )
 
-    messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
+    if has_images:
+        # Relabel the raw prompt so the model understands its appearance words are
+        # wrong fabrications — this prevents color/outfit bleed at the message level,
+        # rather than relying solely on system-prompt DISCARD rules which LLMs often
+        # ignore when conflicting text is salient in the user turn.
+        user_content = (
+            "Scene/pose/action/setting request — "
+            "IMPORTANT: the text below was generated WITHOUT any reference photos. "
+            "Every hair color, eye color, skin tone, and outfit description in it is a FABRICATION and must be treated as if it does not exist. "
+            "Use this text ONLY to extract: scene, pose, action, setting, mood, background, and lighting. "
+            "Do NOT copy any color word or clothing description from this text. "
+            "All appearance details (hair, eyes, skin, outfit) must come EXCLUSIVELY from the reference photos attached above.\n\n"
+            f"{raw_prompt}"
+        )
+    else:
+        user_content = f"Image request: {raw_prompt}"
+    messages_list = [{"role": "user", "content": user_content}]
     if has_images:
         print(f"[Ollama] enhance_image_prompt: using vision model with {len(reference_images)} reference image(s)")
     try:
