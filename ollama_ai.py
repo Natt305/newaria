@@ -602,7 +602,18 @@ async def enhance_image_prompt(
         "framing the face, no ahoge, completely loose and flowing, "
         "very low-saturation warm olive-brown eyes with subtle greenish undertone, muted and soft, medium brightness, "
         "pale warm-gray lashes, very low contrast, fine and delicate, "
-        "very pale cool porcelain skin, anime-style illustration, 2D art, soft warm lighting\n"
+        "very pale cool porcelain skin, "
+        "outfit: deep crimson beret with a small gold pin badge at the front + "
+        "fitted high-collar black jacket with gold trim along lapels and cuffs, single row of small gold buttons down the front + "
+        "white ruffled blouse peeking out at the collar underneath the jacket + "
+        "short pleated black skirt with a thin red stripe along the hem + "
+        "sheer black thigh-high stockings + "
+        "black lace-up ankle boots with a low block heel and gold eyelet hardware, "
+        "anime-style illustration, 2D art, soft warm lighting\n"
+        "CRITICAL REMINDER — OUTFIT: The 'Good output' example above shows the required outfit format. "
+        "EVERY garment and accessory must be listed as separate entries joined by ' + '. "
+        "NEVER write the entire outfit as a single phrase. "
+        "If you collapse the outfit into fewer than 4 separate entries, your output is WRONG.\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
