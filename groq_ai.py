@@ -404,11 +404,18 @@ async def enhance_image_prompt(
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
         "- Aim for 20-70 words.\n"
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
-        "- Physical details observed in the reference photos (hair color, eye color, hairstyle, "
-        "skin tone, etc.) ALWAYS take priority over anything in the raw prompt. "
-        "Incorporate them naturally into the description.\n"
-        "Good output: vibrant cherry blossom park in Kyoto at sunset, soft golden light, "
-        "anime art style, petals drifting in the breeze, peaceful atmosphere\n"
+        "- Physical details from references (hair color, eye color, hairstyle, skin tone) "
+        "ALWAYS take priority over anything in the raw prompt. Incorporate them naturally.\n"
+        "- HAIRSTYLE is critical — describe it precisely using ALL of the following dimensions:\n"
+        "  * bang style: blunt/straight-across, side-swept, parted, no bangs, etc.\n"
+        "  * whether hair is completely loose and flowing, or tied/braided/pinned\n"
+        "  * presence or ABSENCE of an ahoge (antenna hair) — if not visible in reference, "
+        "explicitly write 'no ahoge' in the prompt so the model does not add one\n"
+        "  * exact length: very long past waist, shoulder-length, short bob, etc.\n"
+        "- Do NOT invent or add hairstyle elements (ahoge, twin-tails, clips, ribbons) "
+        "that are not visible in the reference. Only describe what you actually see.\n"
+        "Good output: silver-white haired girl with very long straight hair, blunt straight bangs, "
+        "no ahoge, completely loose and flowing, golden amber eyes, anime art style\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
