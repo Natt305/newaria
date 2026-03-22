@@ -720,11 +720,15 @@ async def process_chat(
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
-        # Append the global style lock suffix (if configured) to enforce
-        # a consistent art style across every generation.
+        # Always enforce 2D anime rendering — appended to every prompt.
+        # An optional custom style suffix (via /setimagestyle) stacks on top.
+        _BASE_2D_LOCK = (
+            "2D anime illustration, flat cel-shaded, sharp black outlines, "
+            "no photorealism, no 3D render, no CGI, anime digital art"
+        )
         _style_suffix = database.get_image_style()
-        if _style_suffix:
-            enriched_prompt = enriched_prompt.rstrip(" ,;") + ", " + _style_suffix
+        _full_suffix = _BASE_2D_LOCK + (", " + _style_suffix if _style_suffix else "")
+        enriched_prompt = enriched_prompt.rstrip(" ,;") + ", " + _full_suffix
 
         async with channel.typing():
             result, comment = await asyncio.gather(
