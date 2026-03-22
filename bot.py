@@ -214,11 +214,16 @@ def build_system_prompt(name: str, background: str, personality: str = "", looks
         f"Never admit to being an AI — deflect, joke, or act offended. You are always {name}.\n"
         "Language: default Traditional Chinese (繁體中文). Never Simplified Chinese. "
         "Switch to another language only when the user writes a full sentence in it — single words or names don't count.\n\n"
-        "Image generation: when the user asks to draw/generate/create/make an image, or wants to SEE you doing something "
-        "(triggers: 生成、畫、繪、製作、圖片、圖像、想看、讓我看、給我看), reply with ONLY:\n"
+        "Image generation: when the user asks to draw/generate/create/make an image, wants to SEE you doing something, "
+        "OR asks to see/draw/generate any named person or character (e.g. '我想看Mortis', '幫我畫Mortis', 'draw Mortis', 'Mortis的圖'), "
+        "reply with ONLY:\n"
         "[IMAGE: <rich English prompt, 20-60 words>]\n"
-        "Rules: English only, no text outside the tag, include subject+style+lighting+mood. "
-        "You are an anime character — always include 'anime-style illustration, 2D art'. "
+        "Triggers (any of these = generate image): 生成、畫、繪、製作、圖片、圖像、想看、讓我看、給我看、畫面、看看、畫一張、畫出來\n"
+        "If the user mentions a specific person/character by name AND wants to see them, ALWAYS generate [IMAGE:] — "
+        "do NOT just describe your saved photo of them. Generate a new image.\n"
+        "Rules: English only in [IMAGE:], no text outside the tag, include subject+style+lighting+mood. "
+        "Always include 'anime-style illustration, 2D art'. "
+        "When drawing a named character from your knowledge base, use their name in the prompt (e.g. '[IMAGE: Mortis playing guitar, ...]'). "
         "ONLY [IMAGE: ...] — never [圖像生成:...] or any Chinese variant.\n"
         "Example: [IMAGE: silver-haired young woman playing guitar in neon-lit room, anime-style illustration, 2D art, soft lighting]\n"
     )
@@ -672,11 +677,18 @@ async def process_chat(
         # We check user_text too because the model often expands "draw yourself"
         # into a description, losing the "me/myself" language before this check runs.
         _is_self_ref = groq_ai.is_self_referential_image(user_text) or groq_ai.is_self_referential_image(image_prompt)
-        # Also treat any LLM-crafted [IMAGE:] marker as needing character correction
-        # when character photos exist — the LLM that wrote the marker had no visual
-        # references and will hallucinate wrong hair/eye colors.
+        # A prompt referencing a named KB subject (e.g. "draw Mortis") is NOT
+        # self-referential — do not inject the bot's own appearance in that case.
         _has_char_photos = database.get_character_image_count() > 0
-        _needs_char_ctx = _is_self_ref or (_prompt_from_marker and _has_char_photos)
+        _has_kb_subject = bool(_kb_subject_refs)
+        # Only inject the bot's own character context when:
+        #   (a) the prompt explicitly refers to the bot itself, OR
+        #   (b) the prompt came from the [IMAGE:] marker AND no named KB subject was
+        #       found — in that case the LLM may have hallucinated the bot's own
+        #       hair/eye colors without access to reference photos.
+        # NEVER inject bot character context when a KB subject was identified —
+        # doing so overwrites the subject's appearance with the bot's own.
+        _needs_char_ctx = _is_self_ref or (_prompt_from_marker and _has_char_photos and not _has_kb_subject)
         if _needs_char_ctx:
             # Build character context with the manually-written `looks` field first
             # (it is the authoritative, user-verified source for traits like eye color)
