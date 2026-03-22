@@ -490,8 +490,17 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     return []
 
 
-async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> str:
-    """Translate and expand a raw prompt into a rich English image-generation prompt."""
+async def enhance_image_prompt(
+    raw_prompt: str,
+    character_context: str = "",
+    subject_references: dict = None,
+    reference_images: list = None,
+) -> str:
+    """Translate and expand a raw prompt into a rich English image-generation prompt.
+
+    subject_references: {name: description} for named KB subjects.
+    reference_images: list of (bytes, mime_type) tuples passed to the vision model.
+    """
     char_block = ""
     if character_context and character_context.strip():
         char_block = (
@@ -501,11 +510,32 @@ async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> 
             f"{character_context.strip()}\n"
         )
 
+    ref_block = ""
+    if subject_references:
+        lines = []
+        for name, desc in subject_references.items():
+            lines.append(f"  {name}: {desc}")
+        ref_block = (
+            "\n\nVERIFIED GROUND TRUTH — the following subjects appear in the image request. "
+            "Their physical traits below are authoritative; do NOT alter or invent details:\n"
+            + "\n".join(lines) + "\n"
+        )
+
+    has_images = bool(reference_images)
+    image_note = (
+        "\nReference photos are attached. Observe them directly — they are the "
+        "definitive source of truth for visual traits. Text descriptions above provide "
+        "supplementary context.\n"
+        if has_images else ""
+    )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
         "rewrite it as a single, rich English prompt for an AI image model.\n"
         f"{char_block}"
+        f"{ref_block}"
+        f"{image_note}"
         "Rules:\n"
         "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
         "- Always write in English.\n"
@@ -520,8 +550,14 @@ async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> 
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
+    if has_images:
+        print(f"[Ollama] enhance_image_prompt: using vision model with {len(reference_images)} reference image(s)")
     try:
-        enhanced, *_ = await chat(messages_list, system_prompt=system)
+        enhanced, *_ = await chat(
+            messages_list,
+            system_prompt=system,
+            context_images=reference_images if has_images else None,
+        )
         if enhanced and len(enhanced.strip()) > 5:
             print(f"[Ollama] Prompt enhanced: {enhanced[:120]}")
             return enhanced.strip()

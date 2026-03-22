@@ -67,8 +67,18 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     return await _mod().extract_memories(exchange, bot_name)
 
 
-async def enhance_image_prompt(raw_prompt: str, character_context: str = "") -> str:
-    return await _mod().enhance_image_prompt(raw_prompt, character_context=character_context)
+async def enhance_image_prompt(
+    raw_prompt: str,
+    character_context: str = "",
+    subject_references: dict = None,
+    reference_images: list = None,
+) -> str:
+    return await _mod().enhance_image_prompt(
+        raw_prompt,
+        character_context=character_context,
+        subject_references=subject_references,
+        reference_images=reference_images,
+    )
 
 
 async def generate_image_comment(
