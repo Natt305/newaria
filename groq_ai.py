@@ -172,8 +172,13 @@ _IMAGE_MARKER_RE = re.compile(
 _SELF_REF_RE = re.compile(
     r"\b(selfie|self.?portrait|photo of me|picture of me|my face|my photo|my picture|"
     r"what i look like|how i look|my appearance|my outfit|my hair|my eyes|"
-    r"myself|me posing|me standing|me sitting|portrait of me)\b"
-    r"|自拍|我的照片|我的樣子|我的臉|我的外貌|拍一張我|我的自拍",
+    r"myself|me posing|me standing|me sitting|portrait of me|"
+    r"show me you|show yourself|your photo|your picture|your selfie|your appearance|"
+    r"photo of you|picture of you|what you look like|how you look)\b"
+    r"|自拍|我的照片|我的樣子|我的臉|我的外貌|拍一張我|我的自拍"
+    r"|妳的照片|你的照片|妳的樣子|你的樣子|妳的自拍|你的自拍|妳的外貌|你的外貌"
+    r"|想看妳|想看你|看看妳|看看你|給我看妳|給我看你|讓我看妳|讓我看你"
+    r"|妳的臉|你的臉|看妳的|看你的|妳照片|你照片",
     re.I,
 )
 
@@ -316,10 +321,29 @@ async def understand_image(
     return None
 
 
-def response_declines_image(text: str) -> bool:
-    """Return True if Groq's reply says it can't generate an image."""
+_NEGATION_RE = re.compile(
+    r"無法|不能|沒辦法|做不到|辦不到|can'?t|cannot|unable|not able|no way",
+    re.I,
+)
+
+
+def response_declines_image(text: str, messages: list | None = None) -> bool:
+    """Return True if the reply says it can't generate an image.
+
+    Two-pass check:
+    1. Fast path — exact phrase list (language-specific known phrases).
+    2. Context-gated heuristic — fires only when the user clearly wanted an image
+       (messages is provided and user_wants_image() returns non-None) AND the
+       reply contains any negation/inability word but no [IMAGE:] marker.
+       This catches novel phrasings like "抱歉，我無法提供" that the phrase list misses.
+    """
     lower = text.lower()
-    return any(phrase in lower for phrase in IMAGE_TRIGGER_PHRASES)
+    if any(phrase in lower for phrase in IMAGE_TRIGGER_PHRASES):
+        return True
+    if messages is not None and not _IMAGE_MARKER_RE.search(text):
+        if user_wants_image(messages) and _NEGATION_RE.search(text):
+            return True
+    return False
 
 
 def user_wants_image(messages: list) -> Optional[str]:
@@ -479,9 +503,12 @@ async def chat(
         groq_messages.append({"role": "system", "content": system_prompt})
 
     recent = messages[-20:]
+    # Build vision-capable messages (multimodal) and a plain-text fallback version.
+    # We need the text-only version ready for when we fall back to non-vision models;
+    # sending image_url parts to a text model causes errors or garbled output.
+    groq_messages_text: list = []
     for i, msg in enumerate(recent):
         content = msg["content"]
-        # Inject context_images into the last user message as multimodal content
         if context_images and i == len(recent) - 1 and msg["role"] == "user":
             image_parts = []
             for img_bytes, img_mime in context_images:
@@ -489,8 +516,11 @@ async def chat(
                 data_url = f"data:{img_mime};base64,{b64}"
                 image_parts.append({"type": "image_url", "image_url": {"url": data_url}})
             image_parts.append({"type": "text", "text": content if isinstance(content, str) else str(content)})
-            content = image_parts
-        groq_messages.append({"role": msg["role"], "content": content})
+            groq_messages.append({"role": msg["role"], "content": image_parts})
+            groq_messages_text.append({"role": msg["role"], "content": content if isinstance(content, str) else str(content)})
+        else:
+            groq_messages.append({"role": msg["role"], "content": content})
+            groq_messages_text.append({"role": msg["role"], "content": content})
 
     # Prefer vision models when images are attached
     if context_images:
@@ -508,10 +538,16 @@ async def chat(
     models_to_try = available
 
     for attempt_model in models_to_try:
+        # Use text-only messages when falling back from vision to a text model so we
+        # don't send multimodal content (image_url parts) to a model that can't handle it.
+        is_vision_model = attempt_model in VISION_MODELS
+        msgs_for_attempt = groq_messages if (not context_images or is_vision_model) else groq_messages_text
+        if context_images and not is_vision_model:
+            print(f"[Groq] Falling back to text model {attempt_model} — stripping image_url parts from messages")
         try:
             response = await client.chat.completions.create(
                 model=attempt_model,
-                messages=groq_messages,
+                messages=msgs_for_attempt,
                 temperature=0.8,
                 max_tokens=1024,
             )
@@ -530,7 +566,7 @@ async def chat(
             # Fallback: bot said it can't generate — route to image generator anyway
             # Do NOT call enhance_image_prompt here; the caller (bot.py) handles it
             # so it can also inject character context when needed.
-            if response_declines_image(text):
+            if response_declines_image(text, messages=messages):
                 img_prompt = user_wants_image(messages)
                 if img_prompt:
                     print(f"[Groq] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")

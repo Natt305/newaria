@@ -149,9 +149,27 @@ def is_recall_request(text: str) -> bool:
     return bool(_RECALL_RE.search(text))
 
 
-def response_declines_image(text: str) -> bool:
+_NEGATION_RE = re.compile(
+    r"無法|不能|沒辦法|做不到|辦不到|can'?t|cannot|unable|not able|no way",
+    re.I,
+)
+
+
+def response_declines_image(text: str, messages: list | None = None) -> bool:
+    """Return True if the reply says it can't generate an image.
+
+    Two-pass check:
+    1. Fast path — exact phrase list (language-specific known phrases).
+    2. Context-gated heuristic — only fires when the user clearly wanted an image
+       AND the response has no [IMAGE:] marker AND contains a negation/inability word.
+    """
     lower = text.lower()
-    return any(phrase in lower for phrase in IMAGE_TRIGGER_PHRASES)
+    if any(phrase in lower for phrase in IMAGE_TRIGGER_PHRASES):
+        return True
+    if messages is not None and not _IMAGE_MARKER_RE.search(text):
+        if user_wants_image(messages) and _NEGATION_RE.search(text):
+            return True
+    return False
 
 
 def user_wants_image(messages: list) -> Optional[str]:
@@ -378,7 +396,7 @@ async def chat(
         print(f"[Ollama] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
         return (clean_text or None), img_prompt, True
 
-    if response_declines_image(text):
+    if response_declines_image(text, messages=messages):
         img_prompt = user_wants_image(messages)
         if img_prompt:
             print(f"[Ollama] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
