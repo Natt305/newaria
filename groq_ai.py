@@ -525,6 +525,10 @@ async def enhance_image_prompt(
             if sdxl:
                 pos_m = re.search(r"^POSITIVE:\s*(.+)", text, re.MULTILINE | re.IGNORECASE)
                 neg_m = re.search(r"^NEGATIVE:\s*(.+)", text, re.MULTILINE | re.IGNORECASE)
+                if not pos_m:
+                    print(f"[Groq] SDXL output missing POSITIVE: label — using raw text as prompt. Output: {text[:200]!r}")
+                if not neg_m:
+                    print(f"[Groq] SDXL output missing NEGATIVE: label — no negative prompt will be sent.")
                 positive = pos_m.group(1).strip() if pos_m else text
                 negative = neg_m.group(1).strip() if neg_m else None
                 print(f"[Groq] Prompt enhanced (SDXL): {positive[:120]}")

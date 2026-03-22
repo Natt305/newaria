@@ -600,6 +600,10 @@ async def enhance_image_prompt(
             if sdxl:
                 pos_m = _re.search(r"^POSITIVE:\s*(.+)", text, _re.MULTILINE | _re.IGNORECASE)
                 neg_m = _re.search(r"^NEGATIVE:\s*(.+)", text, _re.MULTILINE | _re.IGNORECASE)
+                if not pos_m:
+                    print(f"[Ollama] SDXL output missing POSITIVE: label — using raw text as prompt. Output: {text[:200]!r}")
+                if not neg_m:
+                    print(f"[Ollama] SDXL output missing NEGATIVE: label — no negative prompt will be sent.")
                 positive = pos_m.group(1).strip() if pos_m else text
                 negative = neg_m.group(1).strip() if neg_m else None
                 print(f"[Ollama] Prompt enhanced (SDXL): {positive[:120]}")
