@@ -720,12 +720,9 @@ async def process_chat(
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
-        # Always enforce 2D anime rendering — appended to every prompt.
-        # An optional custom style suffix (via /setimagestyle) stacks on top.
-        _BASE_2D_LOCK = (
-            "2D anime illustration, flat cel-shaded, sharp black outlines, "
-            "no photorealism, no 3D render, no CGI, anime digital art"
-        )
+        # Append style lock. Always include a Flux-friendly anime base;
+        # an optional custom suffix (via /setimagestyle) stacks on top.
+        _BASE_2D_LOCK = "anime style, anime illustration, cel shading, flat colors, 2D anime art"
         _style_suffix = database.get_image_style()
         _full_suffix = _BASE_2D_LOCK + (", " + _style_suffix if _style_suffix else "")
         enriched_prompt = enriched_prompt.rstrip(" ,;") + ", " + _full_suffix
