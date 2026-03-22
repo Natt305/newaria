@@ -459,7 +459,10 @@ async def enhance_image_prompt(
         "very different from 'vivid amber' or 'dark orange-brown'. Match what you see.\n"
         "- COMPLEXION/SKIN TONE: describe exact shade, e.g. 'very pale porcelain skin', "
         "'fair skin with a cool undertone', 'light warm ivory skin'.\n"
-        f"{good_output}"
+        "Good output: near-white silver-mint haired girl, very long straight hair, "
+        "blunt straight bangs with a small gap on the right side, longer side strands "
+        "framing the face, no ahoge, completely loose and flowing, "
+        "pale soft honey-gold eyes, very pale cool porcelain skin, anime art style\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
