@@ -317,13 +317,16 @@ async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
     title is explicitly mentioned in the prompt (e.g. saved photo of 'Alice',
     user asks to 'draw Alice').  Generic prompts (watermelon, landscape, etc.)
     are returned unchanged so the KB never overrides the intended subject.
-    Returns (enriched_prompt, matched_entries).
+    Returns (enriched_prompt, matched_entries, subject_references).
+    subject_references is a dict {title: full_description} for all matched subjects,
+    used downstream to ground the LLM enhancement with accurate visual traits.
     """
     all_image_entries = database.get_all_entries(limit=200)
     image_entries = [e for e in all_image_entries if e.get("entry_type") == "image"]
 
     prompt_lower = image_prompt.lower()
     matched = []
+    subject_references: dict = {}
     for entry in image_entries:
         title = (entry.get("title") or "").strip()
         if not title:
@@ -332,15 +335,17 @@ async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
             desc = (entry.get("image_description") or "").strip()
             if desc:
                 matched.append((title, desc))
+                subject_references[title] = desc  # full description for grounding
 
     if not matched:
-        return image_prompt, []
+        return image_prompt, [], {}
 
-    ref_parts = [f"{title}: {desc[:120]}" for title, desc in matched[:2]]
+    # Include up to 400 chars of each description so physical traits aren't cut off
+    ref_parts = [f"{title}: {desc[:400]}" for title, desc in matched[:2]]
     refs_text = "; ".join(ref_parts)
     enriched = f"{image_prompt}, appearance reference — {refs_text}"
     print(f"[Bot] KB image enrichment: {len(matched)} title match(es) applied to prompt")
-    return enriched, [e for e in image_entries if (e.get("title") or "").lower() in prompt_lower]
+    return enriched, [e for e in image_entries if (e.get("title") or "").lower() in prompt_lower], subject_references
 
 
 async def get_suggestion_topic(channel_id: str) -> str:
@@ -563,8 +568,8 @@ async def process_chat(
         if response_text:
             await send_with_suggestions(response_text, channel_id, reply_target)
 
-        # Enrich prompt with KB image references (always useful, no LLM call)
-        enriched_prompt, _kb_matches = await _enrich_image_prompt_with_kb(image_prompt)
+        # Enrich prompt with KB image references — now returns structured subject refs too
+        enriched_prompt, _kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(image_prompt)
         # Detect self-referential prompts — these need character appearance injected
         # even when the prompt already came from the marker.
         # We check user_text too because the model often expands "draw yourself"
@@ -572,17 +577,22 @@ async def process_chat(
         char_images_ctx = build_character_images_context() if (
             groq_ai.is_self_referential_image(user_text) or groq_ai.is_self_referential_image(image_prompt)
         ) else ""
-        # Only run the LLM enhancement rewrite when:
+        # Run the LLM enhancement rewrite whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
-        #   (b) character appearance context needs to be injected (self-referential)
-        # Skip it for marker-sourced prompts with no character context — the LLM
-        # already crafted rich English in the [IMAGE: ...] tag; a second rewrite
-        # only causes drift from the user's original intent.
-        if not _prompt_from_marker or char_images_ctx:
-            enriched_prompt = await groq_ai.enhance_image_prompt(enriched_prompt, character_context=char_images_ctx)
-            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)})")
+        #   (b) character appearance context exists (self-referential prompt), OR
+        #   (c) KB subject references were found — even for marker prompts, the LLM
+        #       that wrote the [IMAGE:] tag may have hallucinated wrong colors/styles,
+        #       so we rewrite using the verified database descriptions as ground truth.
+        has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs)
+        if not _prompt_from_marker or has_visual_refs:
+            enriched_prompt = await groq_ai.enhance_image_prompt(
+                enriched_prompt,
+                character_context=char_images_ctx,
+                subject_references=_kb_subject_refs if _kb_subject_refs else None,
+            )
+            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())})")
         else:
-            print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker")
+            print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
         async with channel.typing():
             result, comment = await asyncio.gather(
