@@ -545,8 +545,22 @@ async def enhance_image_prompt(
         "- If the subject is a person or character (especially with anime features like "
         "distinctively colored hair or eyes), always include 'anime-style illustration, 2D art' "
         "in the output. Never use 'photorealistic' or 'photograph' for character prompts.\n"
-        "Good output: silver-haired young woman playing electric guitar in a dimly lit music room, "
-        "anime-style illustration, 2D art, soft warm lighting, melancholic mood\n"
+        "- Physical details from references (hair color, eye color, hairstyle, skin tone) "
+        "ALWAYS take priority over anything in the raw prompt.\n"
+        "- BANG ASYMMETRY (high priority): if the reference shows a gap or parting in the "
+        "bangs on one specific side, state this explicitly and early — e.g. "
+        "'straight-across bangs with a small gap on the right side'.\n"
+        "- HAIR COLOR: describe the exact shade. 'Near-white with a barely-there cool mint tint' "
+        "is very different from 'mint-green'. Match precisely.\n"
+        "- EYE COLOR: describe hue, saturation, and any secondary undertones. "
+        "Never default to vivid warm amber when the reference shows muted or olive-toned irises.\n"
+        "- EYELASHES: when the character has a light, pale, or cool color palette "
+        "(near-white or silver hair, pale skin), explicitly include eyelash color — e.g. "
+        "'soft light brown lashes'. Do NOT default to dark or heavy lashes.\n"
+        "Good output: near-white silver-mint haired girl, very long straight hair, "
+        "straight-across bangs with a small gap on the right side, no ahoge, completely loose, "
+        "soft muted olive-hazel eyes with subtle greenish tint, soft light brown lashes, "
+        "very pale cool porcelain skin, anime-style illustration, 2D art, soft warm lighting\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
@@ -559,7 +573,7 @@ async def enhance_image_prompt(
             context_images=reference_images if has_images else None,
         )
         if enhanced and len(enhanced.strip()) > 5:
-            print(f"[Ollama] Prompt enhanced: {enhanced[:120]}")
+            print(f"[Ollama] Prompt enhanced: {enhanced}")
             return enhanced.strip()
     except Exception as e:
         print(f"[Ollama] Prompt enhancement failed: {e}")

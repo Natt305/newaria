@@ -443,6 +443,10 @@ async def enhance_image_prompt(
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
         "- Physical details from references (hair color, eye color, hairstyle, skin tone) "
         "ALWAYS take priority over anything in the raw prompt. Incorporate them naturally.\n"
+        "- BANG ASYMMETRY (high priority): if the reference shows a gap or parting in the "
+        "bangs on one specific side, state this explicitly and early in the prompt — e.g. "
+        "'straight-across bangs with a small gap on the right side'. Do not merge this detail "
+        "into a longer hairstyle sentence where it gets lost.\n"
         "- HAIRSTYLE is critical — describe it precisely using ALL of the following dimensions:\n"
         "  * bang style: blunt/straight-across, asymmetric with a gap/part on one side, "
         "side-swept, parted center, no bangs, etc. — be specific about asymmetry if present\n"
@@ -455,14 +459,21 @@ async def enhance_image_prompt(
         "that are not visible in the reference. Only describe what you actually see.\n"
         "- HAIR COLOR: describe the exact shade precisely. 'Near-white with a barely-there "
         "cool mint tint' is very different from 'mint-green' or 'teal'. Match what you see.\n"
-        "- EYE COLOR: describe hue AND saturation/brightness. 'Pale soft honey-gold' is "
-        "very different from 'vivid amber' or 'dark orange-brown'. Match what you see.\n"
+        "- EYE COLOR: describe hue, saturation, AND any secondary undertones. "
+        "'Soft muted olive-hazel with subtle greenish tint' is very different from "
+        "'vivid amber' or 'dark orange-brown'. If eyes look muted or desaturated, say so. "
+        "Never default to vivid warm amber when the reference shows low-saturation or olive-toned irises.\n"
+        "- EYELASHES: when the character has a light, pale, or cool color palette "
+        "(near-white or silver hair, pale skin), explicitly include eyelash color — e.g. "
+        "'soft light brown lashes', 'subtle warm lashes'. Do NOT default to dark or heavy "
+        "lashes — that clashes with a pale color scheme.\n"
         "- COMPLEXION/SKIN TONE: describe exact shade, e.g. 'very pale porcelain skin', "
         "'fair skin with a cool undertone', 'light warm ivory skin'.\n"
         "Good output: near-white silver-mint haired girl, very long straight hair, "
-        "blunt straight bangs with a small gap on the right side, longer side strands "
+        "straight-across bangs with a small gap on the right side, longer side strands "
         "framing the face, no ahoge, completely loose and flowing, "
-        "pale soft honey-gold eyes, very pale cool porcelain skin, anime art style\n"
+        "soft muted olive-hazel eyes with subtle greenish tint, soft light brown lashes, "
+        "very pale cool porcelain skin, anime art style\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
@@ -481,7 +492,7 @@ async def enhance_image_prompt(
             context_images=reference_images if has_images else None,
         )
         if enhanced and len(enhanced.strip()) > 5:
-            print(f"[Groq] Prompt enhanced: {enhanced[:120]}")
+            print(f"[Groq] Prompt enhanced: {enhanced}")
             return enhanced.strip()
     except Exception as e:
         print(f"[Groq] Prompt enhancement failed: {e}")
