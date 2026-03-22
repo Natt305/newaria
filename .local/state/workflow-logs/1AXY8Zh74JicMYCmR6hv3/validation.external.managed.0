@@ -1,0 +1,29 @@
+VERDICT: APPROVED_WITH_COMMENTS
+The diff successfully implements the requested functional prompt changes in both `groq_ai.py` and `ollama_ai.py`: word budget is increased to `150-300 words` in each system prompt, and a new mandatory, highly detailed `OVERDICT: APPROVED_WITH_COMMENTS
+UTFIT` rule is added with concrete guidance and an example.
+
+Critical findings / analysis:
+- **Core requirement met:** both files now instruct the rewriter to produce significantly richer prompts (`150-300` words).
+- **Core requirement met:** both files include the new mandatory outfit/clothing rule with the expected detail dimensions (garment types, colors, materials, features, layering, fit, accessories) and anti-vagueness constraint.
+- **Scope discipline preserved:** only the targeted system prompt strings were modified; no unrelated logic or behavioral code changes were introduced.
+- **Comment:** In `ollama_ai.py`, the new outfit rule is placed after the eyelash rule rather than immediately after hair-color/completion-related placement guidance in the task notes. This is non-blocking because the rule is present and enforceable in the same rule block.
+
+Security: none observed.
+
+Next actions:
+1. (Optional) Move the `OUTFIT` rule in `ollama_ai.py` to exactly match preferred ordering from task notes for consistency with spec wording.
+2. Run a quick smoke test with sample prompts to confirm outputs now consistently exceed previous short-form behavior and include detailed clothing descriptions.
+3. If output verbosity is still inconsistent by model, consider adding a stronger enforcement line (e.g., minimum detail checklist) in a follow-up task.The diff successfully implements the requested functional prompt changes in both `groq_ai.py` and `ollama_ai.py`: word budget is increased to `150-300 words` in each system prompt, and a new mandatory, highly detailed `OUTFIT` rule is added with concrete guidance and an example.
+
+Critical findings / analysis:
+- **Core requirement met:** both files now instruct the rewriter to produce significantly richer prompts (`150-300` words).
+- **Core requirement met:** both files include the new mandatory outfit/clothing rule with the expected detail dimensions (garment types, colors, materials, features, layering, fit, accessories) and anti-vagueness constraint.
+- **Scope discipline preserved:** only the targeted system prompt strings were modified; no unrelated logic or behavioral code changes were introduced.
+- **Comment:** In `ollama_ai.py`, the new outfit rule is placed after the eyelash rule rather than immediately after hair-color/completion-related placement guidance in the task notes. This is non-blocking because the rule is present and enforceable in the same rule block.
+
+Security: none observed.
+
+Next actions:
+1. (Optional) Move the `OUTFIT` rule in `ollama_ai.py` to exactly match preferred ordering from task notes for consistency with spec wording.
+2. Run a quick smoke test with sample prompts to confirm outputs now consistently exceed previous short-form behavior and include detailed clothing descriptions.
+3. If output verbosity is still inconsistent by model, consider adding a stronger enforcement line (e.g., minimum detail checklist) in a follow-up task.

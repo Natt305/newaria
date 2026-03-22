@@ -1,0 +1,41 @@
+VERDICT: APPROVED
+The diff correctly reverts the image pipeline to Flux-only and removes SDXL/DreamShaper-specific behavior across all required files, with no blocking functional regressions found.
+
+Critical findings / analysis:
+- `cloudflare_ai.pyVERDICT: APPROVED
+`: `_MODEL_PRESETS`, `_active_preset()`, `active_model_name()`, and `uses_neThe diff correctly reverts the image pipeline to Flux-only and removes SDXL/DreamShaper-specific behavior across all required files, with no blocking functional regressions found.
+gative_prompt()` are removed. Module-level
+ constants (`MODEL`, `WIDTH`, `HEIGHT`, `NUM_STEPS`) arCritical findings / analysis:
+e restored. `_do_generate()` now builds the Flux payload internally from prompt + constants. `generate_image()` no longer accepts `negative_prompt` and uses the Flux model path directly.
+- `groq_ai.py` and `ollama_ai.py`: `_uses_sdxl()` removed. `enhance_image_prompt` return type is reverted to `str`, SDXL-specific POSITIVE/NEGATIVE formatting/parsing branches are removed, and fallback behavior is correctly `raw_prompt`.
+- `ai_backend.py`: `enhance_image_prompt` annotation reverted to `-> str` and delegates correctly.
+- `bot.py`: prompt enhancement handling is correctly reverted from tuple unpacking to a single string; `_neg_prompt` removed; all `cloudflare_ai.generate_image(..., negative_prompt=...)` calls removed; `GenerateView(...)` call updated.
+- `views.py`: `GenerateView.__init__` no longer accepts/stores `negative_prompt`; regenerate path and follow-up view construction now call `generate_image(self.prompt)` and `GenerateView(...)` without negative prompt.
+- `launcher.py`: Cloudflare model key/path/negative-prompt logging branch removed; warning for incomplete config remains intact.
+
+Cross-checks:
+- No remaining project references to removed symbols (`negative_prompt`, `_uses_sdxl`, `active_model_name`, `uses_negative_prompt`, `_MODEL_PRESETS`, `_active_preset`) in app code.
+- `GenerateView(...)` call sites are consistent with new constructor signature.
+- `enhance_image_prompt(...)` call sites are consistent with string return type.
+
+Security: none observed.
+
+Next actions:
+1) Run a quick smoke test: normal chat image generation + `/generate` + “regenerate” button flow.
+2) Optionally remove stale `CF_IMAGE_MODEL` env usage from operational docs if still documented, since runtime now ignores it.- `cloudflare_ai.py`: `_MODEL_PRESETS`, `_active_preset()`, `active_model_name()`, and `uses_negative_prompt()` are removed. Module-level constants (`MODEL`, `WIDTH`, `HEIGHT`, `NUM_STEPS`) are restored. `_do_generate()` now builds the Flux payload internally from prompt + constants. `generate_image()` no longer accepts `negative_prompt` and uses the Flux model path directly.
+- `groq_ai.py` and `ollama_ai.py`: `_uses_sdxl()` removed. `enhance_image_prompt` return type is reverted to `str`, SDXL-specific POSITIVE/NEGATIVE formatting/parsing branches are removed, and fallback behavior is correctly `raw_prompt`.
+- `ai_backend.py`: `enhance_image_prompt` annotation reverted to `-> str` and delegates correctly.
+- `bot.py`: prompt enhancement handling is correctly reverted from tuple unpacking to a single string; `_neg_prompt` removed; all `cloudflare_ai.generate_image(..., negative_prompt=...)` calls removed; `GenerateView(...)` call updated.
+- `views.py`: `GenerateView.__init__` no longer accepts/stores `negative_prompt`; regenerate path and follow-up view construction now call `generate_image(self.prompt)` and `GenerateView(...)` without negative prompt.
+- `launcher.py`: Cloudflare model key/path/negative-prompt logging branch removed; warning for incomplete config remains intact.
+
+Cross-checks:
+- No remaining project references to removed symbols (`negative_prompt`, `_uses_sdxl`, `active_model_name`, `uses_negative_prompt`, `_MODEL_PRESETS`, `_active_preset`) in app code.
+- `GenerateView(...)` call sites are consistent with new constructor signature.
+- `enhance_image_prompt(...)` call sites are consistent with string return type.
+
+Security: none observed.
+
+Next actions:
+1) Run a quick smoke test: normal chat image generation + `/generate` + “regenerate” button flow.
+2) Optionally remove stale `CF_IMAGE_MODEL` env usage from operational docs if still documented, since runtime now ignores it.

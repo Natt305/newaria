@@ -1,0 +1,45 @@
+VERDICT: APPROVED_WITH_COMMENTS
+The diff successfully implements SDXL-family support with optional negative prompts across the image pipeline, and does so without introducing blocking regressions.
+
+Critical findings / analysis:
+- `cloudflare_ai.py`VERDICT: APPROVED_WITH_COMMENTS
+ correctly adds model selection via `CF_IMAGE_MODEL` with sane fallback to Flux, aThe diff successfully implements SDXL-family support with optional negative prompts across the image pipeline, and does so without introducing blocking regressions.
+nd encapsulates per-model payload differences
+ (model path, resolution, step parameter name, guidance sCritical findings / analysis:
+cale, negative prompt support) in presets.
+- `generate_image(prompt, negative_prompt=None)` is correctly updated and only sends `negative_prompt` for models that support it.
+- Existing request/response handling and sentinel behavior (`API_KEY_ERROR`, `MODEL_ERROR`, NSFW detection/retry flow) remain effectively unchanged in structure and semantics.
+- `groq_ai.py` and `ollama_ai.py` now conditionally produce `(positive, negative)` when SDXL-family models are active, using a single LLM call and parsing `POSITIVE:` / `NEGATIVE:` output as required; Flux path still returns `(prompt, None)`.
+- `ai_backend.py` proxy now forwards the tuple return type and parameters cleanly.
+- `bot.py` correctly threads `negative_prompt` through conversational generation and explicitly uses `negative_prompt=None` for `/generate`, matching the stated direct-command behavior.
+- `views.py` now stores and reuses `negative_prompt` in regenerate flows.
+- `launcher.py` now logs active image model key/path and whether negative prompts are supported.
+
+Comments (non-blocking):
+- `/generate` still displays/stores the original user prompt in the embed/view while generation uses `enriched_prompt` (pre-existing behavior). This can make regenerate semantics less transparent to users, but it is not introduced by this task and does not block SDXL integration.
+
+Security:
+- None observed (no serious authz/injection/secret-handling regressions in this diff).
+
+Next actions:
+1. Add a small runtime smoke test matrix for `CF_IMAGE_MODEL` values (flux/sdxl/sdxl-lightning/dreamshaper) to validate payload shape and sentinel parity.
+2. Optionally add lightweight parsing guardrails/telemetry when SDXL output misses `POSITIVE:`/`NEGATIVE:` labels, to track prompt quality drift.
+3. Optionally align `/generate` UI text with the actual prompt used (original vs enriched) for user clarity.- `cloudflare_ai.py` correctly adds model selection via `CF_IMAGE_MODEL` with sane fallback to Flux, and encapsulates per-model payload differences (model path, resolution, step parameter name, guidance scale, negative prompt support) in presets.
+- `generate_image(prompt, negative_prompt=None)` is correctly updated and only sends `negative_prompt` for models that support it.
+- Existing request/response handling and sentinel behavior (`API_KEY_ERROR`, `MODEL_ERROR`, NSFW detection/retry flow) remain effectively unchanged in structure and semantics.
+- `groq_ai.py` and `ollama_ai.py` now conditionally produce `(positive, negative)` when SDXL-family models are active, using a single LLM call and parsing `POSITIVE:` / `NEGATIVE:` output as required; Flux path still returns `(prompt, None)`.
+- `ai_backend.py` proxy now forwards the tuple return type and parameters cleanly.
+- `bot.py` correctly threads `negative_prompt` through conversational generation and explicitly uses `negative_prompt=None` for `/generate`, matching the stated direct-command behavior.
+- `views.py` now stores and reuses `negative_prompt` in regenerate flows.
+- `launcher.py` now logs active image model key/path and whether negative prompts are supported.
+
+Comments (non-blocking):
+- `/generate` still displays/stores the original user prompt in the embed/view while generation uses `enriched_prompt` (pre-existing behavior). This can make regenerate semantics less transparent to users, but it is not introduced by this task and does not block SDXL integration.
+
+Security:
+- None observed (no serious authz/injection/secret-handling regressions in this diff).
+
+Next actions:
+1. Add a small runtime smoke test matrix for `CF_IMAGE_MODEL` values (flux/sdxl/sdxl-lightning/dreamshaper) to validate payload shape and sentinel parity.
+2. Optionally add lightweight parsing guardrails/telemetry when SDXL output misses `POSITIVE:`/`NEGATIVE:` labels, to track prompt quality drift.
+3. Optionally align `/generate` UI text with the actual prompt used (original vs enriched) for user clarity.

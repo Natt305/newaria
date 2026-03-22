@@ -1,0 +1,33 @@
+VERDICT: APPROVED_WITH_COMMENTS
+
+The diff substantially implements the requested prompt-engineering changes in both `groq_ai.py` and `ollama_ai.py`, including the core behavioral objective: eye color is no longer text-only in Groq priority rules and isVERDICT: APPROVED_WITH_COMMENTS
+ now grouped under photo-authoritative color attributes, while struct
+ure remains text-authoritative. The new three-axis framing for eye color and eyelashes is added in both files, and the good-output examples in both files were updated to the intended three-axis style.
+
+Critical findings:
+- **Requirement 1 (Groq priority ruling revert):** Implemented correctly. The old “EYE COLOR — use ONLY text” instruction is removed and replaced with photo-authoritative COLORS + text-authoritative STRUCTURE split, matching task intent.
+- **Requirement 2 (three-axis rules in both files):** Implemented with high fidelity, but not exact parity with the requested wording.
+  - Both files use `BRIGHTNESS` instead of `BRIGHTNESS/CONTRAST` for eye color axis.
+  - `ollama_ai.py` eyelash rule omits the explicit “NOT: just 'light lashes' ...” caution line present in the requested replacement (and present in `groq_ai.py`).
+- **Requirement 3 (good-output eye/lash example):** Implemented in both files with the requested three-axis style.
+
+Security: none observed (changes are prompt text only; no auth, data flow, or sink changes).
+
+Next actions:
+1. In both files, adjust eye axis label to exactly `BRIGHTNESS/CONTRAST` if strict spec conformance is required.
+2. Add the missing eyelash “NOT: just 'light lashes' ...” line to `ollama_ai.py` for consistency and full requirement match.
+3. Keep wording synchronized between Groq/Ollama prompt rules to avoid model-specific drift in output behavior.The diff substantially implements the requested prompt-engineering changes in both `groq_ai.py` and `ollama_ai.py`, including the core behavioral objective: eye color is no longer text-only in Groq priority rules and is now grouped under photo-authoritative color attributes, while structure remains text-authoritative. The new three-axis framing for eye color and eyelashes is added in both files, and the good-output examples in both files were updated to the intended three-axis style.
+
+Critical findings:
+- **Requirement 1 (Groq priority ruling revert):** Implemented correctly. The old “EYE COLOR — use ONLY text” instruction is removed and replaced with photo-authoritative COLORS + text-authoritative STRUCTURE split, matching task intent.
+- **Requirement 2 (three-axis rules in both files):** Implemented with high fidelity, but not exact parity with the requested wording.
+  - Both files use `BRIGHTNESS` instead of `BRIGHTNESS/CONTRAST` for eye color axis.
+  - `ollama_ai.py` eyelash rule omits the explicit “NOT: just 'light lashes' ...” caution line present in the requested replacement (and present in `groq_ai.py`).
+- **Requirement 3 (good-output eye/lash example):** Implemented in both files with the requested three-axis style.
+
+Security: none observed (changes are prompt text only; no auth, data flow, or sink changes).
+
+Next actions:
+1. In both files, adjust eye axis label to exactly `BRIGHTNESS/CONTRAST` if strict spec conformance is required.
+2. Add the missing eyelash “NOT: just 'light lashes' ...” line to `ollama_ai.py` for consistency and full requirement match.
+3. Keep wording synchronized between Groq/Ollama prompt rules to avoid model-specific drift in output behavior.

@@ -1,0 +1,37 @@
+VERDICT: REJECTED
+The diff does not safely complete the Flux-only rollback because it introduces a blocking runtime error in `groq_ai.enhance_image_prompt`.
+
+Critical findings / analysis:
+- **Blocking bug (functional regression):** In `groq_ai.py`,VERDICT: REJECTED
+ `enhance_image_prompt` still interpolates `f"{good_output}"` in the `system` prompt, The diff does not safely complete the Flux-only rollback because it introduces a blocking runtime error in `groq_ai.enhance_image_prompt`.
+but `good_output` is no longer defined aft
+er SDXL branch removal (only referencCritical findings / analysis:
+e is at line ~462). This causes a `NameError` whenever the function is called, breaking image prompt enhancement on the Groq backend.
+- Aside from that, the intended API rollback is mostly applied correctly:
+  - `cloudflare_ai.generate_image(prompt)` reverted to prompt-only Flux payload construction.
+  - SDXL/DreamShaper model preset plumbing removed from Cloudflare module.
+  - `negative_prompt` argument removed from `bot.py` and `views.py` callsites.
+  - `enhance_image_prompt` return type updated back to `str` in `ai_backend.py`, `groq_ai.py`, and `ollama_ai.py`.
+  - launcher model-key/path/negative-prompt logging removed as requested.
+
+Security:
+- none observed.
+
+Next actions:
+1. Fix `groq_ai.enhance_image_prompt` by removing `f"{good_output}"` (or restoring a defined `good_output` string), then re-run image-generation flow tests.
+2. Run a quick runtime smoke test for both backends (`AI_BACKEND=groq` and `AI_BACKEND=ollama`) covering prompt enhancement + image generation path.
+3. Add a minimal unit/integration assertion that `enhance_image_prompt` returns a `str` without raising to prevent similar partial-revert regressions.- **Blocking bug (functional regression):** In `groq_ai.py`, `enhance_image_prompt` still interpolates `f"{good_output}"` in the `system` prompt, but `good_output` is no longer defined after SDXL branch removal (only reference is at line ~462). This causes a `NameError` whenever the function is called, breaking image prompt enhancement on the Groq backend.
+- Aside from that, the intended API rollback is mostly applied correctly:
+  - `cloudflare_ai.generate_image(prompt)` reverted to prompt-only Flux payload construction.
+  - SDXL/DreamShaper model preset plumbing removed from Cloudflare module.
+  - `negative_prompt` argument removed from `bot.py` and `views.py` callsites.
+  - `enhance_image_prompt` return type updated back to `str` in `ai_backend.py`, `groq_ai.py`, and `ollama_ai.py`.
+  - launcher model-key/path/negative-prompt logging removed as requested.
+
+Security:
+- none observed.
+
+Next actions:
+1. Fix `groq_ai.enhance_image_prompt` by removing `f"{good_output}"` (or restoring a defined `good_output` string), then re-run image-generation flow tests.
+2. Run a quick runtime smoke test for both backends (`AI_BACKEND=groq` and `AI_BACKEND=ollama`) covering prompt enhancement + image generation path.
+3. Add a minimal unit/integration assertion that `enhance_image_prompt` returns a `str` without raising to prevent similar partial-revert regressions.
