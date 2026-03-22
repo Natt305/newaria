@@ -409,22 +409,26 @@ async def enhance_image_prompt(
                 f"{desc.strip()}\n"
             )
 
-    # When photos are present, resolve the text-vs-photo priority split explicitly:
-    # photos WIN for actual color values (they show ground truth), text is authoritative
-    # for structure (hairstyle shape, accessories, character identity).
+    # When photos are present, text wins for exact color naming (prevents misreading of
+    # subtle tints like barely-mint hair as "pale green"), photos win for structure
+    # correction and traits not mentioned in text.
     if has_images:
         image_note = (
             "\n[PRIORITY RULING — READ BEFORE EVERYTHING ELSE]\n"
             "Reference photos are attached showing the actual character.\n"
-            "COLORS (hair color, eye color, skin tone lightness/darkness/saturation) — "
-            "use ONLY what you literally see in the photos. The text descriptions above may "
-            "use approximate or inaccurate color names. The photos are the final word.\n"
+            "COLOR NAMING: if the authoritative text description above gives a specific "
+            "color name for hair, eyes, or skin — use that EXACT phrasing. Photos confirm "
+            "the approximate hue (warm vs cool, light vs dark) but do NOT rename colors "
+            "based on the photo alone. For example: if text says 'near-white silver with "
+            "barely a hint of cool mint', do NOT write 'pale green' just because the photo "
+            "shows a faint tint — the correct name is near-white silver, not green.\n"
+            "COLOR CORRECTION via photos: only override the text color name if the photo "
+            "clearly contradicts it (e.g. text says 'brown hair' but photo shows obviously "
+            "blonde). For subtle tints and pale colors, trust the text name.\n"
             "STRUCTURE (hairstyle shape, bang style, what accessories are present, "
-            "character identity) — use the text descriptions above as the authority.\n"
-            "If the text says 'amber eyes' but the photo shows pale honey-gold eyes, "
-            "write 'pale honey-gold eyes' — follow the photo.\n"
-            "If the text says 'mint-green hair' but the photo shows near-white hair with "
-            "barely a hint of cool color, write exactly what the photo shows.\n"
+            "character identity) — use the text descriptions above as the authority. "
+            "If text says asymmetric bang gap on the right side, include it even if it is "
+            "hard to see clearly in the photo.\n"
         )
     else:
         image_note = ""
@@ -459,7 +463,10 @@ async def enhance_image_prompt(
         "- Do NOT invent or add hairstyle elements (ahoge, twin-tails, clips, ribbons) "
         "that are not visible in the reference. Only describe what you actually see.\n"
         "- HAIR COLOR: describe the exact shade precisely. 'Near-white with a barely-there "
-        "cool mint tint' is very different from 'mint-green' or 'teal'. Match what you see.\n"
+        "cool mint tint' is very different from 'pale green', 'mint-green', or 'teal'. "
+        "If the hair looks almost white with just a whisper of coolness, call it 'near-white "
+        "silver' or 'near-white with a barely-there cool mint tint' — NOT 'pale green', "
+        "NOT 'light green'. Only use green-family words if the hair is clearly, visibly green.\n"
         "- EYE COLOR: describe hue, saturation, AND any secondary color undertones. "
         "'Soft muted olive-hazel with subtle greenish undertones' is very different from "
         "'vivid amber' or 'warm golden'. If the eyes have a cool or greenish tint, name it. "
