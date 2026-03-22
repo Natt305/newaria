@@ -588,6 +588,29 @@ async def process_chat(
             char_images_ctx = "\n\n".join(_ctx_parts)
         else:
             char_images_ctx = ""
+        # Collect reference thumbnails for the vision-assisted prompt rewriter.
+        # Cap at 3 images (char thumbnails first, then KB subject thumbnails).
+        _ref_images: list = []
+        _MAX_REF_IMAGES = 3
+        if _is_self_ref:
+            char_count = database.get_character_image_count()
+            for i in range(1, char_count + 1):
+                thumb = database.get_character_image_thumb(i)
+                if thumb:
+                    _ref_images.append(thumb)
+                if len(_ref_images) >= _MAX_REF_IMAGES:
+                    break
+        # Fill remaining slots with KB subject thumbnails (one per matched subject)
+        if _kb_subject_refs and len(_ref_images) < _MAX_REF_IMAGES:
+            for entry in _kb_matches:
+                entry_id = entry.get("id")
+                if entry_id:
+                    thumb = database.get_kb_image_thumb(entry_id)
+                    if thumb:
+                        _ref_images.append(thumb)
+                if len(_ref_images) >= _MAX_REF_IMAGES:
+                    break
+
         # Run the LLM enhancement rewrite whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
         #   (b) character appearance context exists (self-referential prompt), OR
@@ -600,8 +623,9 @@ async def process_chat(
                 enriched_prompt,
                 character_context=char_images_ctx,
                 subject_references=_kb_subject_refs if _kb_subject_refs else None,
+                reference_images=_ref_images if _ref_images else None,
             )
-            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())})")
+            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)})")
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 

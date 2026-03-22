@@ -341,21 +341,28 @@ def user_wants_image(messages: list) -> Optional[str]:
     return None
 
 
-async def enhance_image_prompt(raw_prompt: str, character_context: str = "", subject_references: dict = None) -> str:
+async def enhance_image_prompt(
+    raw_prompt: str,
+    character_context: str = "",
+    subject_references: dict = None,
+    reference_images: Optional[list] = None,
+) -> str:
     """Translate and expand a raw (possibly Chinese) prompt into a rich English
     image-generation prompt suitable for Cloudflare Workers AI.
 
-    If character_context is provided (appearance descriptions of the bot's character),
-    it will be used to ground self-referential prompts like 'selfie' or 'photo of me'.
-
-    If subject_references is provided ({name: description}), those visual traits are
-    treated as ground truth and must override anything the LLM might otherwise invent.
+    character_context: text description of the character's appearance (written + photo-derived).
+    subject_references: {name: description} for named KB subjects — used as ground truth.
+    reference_images: list of (bytes, mime_type) thumbnail tuples. When provided, the
+        rewrite call uses a vision model that can literally see the reference photos,
+        which significantly improves accuracy for traits like eye color and hair tone.
 
     Returns the enhanced prompt, or the original if enhancement fails.
     """
     client = _client()
     if not client:
         return raw_prompt
+
+    has_images = bool(reference_images)
 
     ref_block = ""
     if character_context and character_context.strip():
@@ -378,27 +385,52 @@ async def enhance_image_prompt(raw_prompt: str, character_context: str = "", sub
                 f"{desc.strip()}\n"
             )
 
+    image_note = (
+        "\nReference photos are attached. Observe them directly — use the actual hair color, "
+        "eye color, skin tone, hairstyle, and other visible traits you see in the photos "
+        "as the definitive source of truth. Text descriptions above provide supplementary context.\n"
+        if has_images else ""
+    )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
         "rewrite it as a single, rich English prompt for an AI image model.\n"
         f"{ref_block}"
+        f"{image_note}"
         "Rules:\n"
         "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
         "- Always write in English.\n"
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
         "- Aim for 20-70 words.\n"
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
-        "- If appearance references are provided above, their physical details (hair color, "
-        "eye color, hairstyle, skin tone, etc.) ALWAYS take priority over anything in the raw prompt. "
+        "- Physical details observed in the reference photos (hair color, eye color, hairstyle, "
+        "skin tone, etc.) ALWAYS take priority over anything in the raw prompt. "
         "Incorporate them naturally into the description.\n"
         "Good output: vibrant cherry blossom park in Kyoto at sunset, soft golden light, "
         "anime art style, petals drifting in the breeze, peaceful atmosphere\n"
     )
 
-    messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
+    # Build the user message — multimodal when reference images are provided
+    if has_images:
+        user_content = []
+        for img_bytes, img_mime in reference_images:
+            b64 = base64.b64encode(img_bytes).decode("utf-8")
+            data_url = f"data:{img_mime};base64,{b64}"
+            user_content.append({"type": "image_url", "image_url": {"url": data_url}})
+        user_content.append({"type": "text", "text": f"Image request: {raw_prompt}"})
+        messages_list = [{"role": "user", "content": user_content}]
+        # Vision model required when images are attached; use configured vision model first
+        configured_vision = _default_vision_model()
+        vision_order = [configured_vision] + [m for m in VISION_MODELS if m != configured_vision]
+        model_to_use = vision_order[0]
+        print(f"[Groq] enhance_image_prompt using vision model ({model_to_use}) with {len(reference_images)} reference image(s)")
+    else:
+        messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
+        model_to_use = DEFAULT_MODEL
+
     try:
-        enhanced, *_ = await chat(messages_list, system_prompt=system, model=DEFAULT_MODEL)
+        enhanced, *_ = await chat(messages_list, system_prompt=system, model=model_to_use)
         if enhanced and len(enhanced.strip()) > 5:
             print(f"[Groq] Prompt enhanced: {enhanced[:120]}")
             return enhanced.strip()
