@@ -13,7 +13,7 @@ MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
 WIDTH = 768
 HEIGHT = 768
-NUM_STEPS = 8
+NUM_STEPS = 4
 
 # Words that Cloudflare's NSFW filter falsely flags even in innocent contexts.
 # Each entry is (pattern, replacement). Applied before the first request.
