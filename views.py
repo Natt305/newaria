@@ -42,28 +42,62 @@ def _has_saveimage_permission(interaction: discord.Interaction) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class EditDescriptionModal(discord.ui.Modal, title="編輯描述"):
+    """Edits the user-facing display_description (lore / background)."""
+
     description = discord.ui.TextInput(
-        label="描述",
+        label="描述 (背景設定 / 劇情說明)",
         style=discord.TextStyle.paragraph,
-        placeholder="輸入新的描述 for this image entry...",
+        placeholder="輸入此角色的背景、設定、個性說明等...",
         max_length=2000,
+        required=False,
     )
 
-    def __init__(self, entry_id: int, entry_title: str):
+    def __init__(self, entry_id: int, entry_title: str, current_desc: str = ""):
         super().__init__()
         self.entry_id = entry_id
         self.entry_title = entry_title
+        self.description.default = current_desc[:2000]
 
     async def on_submit(self, interaction: discord.Interaction):
-        success = database.update_image_description(self.entry_id, str(self.description))
+        success = database.update_display_description(self.entry_id, str(self.description))
         if success:
             await interaction.response.send_message(
-                f"✅ Description 已更新 **{self.entry_title}** (#{self.entry_id})!",
+                f"✅ 描述已更新 **{self.entry_title}** (#{self.entry_id})。",
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                "❌ 更新失敗. The entry may no longer exist.", ephemeral=True
+                "❌ 更新失敗。條目可能已不存在。", ephemeral=True
+            )
+
+
+class EditAppearanceModal(discord.ui.Modal, title="編輯外貌描述 (Bot 專用)"):
+    """Edits the hidden bot-only appearance_description (Flux-ready prompt text)."""
+
+    appearance = discord.ui.TextInput(
+        label="外貌描述 (Flux-ready，Bot 專用)",
+        style=discord.TextStyle.paragraph,
+        placeholder="用於圖像生成的詳細外貌描述（通常由視覺模型自動生成）...",
+        max_length=3000,
+        required=False,
+    )
+
+    def __init__(self, entry_id: int, entry_title: str, current_appearance: str = ""):
+        super().__init__()
+        self.entry_id = entry_id
+        self.entry_title = entry_title
+        self.appearance.default = current_appearance[:3000]
+
+    async def on_submit(self, interaction: discord.Interaction):
+        success = database.update_appearance_description(self.entry_id, str(self.appearance))
+        if success:
+            await interaction.response.send_message(
+                f"✅ 外貌描述已更新 **{self.entry_title}** (#{self.entry_id})。",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                "❌ 更新失敗。條目可能已不存在。", ephemeral=True
             )
 
 
@@ -209,7 +243,7 @@ _CONTENT_PAGE_SIZE = 1024
 def _content_chunks(entry: dict) -> list:
     """Split entry content/description into 1024-char pages for pagination."""
     if entry["entry_type"] == "image":
-        text = entry.get("image_description") or "No description set."
+        text = entry.get("display_description") or "(尚無使用者描述。使用 /editdesc 新增背景設定。)"
     else:
         text = entry.get("content") or "No content."
     return [text[i:i + _CONTENT_PAGE_SIZE] for i in range(0, max(1, len(text)), _CONTENT_PAGE_SIZE)]
@@ -297,9 +331,11 @@ class EntryView(discord.ui.View):
         action_row = 1 if self.content_total > 1 else 0
         if self.entry_type == "image":
             view_btn = self._make_view_image_btn(row=action_row)
-            edit_btn = self._make_edit_desc_btn(row=action_row)
+            edit_desc_btn = self._make_edit_desc_btn(row=action_row)
+            edit_appear_btn = self._make_edit_appearance_btn(row=action_row)
             self.add_item(view_btn)
-            self.add_item(edit_btn)
+            self.add_item(edit_desc_btn)
+            self.add_item(edit_appear_btn)
         else:
             self.add_item(self._make_edit_text_btn(row=action_row))
         self.add_item(self._make_delete_btn(row=action_row))
@@ -396,8 +432,27 @@ class EntryView(discord.ui.View):
             row=row,
         )
 
+        current_desc = self.entry.get("display_description", "")
+
         async def callback(interaction: discord.Interaction):
-            modal = EditDescriptionModal(self.entry_id, self.entry_title)
+            modal = EditDescriptionModal(self.entry_id, self.entry_title, current_desc)
+            await interaction.response.send_modal(modal)
+
+        btn.callback = callback
+        return btn
+
+    def _make_edit_appearance_btn(self, row: int = 0):
+        btn = discord.ui.Button(
+            label="外貌描述",
+            style=discord.ButtonStyle.secondary,
+            emoji="🎨",
+            row=row,
+        )
+
+        current_appearance = self.entry.get("appearance_description", "")
+
+        async def callback(interaction: discord.Interaction):
+            modal = EditAppearanceModal(self.entry_id, self.entry_title, current_appearance)
             await interaction.response.send_modal(modal)
 
         btn.callback = callback
@@ -629,7 +684,10 @@ def _build_kb_embed(entries: list, page: int, total_pages: int, total_count: int
     lines = []
     for entry in entries:
         icon = "🖼️" if entry["entry_type"] == "image" else "📝"
-        val = entry.get("content") or entry.get("image_description") or ""
+        if entry["entry_type"] == "image":
+            val = entry.get("display_description") or entry.get("appearance_description") or ""
+        else:
+            val = entry.get("content") or ""
         preview = val[:80].replace("\n", " ") + ("…" if len(val) > 80 else "")
         lines.append(f"{icon} **#{entry['id']}** {entry['title']}\n　　`{preview}`")
 
@@ -733,7 +791,10 @@ class KBManagerView(discord.ui.View):
                 await interaction.response.send_message("❌ 條目已不存在。", ephemeral=True)
                 return
             if full["entry_type"] == "image":
-                modal = EditDescriptionModal(full["id"], full["title"])
+                modal = EditDescriptionModal(
+                    full["id"], full["title"],
+                    current_desc=full.get("display_description", ""),
+                )
             else:
                 modal = EditTextModal(full["id"], full["title"], full.get("content", ""))
             await interaction.response.send_modal(modal)
@@ -775,7 +836,7 @@ _build_knowledge_embed = _build_kb_embed
 # ─────────────────────────────────────────────────────────────────────────────
 
 class SaveImageView(discord.ui.View):
-    """Shown after !saveimage — lets the user edit the auto-generated description."""
+    """Shown after !saveimage — lets the user edit the display description or delete."""
 
     def __init__(self, entry_id: int, entry_title: str):
         super().__init__(timeout=120)
@@ -784,7 +845,16 @@ class SaveImageView(discord.ui.View):
 
     @discord.ui.button(label="編輯描述", style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_desc(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = EditDescriptionModal(self.entry_id, self.entry_title)
+        entry = database.get_entry_by_id(self.entry_id)
+        current_desc = (entry.get("display_description") or "") if entry else ""
+        modal = EditDescriptionModal(self.entry_id, self.entry_title, current_desc)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="外貌描述", style=discord.ButtonStyle.secondary, emoji="🎨")
+    async def edit_appearance(self, interaction: discord.Interaction, button: discord.ui.Button):
+        entry = database.get_entry_by_id(self.entry_id)
+        current_appearance = (entry.get("appearance_description") or "") if entry else ""
+        modal = EditAppearanceModal(self.entry_id, self.entry_title, current_appearance)
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="刪除", style=discord.ButtonStyle.danger, emoji="🗑️")

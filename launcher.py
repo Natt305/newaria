@@ -108,6 +108,7 @@ def main():
     import database as _db
     _db.init_db()
     _db.migrate_thumbnails()
+    _db.migrate_kb_descriptions()
 
     print("[啟動器] 啟動機器人...")
 

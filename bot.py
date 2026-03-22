@@ -17,7 +17,7 @@ DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # ── Appearance extraction prompt used when a character/KB image is uploaded ───
-# Produces a Flux-ready text description stored as the entry's image_description.
+# Produces a Flux-ready text description stored as the entry's appearance_description.
 # This text is later used DIRECTLY as ground truth for image prompt generation,
 # so precision on colours and garment types is critical.
 _CHAR_IMAGE_EXTRACTION_QUESTION = (
@@ -273,14 +273,14 @@ async def build_knowledge_context(channel_id: str, user_query: str = "", simple:
             line = f"[Note — {entry['title']}]: {snippet}"
         elif entry["entry_type"] == "image":
             title = entry["title"]
-            desc = (entry.get("image_description") or "").strip()
+            desc = (entry.get("display_description") or "").strip()
             if desc:
                 snippet = desc[:200] + ("..." if len(desc) > 200 else "")
                 line = f"[Photo of {title}]: Subject name: {title}. {snippet}"
             else:
                 line = (
                     f"[Photo of {title}]: Subject name: {title}. "
-                    "(no visual description saved yet)"
+                    "(no description saved yet)"
                 )
         else:
             continue
@@ -373,7 +373,7 @@ async def build_visual_kb_context(image_description: str) -> tuple:
     parts: list[str] = []
     valid_matches: list = []
     for m in matches:
-        desc = (m.get("image_description") or "").strip()
+        desc = (m.get("display_description") or "").strip()
         title = m.get("title", "Untitled")
         if desc:
             snippet = desc[:500] + ("..." if len(desc) > 500 else "")
@@ -406,7 +406,7 @@ async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
         if not title:
             continue
         if title.lower() in prompt_lower and len(title) >= 2:
-            desc = (entry.get("image_description") or "").strip()
+            desc = (entry.get("appearance_description") or "").strip()
             if desc:
                 matched.append((title, desc))
                 # Keep the LONGEST (most detailed) description when multiple entries
@@ -435,7 +435,7 @@ async def get_suggestion_topic(channel_id: str) -> str:
         return ""
     parts = []
     for e in entries:
-        val = e.get("content") or e.get("image_description") or ""
+        val = e.get("content") or e.get("display_description") or ""
         parts.append(f"{e['title']}: {val[:80]}")
     return "Knowledge base: " + " | ".join(parts)
 
@@ -684,25 +684,6 @@ async def process_chat(
                     _ref_images.append(thumb)
                 if len(_ref_images) >= _MAX_REF_IMAGES:
                     break
-        # Fill remaining slots with KB subject thumbnails — ONLY when the subject has
-        # no detailed stored description. If a subject already has a long authoritative
-        # text description (>200 chars), skip its thumbnail: the text IS the ground
-        # truth and passing a photo to the vision model only risks colour misreads.
-        if _kb_matches and len(_ref_images) < _MAX_REF_IMAGES:
-            for entry in _kb_matches:
-                title = (entry.get("title") or "").strip()
-                stored_desc = (_kb_subject_refs.get(title) or "").strip()
-                if len(stored_desc) > 200:
-                    print(f"[Bot] Skipping KB thumbnail for '{title}' — detailed text description present ({len(stored_desc)} chars)")
-                    continue
-                entry_id = entry.get("id")
-                if entry_id:
-                    thumb = database.get_kb_image_thumb(entry_id)
-                    if thumb:
-                        _ref_images.append(thumb)
-                if len(_ref_images) >= _MAX_REF_IMAGES:
-                    break
-
         # Run the LLM enhancement rewrite whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
         #   (b) character appearance context exists (self-referential prompt), OR
@@ -944,7 +925,8 @@ async def check_command_role(ctx) -> bool:
 COMMAND_USAGE = {
     "viewentry":           "用法: `!viewentry <id>`\n例如: `!viewentry 3`",
     "forget":              "用法: `!forget <id>`\n例如: `!forget 3`",
-    "setdesc":             "用法: `!setdesc <id> <描述>`\n例如: `!setdesc 3 這是一張夕陽圖`",
+    "editdesc":            "用法: `/editdesc <id>`\n例如: `/editdesc 3`　(開啟互動式彈出視窗編輯背景設定)",
+    "editappearance":      "用法: `/editappearance <id>`\n例如: `/editappearance 3`　(開啟互動式彈出視窗編輯外貌描述)",
     "remember":            '用法: `!remember "標題" <內容>`\n例如: `!remember "筆記" 這是我的筆記`',
     "setcharacter":        '用法: `/setcharacter 名稱 背景 [個性] [外貌]`\n例如: `/setcharacter 小助手 妳是一個友善的助手 說話簡短、溫柔、帶點害羞 銀色長髮、藍色眼睛`\n個性與外貌均為選填',
     "saveimage":           '用法: `!saveimage "標題"` (需附上圖像)',
@@ -1366,33 +1348,64 @@ async def forget_cmd(ctx, entry_id: int):
     await ctx.reply(embed=embed, view=view, mention_author=False)
 
 
-@bot.hybrid_command(name="setdesc", description="更新知識庫圖像條目的描述")
-@app_commands.describe(entry_id="圖像條目編號", description="新的描述文字")
-async def setdesc_cmd(ctx, entry_id: int, *, description: str):
-    """更新圖像條目的描述: !setdesc <id> <描述>"""
+@bot.hybrid_command(name="editdesc", description="編輯知識庫圖像條目的使用者描述 (背景設定)")
+@app_commands.describe(entry_id="圖像條目編號")
+async def editdesc_cmd(ctx, entry_id: int):
+    """編輯圖像條目的使用者描述 (背景設定): /editdesc <id>"""
     if not await check_command_role(ctx):
         return
     entry = database.get_entry_by_id(entry_id)
     if not entry:
-        await ctx.reply(f"❌ 找不到 ID 為 #{entry_id}.", mention_author=False)
+        await ctx.reply(f"❌ 找不到 ID 為 #{entry_id} 的條目。", mention_author=False)
         return
     if entry["entry_type"] != "image":
         await ctx.reply(
-            f"❌ Entry #{entry_id} is a text entry. Use `!remember` to update text entries.",
+            f"❌ 條目 #{entry_id} 是文字條目。請使用 `/forget` 後重新 `!remember` 來更新文字條目。",
             mention_author=False,
         )
         return
-    success = database.update_image_description(entry_id, description)
-    if success:
-        _invalidate_kb_title_index()
-        embed = discord.Embed(title="✅ 描述已更新", color=discord.Color.green())
-        embed.add_field(name="🖼️ Entry", value=f"#{entry_id} — {entry['title']}", inline=False)
-        embed.add_field(name="📄 New Description", value=description[:1000], inline=False)
-        updated_entry = database.get_entry_by_id(entry_id)
-        view = ui.EntryView(updated_entry)
-        await ctx.reply(embed=embed, view=view, mention_author=False)
+    if ctx.interaction is not None:
+        modal = ui.EditDescriptionModal(
+            entry_id, entry["title"],
+            current_desc=entry.get("display_description", ""),
+        )
+        await ctx.interaction.response.send_modal(modal)
     else:
-        await ctx.reply("❌ 發生錯誤. Please try again.", mention_author=False)
+        await ctx.reply(
+            "⚠️ 此指令僅支援斜線指令 (`/editdesc`) 的互動式彈出視窗。\n"
+            "請改用 `/editdesc` 來開啟編輯介面。",
+            mention_author=False,
+        )
+
+
+@bot.hybrid_command(name="editappearance", description="編輯知識庫圖像條目的外貌描述 (Bot 專用，用於圖像生成)")
+@app_commands.describe(entry_id="圖像條目編號")
+async def editappearance_cmd(ctx, entry_id: int):
+    """編輯圖像條目的外貌描述 (Bot 專用): /editappearance <id>"""
+    if not await check_command_role(ctx):
+        return
+    entry = database.get_entry_by_id(entry_id)
+    if not entry:
+        await ctx.reply(f"❌ 找不到 ID 為 #{entry_id} 的條目。", mention_author=False)
+        return
+    if entry["entry_type"] != "image":
+        await ctx.reply(
+            f"❌ 條目 #{entry_id} 是文字條目，無外貌描述欄位。",
+            mention_author=False,
+        )
+        return
+    if ctx.interaction is not None:
+        modal = ui.EditAppearanceModal(
+            entry_id, entry["title"],
+            current_appearance=entry.get("appearance_description", ""),
+        )
+        await ctx.interaction.response.send_modal(modal)
+    else:
+        await ctx.reply(
+            "⚠️ 此指令僅支援斜線指令 (`/editappearance`) 的互動式彈出視窗。\n"
+            "請改用 `/editappearance` 來開啟編輯介面。",
+            mention_author=False,
+        )
 
 
 @bot.hybrid_command(name="viewentry", description="檢視知識庫條目；不填 ID 則開啟管理器")
@@ -1492,8 +1505,7 @@ async def saveimage_cmd(
     failed = []
     total = len(valid_candidates)
     main_entry_id = None
-    auto_generated = not user_desc
-    auto_descs: list[str] = []
+    auto_appearance_descs: list[str] = []
 
     progress_msg = None
     if total > 1:
@@ -1516,17 +1528,20 @@ async def saveimage_cmd(
                 async with session.get(att.url) as resp:
                     img_bytes = await resp.read()
 
-                desc = user_desc
-                if not desc:
-                    analysed = await groq_ai.understand_image(
-                        img_bytes, mime,
-                        _CHAR_IMAGE_EXTRACTION_QUESTION,
-                    )
-                    desc = analysed or ""
-                    auto_descs.append(desc)
+                # Always auto-generate appearance_description via vision model
+                analysed = await groq_ai.understand_image(
+                    img_bytes, mime,
+                    _CHAR_IMAGE_EXTRACTION_QUESTION,
+                )
+                appearance_desc = analysed or ""
+                auto_appearance_descs.append(appearance_desc)
 
                 if i == 0:
-                    main_entry_id = database.add_image_entry(title, img_bytes, mime, desc)
+                    main_entry_id = database.add_image_entry(
+                        title, img_bytes, mime,
+                        appearance_description=appearance_desc,
+                        display_description=user_desc,
+                    )
                     success_count += 1
                 else:
                     ok, msg = database.add_image_to_entry(main_entry_id, img_bytes, mime)
@@ -1547,12 +1562,13 @@ async def saveimage_cmd(
                 except Exception:
                     pass
 
-    if auto_descs and len(auto_descs) > 1 and main_entry_id is not None:
+    # For multi-image batches, combine all per-image appearance descriptions
+    if auto_appearance_descs and len(auto_appearance_descs) > 1 and main_entry_id is not None:
         combined = "\n\n".join(
-            f"圖片{j + 1}: {d}" for j, d in enumerate(auto_descs) if d
+            f"圖片{j + 1}: {d}" for j, d in enumerate(auto_appearance_descs) if d
         )
         if combined:
-            database.update_image_description(main_entry_id, combined)
+            database.update_appearance_description(main_entry_id, combined)
 
     if progress_msg:
         try:
@@ -1564,14 +1580,7 @@ async def saveimage_cmd(
         _invalidate_kb_title_index()
 
     entry_id = main_entry_id
-    final_desc = user_desc
-    if not final_desc and auto_descs:
-        if len(auto_descs) == 1:
-            final_desc = auto_descs[0]
-        else:
-            final_desc = "\n\n".join(
-                f"圖片{j + 1}: {d}" for j, d in enumerate(auto_descs) if d
-            )
+    appearance_ok = any(d for d in auto_appearance_descs)
 
     embed = discord.Embed(
         title="🖼️ Image 已保存到知識庫",
@@ -1582,16 +1591,16 @@ async def saveimage_cmd(
         embed.add_field(name="🆔 條目編號", value=f"#{entry_id}", inline=True)
     if total > 1:
         embed.add_field(name="📊 圖片數量", value=f"{success_count} / {total}", inline=True)
-    if auto_generated and final_desc:
-        desc_label = "📄 Description (自動生成)"
-        desc_value = final_desc[:500] + ("..." if len(final_desc) > 500 else "")
-    elif auto_generated and not final_desc:
-        desc_label = "⚠️ Description (自動生成失敗)"
-        desc_value = f"視覺分析模型無法識別此圖像。\n請使用 `/setdesc {entry_id} <描述>` 手動新增描述，否則機器人將無法在對話中使用此圖像。"
+    # Show appearance_description status (always auto-generated)
+    if appearance_ok:
+        embed.add_field(name="🎨 外貌描述 (自動生成)", value="✅ 視覺模型已分析並儲存外貌描述 (Bot 專用)", inline=False)
     else:
-        desc_label = "📄 Description (使用者提供)"
-        desc_value = final_desc[:500] + ("..." if len(final_desc) > 500 else "")
-    embed.add_field(name=desc_label, value=desc_value, inline=False)
+        embed.add_field(name="⚠️ 外貌描述 (自動生成失敗)", value="視覺分析模型無法識別此圖像。請使用 `/editappearance` 手動輸入外貌描述。", inline=False)
+    # Show display_description (user-provided lore/background)
+    if user_desc:
+        embed.add_field(name="📄 描述 (使用者提供)", value=user_desc[:500] + ("..." if len(user_desc) > 500 else ""), inline=False)
+    else:
+        embed.add_field(name="📄 描述", value="(尚無描述 — 使用 /editdesc 新增背景設定)", inline=False)
     if failed:
         embed.add_field(name="❌ 失敗", value="\n".join(failed)[:500], inline=False)
     if skipped_over_limit > 0:

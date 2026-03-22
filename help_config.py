@@ -55,8 +55,8 @@ ADMIN_HELP_SECTIONS: List[Tuple[str, str]] = [
         "　批量新增圖像條目，最多 5 張；未填描述時 AI 自動分析。\n"
         "`/addimage <id> [attachment 1–5]` 或 `!addimage <id>` (附上圖片)\n"
         "　將最多 5 張圖片追加到現有圖像條目。\n"
-        "`/setdesc <id> <描述>` 或 `!setdesc <id> <描述>`\n"
-        "　手動修改圖像條目的描述文字。",
+        "`/editdesc <id>`　開啟互動視窗，編輯圖像條目的使用者描述 (背景設定/劇情)。\n"
+        "`/editappearance <id>`　開啟互動視窗，編輯圖像條目的外貌描述 (Bot 專用，用於圖像生成)。",
     ),
     (
         "🧠 長期記憶",
