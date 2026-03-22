@@ -575,7 +575,12 @@ async def process_chat(
         # We check user_text too because the model often expands "draw yourself"
         # into a description, losing the "me/myself" language before this check runs.
         _is_self_ref = groq_ai.is_self_referential_image(user_text) or groq_ai.is_self_referential_image(image_prompt)
-        if _is_self_ref:
+        # Also treat any LLM-crafted [IMAGE:] marker as needing character correction
+        # when character photos exist — the LLM that wrote the marker had no visual
+        # references and will hallucinate wrong hair/eye colors.
+        _has_char_photos = database.get_character_image_count() > 0
+        _needs_char_ctx = _is_self_ref or (_prompt_from_marker and _has_char_photos)
+        if _needs_char_ctx:
             # Build character context with the manually-written `looks` field first
             # (it is the authoritative, user-verified source for traits like eye color)
             # followed by auto-generated photo descriptions as supplementary evidence.
@@ -592,7 +597,7 @@ async def process_chat(
         # Cap at 3 images (char thumbnails first, then KB subject thumbnails).
         _ref_images: list = []
         _MAX_REF_IMAGES = 3
-        if _is_self_ref:
+        if _needs_char_ctx:
             char_count = database.get_character_image_count()
             for i in range(1, char_count + 1):
                 thumb = database.get_character_image_thumb(i)
