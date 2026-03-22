@@ -594,12 +594,14 @@ async def process_chat(
         else:
             image_failed = True
 
-    # Build KB context from conversation topic (dynamic memory pool)
+    # Build KB context and long-term memory context concurrently — they are
+    # fully independent so running them in parallel saves the full wall-clock
+    # time of whichever one finishes first.
     _simple = is_simple_message(user_text) and not image_bytes
-    kb_context = await build_knowledge_context(channel_id, user_text, simple=_simple)
-
-    # Build long-term memory context (active always; passive if recall phrase detected)
-    memory_context = await build_memory_context(user_text)
+    kb_context, memory_context = await asyncio.gather(
+        build_knowledge_context(channel_id, user_text, simple=_simple),
+        build_memory_context(user_text),
+    )
 
     # If image analysis failed entirely, notify and skip image context
     if image_failed and not user_text:
