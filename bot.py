@@ -15,6 +15,55 @@ import help_config
 
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
+# ── Appearance extraction prompt used when a character/KB image is uploaded ───
+# Produces a Flux-ready text description stored as the entry's image_description.
+# This text is later used DIRECTLY as ground truth for image prompt generation,
+# so precision on colours and garment types is critical.
+_CHAR_IMAGE_EXTRACTION_QUESTION = (
+    "You are an appearance extractor for an AI image generation pipeline. "
+    "Analyze this character reference image and return a precise, Flux-ready "
+    "appearance description. Output a single continuous paragraph — no headers, "
+    "no bullet points, no intro text.\n\n"
+    "Cover ALL of the following in this exact order:\n\n"
+    "1. HAIR: exact colour shade (e.g. 'pale seafoam mint-green, very low saturation' "
+    "— never round to generic 'green' or 'teal'), exact length (very long past waist / "
+    "shoulder-length / short bob), cut style, bang style (straight-across blunt / "
+    "side-swept / no bangs), and ahoge — if a small standalone strand sticks up from "
+    "the crown write 'ahoge present'; if NOT present write 'NO ahoge'.\n\n"
+    "2. EYES: use ALL THREE axes — (a) hue family e.g. 'warm olive-brown', "
+    "'cool grey-green', 'khaki', NOT just 'brown'; "
+    "(b) saturation: 'very low saturation', 'muted', 'desaturated', or 'vivid'; "
+    "(c) brightness: 'medium', 'slightly dark', 'light'.\n\n"
+    "3. EYELASHES: (a) hue — read the actual colour; cool-haired characters often "
+    "have cool greenish-grey or desaturated lashes, not warm brown; "
+    "(b) darkness — if NOT near-black, explicitly write 'NOT black or dark brown'; "
+    "(c) weight — 'fine and delicate' / 'medium weight'.\n\n"
+    "4. SKIN: exact shade and undertone (warm / cool / neutral).\n\n"
+    "5. OUTFIT — list every garment and accessory from OUTERMOST to innermost. "
+    "Each piece gets its own entry. For each piece write: "
+    "exact colour + garment type + material/texture + silhouette/fit + distinctive details.\n"
+    "Critical checks — answer each explicitly:\n"
+    "  • Outer layer: does it have sleeves? If NO sleeves and drapes from shoulders "
+    "open at front → it is a CAPE, NOT a coat. Write 'open-front [colour] shoulder cape'.\n"
+    "  • Shoulder pieces: are there structured pads/caps at the shoulder attachment "
+    "of the outer layer? If yes, list them as a SEPARATE entry: "
+    "'structured [colour] shoulder epaulettes with [trim] decoration'.\n"
+    "  • Chest ruffle/jabot: if present, state its SIZE explicitly — "
+    "does it cover only the sternum/upper chest (palm-sized, stops above waist) "
+    "or does it extend lower? Write 'small chest-level ruffled jabot, palm-sized, "
+    "covering sternum only, NOT extending below chest' if small. "
+    "State the EXACT colour of the brooch/gemstone pinning it "
+    "(green? red? blue? — be precise).\n"
+    "  • Lower body: state whether red/coloured shorts are visible, and whether "
+    "a separate short skirt is layered over them.\n"
+    "  • Stockings/tights: state EXACT shade — 'dark grey' and 'black' are different.\n"
+    "  • Shoes: type (Mary Jane / Oxford / boot), colour, heel height, strap details.\n\n"
+    "6. ART STYLE: rendering type (cell-shaded 2D anime / painterly / semi-realistic), "
+    "line art style, shading method, colour palette character, any distinctive markers.\n\n"
+    "Output the description as a single dense paragraph, all traits joined with '; ' "
+    "or ' + ' for outfit pieces. Be precise — vague colour names cause wrong AI output."
+)
 def _cf_ready():
     return bool(os.environ.get("CLOUDFLARE_API_TOKEN") and os.environ.get("CLOUDFLARE_ACCOUNT_ID"))
 
@@ -1199,10 +1248,7 @@ async def addcharimage_cmd(
 
                 auto_desc = await groq_ai.understand_image(
                     img_bytes, mime,
-                    f"Describe this character's permanent physical appearance in detail for an AI character reference sheet. "
-                    f"Focus on: iris color and eye shape, hair color, hair style and length, skin tone, face shape, eyebrow shape, and any other distinctive facial features. "
-                    f"Also note body type and height if visible. "
-                    f"Mention clothing only briefly — this character ({bot_name}) has many outfits so garments are not reliable identifiers.",
+                    _CHAR_IMAGE_EXTRACTION_QUESTION,
                 )
                 description = auto_desc or ""
 
@@ -1444,10 +1490,7 @@ async def saveimage_cmd(
                 if not desc:
                     analysed = await groq_ai.understand_image(
                         img_bytes, mime,
-                        "Describe any characters in this image for a knowledge base entry, focusing on permanent physical features: "
-                        "iris color, eye shape, hair color, hair style and length, skin tone, face shape, eyebrow shape, and distinctive facial traits. "
-                        "These are anime/game characters who change outfits frequently, so focus on facial and physical features over clothing. "
-                        "Also briefly describe the scene, background, or other notable elements.",
+                        _CHAR_IMAGE_EXTRACTION_QUESTION,
                     )
                     desc = analysed or ""
                     auto_descs.append(desc)
