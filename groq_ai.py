@@ -409,26 +409,22 @@ async def enhance_image_prompt(
                 f"{desc.strip()}\n"
             )
 
-    # When photos are present, text wins for exact color naming (prevents misreading of
-    # subtle tints like barely-mint hair as "pale green"), photos win for structure
-    # correction and traits not mentioned in text.
+    # When photos are present, resolve the text-vs-photo priority split explicitly:
+    # photos WIN for actual color values (they show ground truth), text is authoritative
+    # for structure (hairstyle shape, accessories, character identity).
     if has_images:
         image_note = (
             "\n[PRIORITY RULING — READ BEFORE EVERYTHING ELSE]\n"
             "Reference photos are attached showing the actual character.\n"
-            "COLOR NAMING: if the authoritative text description above gives a specific "
-            "color name for hair, eyes, or skin — use that EXACT phrasing. Photos confirm "
-            "the approximate hue (warm vs cool, light vs dark) but do NOT rename colors "
-            "based on the photo alone. For example: if text says 'near-white silver with "
-            "barely a hint of cool mint', do NOT write 'pale green' just because the photo "
-            "shows a faint tint — the correct name is near-white silver, not green.\n"
-            "COLOR CORRECTION via photos: only override the text color name if the photo "
-            "clearly contradicts it (e.g. text says 'brown hair' but photo shows obviously "
-            "blonde). For subtle tints and pale colors, trust the text name.\n"
+            "COLORS (hair color, eye color, skin tone lightness/darkness/saturation) — "
+            "use ONLY what you literally see in the photos. The text descriptions above may "
+            "use approximate or inaccurate color names. The photos are the final word.\n"
             "STRUCTURE (hairstyle shape, bang style, what accessories are present, "
-            "character identity) — use the text descriptions above as the authority. "
-            "If text says asymmetric bang gap on the right side, include it even if it is "
-            "hard to see clearly in the photo.\n"
+            "character identity) — use the text descriptions above as the authority.\n"
+            "If the text says 'amber eyes' but the photo shows pale honey-gold eyes, "
+            "write 'pale honey-gold eyes' — follow the photo.\n"
+            "If the text says 'mint-green hair' but the photo shows near-white hair with "
+            "barely a hint of cool color, write exactly what the photo shows.\n"
         )
     else:
         image_note = ""
@@ -447,14 +443,9 @@ async def enhance_image_prompt(
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
         "- Physical details from references (hair color, eye color, hairstyle, skin tone) "
         "ALWAYS take priority over anything in the raw prompt. Incorporate them naturally.\n"
-        "- BANG ASYMMETRY (CRITICAL): if the reference shows a gap, split, or parting in the "
-        "bangs on one specific side — state it explicitly and EARLY in the prompt, e.g. "
-        "'straight bangs with a small gap parted to the right side'. "
-        "Do NOT bury this detail inside a longer hairstyle description — place it near the front "
-        "so the image model sees it first and does not generate fully symmetric blunt bangs.\n"
         "- HAIRSTYLE is critical — describe it precisely using ALL of the following dimensions:\n"
         "  * bang style: blunt/straight-across, asymmetric with a gap/part on one side, "
-        "side-swept, parted center, no bangs, etc. — be specific about which side the gap is on\n"
+        "side-swept, parted center, no bangs, etc. — be specific about asymmetry if present\n"
         "  * whether hair is completely loose and flowing, or tied/braided/pinned\n"
         "  * presence or ABSENCE of an ahoge (antenna hair) — if not visible in reference, "
         "explicitly write 'no ahoge' in the prompt so the model does not add one\n"
@@ -463,25 +454,15 @@ async def enhance_image_prompt(
         "- Do NOT invent or add hairstyle elements (ahoge, twin-tails, clips, ribbons) "
         "that are not visible in the reference. Only describe what you actually see.\n"
         "- HAIR COLOR: describe the exact shade precisely. 'Near-white with a barely-there "
-        "cool mint tint' is very different from 'pale green', 'mint-green', or 'teal'. "
-        "If the hair looks almost white with just a whisper of coolness, call it 'near-white "
-        "silver' or 'near-white with a barely-there cool mint tint' — NOT 'pale green', "
-        "NOT 'light green'. Only use green-family words if the hair is clearly, visibly green.\n"
-        "- EYE COLOR: describe hue, saturation, AND any secondary color undertones. "
-        "'Soft muted olive-hazel with subtle greenish undertones' is very different from "
-        "'vivid amber' or 'warm golden'. If the eyes have a cool or greenish tint, name it. "
-        "Low-saturation and desaturated eye colors must be described that way — never "
-        "default to vivid warm amber if the reference shows muted or olive-toned irises.\n"
-        "- EYELASHES: for characters with a light or cool color palette (near-white/silver hair, "
-        "pale skin), explicitly describe lash color and weight — e.g. 'light warm-brown lashes', "
-        "'soft subtle lashes'. Do NOT assume dark or heavy lashes; dark lashes clash with pale "
-        "color schemes. Match lash intensity to the character's overall lightness.\n"
+        "cool mint tint' is very different from 'mint-green' or 'teal'. Match what you see.\n"
+        "- EYE COLOR: describe hue AND saturation/brightness. 'Pale soft honey-gold' is "
+        "very different from 'vivid amber' or 'dark orange-brown'. Match what you see.\n"
         "- COMPLEXION/SKIN TONE: describe exact shade, e.g. 'very pale porcelain skin', "
         "'fair skin with a cool undertone', 'light warm ivory skin'.\n"
-        "Good output: near-white silver-mint haired girl, straight bangs with a small gap "
-        "parted to the right side, very long completely loose hair, longer side strands framing "
-        "the face, no ahoge, soft muted olive-hazel eyes with subtle greenish tint, "
-        "light subtle lashes, very pale cool porcelain skin, anime art style\n"
+        "Good output: near-white silver-mint haired girl, very long straight hair, "
+        "blunt straight bangs with a small gap on the right side, longer side strands "
+        "framing the face, no ahoge, completely loose and flowing, "
+        "pale soft honey-gold eyes, very pale cool porcelain skin, anime art style\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]

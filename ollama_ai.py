@@ -545,20 +545,8 @@ async def enhance_image_prompt(
         "- If the subject is a person or character (especially with anime features like "
         "distinctively colored hair or eyes), always include 'anime-style illustration, 2D art' "
         "in the output. Never use 'photorealistic' or 'photograph' for character prompts.\n"
-        "- BANG ASYMMETRY (CRITICAL): if the reference shows a gap, split, or parting in the "
-        "bangs on one specific side — state it explicitly and EARLY in the prompt, e.g. "
-        "'straight bangs with a small gap parted to the right side'. "
-        "Do NOT bury this inside a longer hairstyle description.\n"
-        "- EYE COLOR: describe hue, saturation, AND any secondary color undertones. "
-        "'Soft muted olive-hazel with subtle greenish undertones' is very different from "
-        "'vivid amber' or 'warm golden'. If eyes have a cool or greenish tint, name it. "
-        "Never default to vivid warm amber if the reference shows muted or olive-toned irises.\n"
-        "- EYELASHES: for characters with a light or cool color palette (near-white/silver hair, "
-        "pale skin), describe lash color and weight explicitly — e.g. 'light warm-brown lashes', "
-        "'soft subtle lashes'. Do NOT assume dark lashes; match intensity to the character's lightness.\n"
-        "Good output: silver-haired young woman, straight bangs with a small gap parted to the right, "
-        "very long loose hair, soft muted olive-hazel eyes with subtle greenish tint, light subtle lashes, "
-        "playing electric guitar, anime-style illustration, 2D art, soft warm lighting, melancholic mood\n"
+        "Good output: silver-haired young woman playing electric guitar in a dimly lit music room, "
+        "anime-style illustration, 2D art, soft warm lighting, melancholic mood\n"
     )
 
     messages_list = [{"role": "user", "content": f"Image request: {raw_prompt}"}]
