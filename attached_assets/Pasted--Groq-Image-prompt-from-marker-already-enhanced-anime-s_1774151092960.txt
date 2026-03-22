@@ -1,0 +1,23 @@
+[Groq] Image prompt from marker (already enhanced): 'anime-style illustration, 2D art, soft lighting, pale green-haired young woman w'
+[Groq] enhance_image_prompt: using vision model with 3 reference image(s)
+[Groq] Prompt enhanced: Pale green-haired young woman with amber eyes, straight bangs cut across her forehead, long hair falling down her back,
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=True, kb_refs=[], ref_images=3)
+[Cloudflare] Generating image — prompt: Pale green-haired young woman with amber eyes, straight bangs cut across her forehead, long hair falling down her back,
+[Cloudflare] Status: 200 | Content-Type: application/json
+[Cloudflare] Non-image response (239552 bytes): b'{"result":{"image":"/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB'
+[Cloudflare] JSON keys: ['result', 'success', 'errors', 'messages']
+[Cloudflare] result type: <class 'dict'>, value preview: {'image': '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBA
+[Cloudflare] Decoded base64 image: 179616 bytes
+[Groq] Image prompt from marker (already enhanced): 'anime-style illustration, 2D art, soft lighting, pale green-haired young woman w'
+[Groq] enhance_image_prompt: using vision model with 3 reference image(s)
+[Groq] llama-3.3-70b-versatile hit daily token limit — skipping until midnight UTC.
+[Groq] Prompt enhanced: pale green-haired young woman with amber eyes playing a seven-string guitar on a dark stage with spotlights, anime-style
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=True, kb_refs=[], ref_images=3)
+[Cloudflare] Generating image — prompt: pale green-haired young woman with amber eyes playing a seven-string guitar on a dark stage with spotlights, anime-style
+[Groq] Skipping daily-exhausted models: ['llama-3.3-70b-versatile']
+[Memory] Stored: '刺 想看若葉睦彈吉他'
+[Cloudflare] Status: 200 | Content-Type: application/json
+[Cloudflare] Non-image response (195128 bytes): b'{"result":{"image":"/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB'
+[Cloudflare] JSON keys: ['result', 'success', 'errors', 'messages']
+[Cloudflare] result type: <class 'dict'>, value preview: {'image': '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBA
+[Cloudflare] Decoded base64 image: 146296 bytes
