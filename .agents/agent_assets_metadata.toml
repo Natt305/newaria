@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "vD08slwFC3ZnLdPyjGe2F"
+uri = "file://attached_assets/_test_output.png"
+type = "image"
+title = "Generated: Mortis playing guitar"
