@@ -5,7 +5,6 @@ import os
 import asyncio
 import aiohttp
 import io
-import time
 from typing import Optional, Union
 
 import database
@@ -854,6 +853,7 @@ async def process_chat(
         enriched_prompt = _style_prefix + ", " + enriched_prompt.lstrip(" ,")
 
         _chat_progress_msg = None
+        _chat_poller_task = None
         if _IMAGE_BACKEND == "local_diffusers":
             try:
                 _chat_progress_msg = await channel.send(
@@ -862,34 +862,43 @@ async def process_chat(
             except discord.HTTPException:
                 pass
 
-        _chat_last_update = [0.0]
+        _chat_progress_queue: asyncio.Queue[str] = asyncio.Queue()
 
         async def _chat_on_progress(tag: str) -> None:
-            if _chat_progress_msg is None:
-                return
-            content = _format_diffuser_progress(tag, bot_name)
-            if not content:
-                return
-            now = time.monotonic()
-            is_stage = tag.startswith("STAGE:")
-            if is_stage or now - _chat_last_update[0] >= 1.0:
-                _chat_last_update[0] = now
-                try:
-                    await _chat_progress_msg.edit(content=content)
-                except discord.HTTPException:
-                    pass
+            await _chat_progress_queue.put(tag)
 
-        async with channel.typing():
-            result, comment = await asyncio.gather(
-                _generate_image(
-                    enriched_prompt,
-                    _ref_images[0] if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images else None,
-                    on_progress=_chat_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
-                ),
-                groq_ai.generate_image_comment(
-                    image_prompt, bot_name, background, user_text, history=history
-                ),
-            )
+        async def _chat_progress_poller() -> None:
+            while True:
+                tag = await _chat_progress_queue.get()
+                while not _chat_progress_queue.empty():
+                    tag = _chat_progress_queue.get_nowait()
+                if _chat_progress_msg is not None:
+                    content = _format_diffuser_progress(tag, bot_name)
+                    if content:
+                        try:
+                            await _chat_progress_msg.edit(content=content)
+                        except discord.HTTPException:
+                            pass
+                await asyncio.sleep(0.5)
+
+        if _chat_progress_msg is not None:
+            _chat_poller_task = asyncio.create_task(_chat_progress_poller())
+
+        try:
+            async with channel.typing():
+                result, comment = await asyncio.gather(
+                    _generate_image(
+                        enriched_prompt,
+                        _ref_images[0] if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images else None,
+                        on_progress=_chat_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
+                    ),
+                    groq_ai.generate_image_comment(
+                        image_prompt, bot_name, background, user_text, history=history
+                    ),
+                )
+        finally:
+            if _chat_poller_task is not None:
+                _chat_poller_task.cancel()
 
         if _chat_progress_msg is not None:
             try:
@@ -1975,6 +1984,7 @@ async def generate_cmd(ctx, *, prompt: str):
                 break
     _cmd_bot_name, *_ = load_character()
     _cmd_progress_msg = None
+    _cmd_poller_task = None
     if _IMAGE_BACKEND == "local_diffusers":
         try:
             _cmd_progress_msg = await ctx.send(
@@ -1983,28 +1993,37 @@ async def generate_cmd(ctx, *, prompt: str):
         except discord.HTTPException:
             pass
 
-    _cmd_last_update = [0.0]
+    _cmd_progress_queue: asyncio.Queue[str] = asyncio.Queue()
 
     async def _cmd_on_progress(tag: str) -> None:
-        if _cmd_progress_msg is None:
-            return
-        content = _format_diffuser_progress(tag, _cmd_bot_name)
-        if not content:
-            return
-        now = time.monotonic()
-        is_stage = tag.startswith("STAGE:")
-        if is_stage or now - _cmd_last_update[0] >= 1.0:
-            _cmd_last_update[0] = now
-            try:
-                await _cmd_progress_msg.edit(content=content)
-            except discord.HTTPException:
-                pass
+        await _cmd_progress_queue.put(tag)
 
-    result = await _generate_image(
-        enriched_prompt,
-        reference_image=_cmd_ref_image,
-        on_progress=_cmd_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
-    )
+    async def _cmd_progress_poller() -> None:
+        while True:
+            tag = await _cmd_progress_queue.get()
+            while not _cmd_progress_queue.empty():
+                tag = _cmd_progress_queue.get_nowait()
+            if _cmd_progress_msg is not None:
+                content = _format_diffuser_progress(tag, _cmd_bot_name)
+                if content:
+                    try:
+                        await _cmd_progress_msg.edit(content=content)
+                    except discord.HTTPException:
+                        pass
+            await asyncio.sleep(0.5)
+
+    if _cmd_progress_msg is not None:
+        _cmd_poller_task = asyncio.create_task(_cmd_progress_poller())
+
+    try:
+        result = await _generate_image(
+            enriched_prompt,
+            reference_image=_cmd_ref_image,
+            on_progress=_cmd_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
+        )
+    finally:
+        if _cmd_poller_task is not None:
+            _cmd_poller_task.cancel()
 
     if _cmd_progress_msg is not None:
         try:
