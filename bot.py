@@ -133,6 +133,34 @@ def _cf_ready():
     return bool(os.environ.get("CLOUDFLARE_API_TOKEN") and os.environ.get("CLOUDFLARE_ACCOUNT_ID"))
 
 
+_IMAGE_BACKEND = os.environ.get("IMAGE_BACKEND", "cloudflare").lower()
+
+
+def _image_ready() -> bool:
+    """True if any image generation backend is configured and ready."""
+    if _IMAGE_BACKEND == "local_diffusers":
+        return bool(os.environ.get("LOCAL_DIFFUSER_MODEL", "").strip())
+    return _cf_ready()
+
+
+async def _generate_image(
+    prompt: str,
+    reference_image=None,
+) -> Optional[tuple]:
+    """Dispatch image generation to the active backend.
+
+    Args:
+        prompt: The enriched Flux prompt string.
+        reference_image: Optional (bytes, mime) tuple passed to the local
+                         diffusers backend as the img2img init image.
+                         Ignored by the Cloudflare backend.
+    """
+    if _IMAGE_BACKEND == "local_diffusers":
+        import diffusers_ai as _diffusers_ai
+        return await _diffusers_ai.generate_image(prompt, reference_image=reference_image)
+    return await cloudflare_ai.generate_image(prompt)
+
+
 def _make_progress_bar(success: int, failed: int, total: int) -> str:
     done = success + failed
     bar = "🟩" * success + "🟥" * failed + "⬛" * (total - done)
@@ -674,7 +702,7 @@ async def process_chat(
         user_text, saved_text, bot_name,
     ))
 
-    if image_prompt and _cf_ready():
+    if image_prompt and _image_ready():
         # Send any pre-text first (usually None for seamless generation)
         if response_text:
             await send_with_suggestions(response_text, channel_id, reply_target)
@@ -749,7 +777,10 @@ async def process_chat(
 
         async with channel.typing():
             result, comment = await asyncio.gather(
-                cloudflare_ai.generate_image(enriched_prompt),
+                _generate_image(
+                    enriched_prompt,
+                    _ref_images[0] if _IMAGE_BACKEND == "local_diffusers" and _ref_images else None,
+                ),
                 groq_ai.generate_image_comment(
                     image_prompt, bot_name, background, user_text, history=history
                 ),
@@ -771,8 +802,8 @@ async def process_chat(
         else:
             await reply_target.reply("⚠️ 圖像生成失敗，請稍後再試。", mention_author=False)
 
-    elif image_prompt and not _cf_ready():
-        await reply_target.reply("⚠️ 尚未設定 Cloudflare 金鑰，無法生成圖像。", mention_author=False)
+    elif image_prompt and not _image_ready():
+        await reply_target.reply("⚠️ 尚未設定圖像生成後端，無法生成圖像。", mention_author=False)
     else:
         await send_with_suggestions(response_text or "…", channel_id, reply_target)
 
@@ -1041,7 +1072,10 @@ async def on_ready():
     print(f"[Bot] Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"[Bot] Character: {bot_name}")
     print(f"[Bot] Groq: {'enabled' if GROQ_API_KEY else 'MISSING'}")
-    print(f"[Bot] Cloudflare: {'enabled' if _cf_ready() else 'disabled (no key)'}")
+    if _IMAGE_BACKEND == "local_diffusers":
+        print(f"[Bot] Image backend: local_diffusers — {'ready' if _image_ready() else 'disabled (LOCAL_DIFFUSER_MODEL not set)'}")
+    else:
+        print(f"[Bot] Image backend: cloudflare — {'enabled' if _cf_ready() else 'disabled (no key)'}")
     print(f"[Bot] Data folder: {database.DATA_DIR}")
     print(f"[Bot]   knowledge_base.db  — KB entries")
     print(f"[Bot]   character.json     — character name & background")
@@ -1804,18 +1838,23 @@ async def addimage_cmd(
     await ctx.send(embed=embed)
 
 
-@bot.hybrid_command(name="generate", description="使用 Cloudflare Workers AI 直接生成圖像")
+@bot.hybrid_command(name="generate", description="直接生成圖像 (Cloudflare 或本地 Diffusers)")
 @app_commands.describe(prompt="圖像提示詞 (英文效果最佳)")
 async def generate_cmd(ctx, *, prompt: str):
-    """使用 Cloudflare Workers AI 生成圖像: !generate <提示詞>"""
-    if not _cf_ready():
-        await ctx.reply("❌ 圖像生成已禁用 — Cloudflare API 認證未配置。", mention_author=False)
+    """生成圖像: !generate <提示詞> — 使用已設定的圖像後端 (Cloudflare 或本地 Diffusers)"""
+    if not _image_ready():
+        await ctx.reply(
+            "❌ 圖像生成已禁用 — 未設定任何圖像生成後端。\n"
+            "Cloudflare: 設定 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID`。\n"
+            "本地 Diffusers: 設定 `IMAGE_BACKEND=local_diffusers` 和 `LOCAL_DIFFUSER_MODEL=<路徑>`。",
+            mention_author=False,
+        )
         return
 
     await ctx.defer()
 
     enriched_prompt, kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(prompt)
-    result = await cloudflare_ai.generate_image(enriched_prompt)
+    result = await _generate_image(enriched_prompt)
 
     if result == ("API_KEY_ERROR", ""):
         await ctx.send(
@@ -2578,15 +2617,22 @@ def main():
     if not GROQ_API_KEY:
         print("[WARNING] GROQ_API_KEY 未設定。文字聊天將不可用。")
 
-    if not _cf_ready():
-        print("[WARNING] Cloudflare API 認證未設定。圖像生成將被禁用。")
+    if not _image_ready():
+        if _IMAGE_BACKEND == "local_diffusers":
+            print("[WARNING] IMAGE_BACKEND=local_diffusers 但 LOCAL_DIFFUSER_MODEL 未設定。圖像生成將被禁用。")
+        else:
+            print("[WARNING] Cloudflare API 認證未設定。圖像生成將被禁用。")
 
     database.init_db()
     database.migrate_thumbnails()
     bot_name, *_ = load_character()
     print(f"[Bot] 啟動角色: {bot_name}")
     print(f"[Bot] Groq: {'準備就緒' if GROQ_API_KEY else '遺失'}")
-    print(f"[Bot] Cloudflare: {'準備就緒' if _cf_ready() else '已禁用'}")
+    if _IMAGE_BACKEND == "local_diffusers":
+        _local_model = os.environ.get("LOCAL_DIFFUSER_MODEL", "").strip()
+        print(f"[Bot] 圖像後端: 本地 Diffusers — {'準備就緒 (' + _local_model + ')' if _local_model else '已禁用 (未設定 LOCAL_DIFFUSER_MODEL)'}")
+    else:
+        print(f"[Bot] 圖像後端: Cloudflare — {'準備就緒' if _cf_ready() else '已禁用'}")
     print("[Bot] 按 Ctrl+C 停止機器人。")
     bot.run(DISCORD_TOKEN)
 
