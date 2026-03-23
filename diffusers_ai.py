@@ -54,10 +54,10 @@ async def generate_image(
         return None
 
     try:
-        steps = int(os.environ.get("LOCAL_DIFFUSER_STEPS", "8"))
+        steps = int(os.environ.get("LOCAL_DIFFUSER_STEPS", "4"))
     except ValueError:
-        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_STEPS — using default 8.")
-        steps = 8
+        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_STEPS — using default 4.")
+        steps = 4
 
     try:
         strength = float(os.environ.get("LOCAL_DIFFUSER_STRENGTH", "0.75"))

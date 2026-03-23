@@ -115,9 +115,9 @@ HF_GUIDANCE=1
 # 例 / Example: LOCAL_DIFFUSER_MODEL=E:\Flux_Final
 LOCAL_DIFFUSER_MODEL=
 
-# 推理步數（預設 8，越高越慢但品質略提升）
-# Inference steps (default 8, higher = slower but slightly better quality)
-LOCAL_DIFFUSER_STEPS=8
+# 推理步數（預設 4，越高越慢但品質略提升）
+# Inference steps (default 4, higher = slower but slightly better quality)
+LOCAL_DIFFUSER_STEPS=4
 
 # 輸出解析度（預設 512×768 直式，適合角色全身圖）
 # Output resolution (default 512×768 portrait, suits full-body character art)

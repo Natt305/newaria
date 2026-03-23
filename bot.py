@@ -185,9 +185,9 @@ def _format_diffuser_progress(tag: str, name: str = "") -> Optional[str]:
     """
     header = f"**{name}正在準備中**" if name else "**正在準備中**"
     if tag == "STAGE:loading":
-        return f"{header}\n📦⏳ ⬛⬛⬛⬛⬛⬛⬛⬛ 💾⬛"
+        return f"{header}\n📦⏳ ⬛⬛⬛⬛ 💾⬛"
     if tag == "STAGE:ready":
-        return f"{header}\n📦✅ ⬛⬛⬛⬛⬛⬛⬛⬛ 💾⬛"
+        return f"{header}\n📦✅ ⬛⬛⬛⬛ 💾⬛"
     if tag.startswith("STEP:"):
         parts = tag[5:].split("/")
         if len(parts) == 2:
@@ -199,7 +199,7 @@ def _format_diffuser_progress(tag: str, name: str = "") -> Optional[str]:
             except ValueError:
                 pass
     if tag == "STAGE:encoding":
-        return f"{header}\n📦✅ 🟩🟩🟩🟩🟩🟩🟩🟩 💾⏳"
+        return f"{header}\n📦✅ 🟩🟩🟩🟩 💾⏳"
     return None
 
 intents = discord.Intents.default()
