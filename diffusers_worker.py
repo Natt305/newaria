@@ -38,6 +38,8 @@ import io
 import json
 import os
 import sys
+import threading
+import time as _time
 
 
 def _log(msg: str) -> None:
@@ -132,6 +134,31 @@ def main() -> None:
         except Exception as exc:
             _log(f"Could not decode reference image ({exc}) — will use txt2img.")
 
+    # ── Inter-step interpolation timer ───────────────────────────────────────
+    # Shared state between the main thread (step callbacks) and timer thread.
+    _step_state = {
+        "completed": 0.0,       # fractional steps completed (updated each callback)
+        "step_start": 0.0,      # monotonic time when the current step began
+        "durations": [],         # duration (s) of each completed step
+    }
+    _infer_done = threading.Event()
+
+    def _interpolation_thread() -> None:
+        """Emit sub-step progress every 250 ms by time-interpolating within a step."""
+        while not _infer_done.wait(timeout=0.25):
+            durations = _step_state["durations"]
+            completed = _step_state["completed"]
+            if not durations or completed >= steps:
+                continue
+            avg_dur = sum(durations) / len(durations)
+            if avg_dur <= 0:
+                continue
+            elapsed = _time.monotonic() - _step_state["step_start"]
+            # Cap at 0.95 of expected duration so we never overshoot the next step
+            within = min(elapsed / avg_dur, 0.95)
+            frac = completed + within
+            _progress(f"STEP:{frac:.3f}/{steps}")
+
     def make_kwargs(use_image: bool) -> dict:
         kw = {
             "prompt": prompt,
@@ -146,11 +173,21 @@ def main() -> None:
 
         if supports_step_end_cb:
             def _cb_step_end(pipe, step_index, timestep, callback_kwargs):
+                now = _time.monotonic()
+                if _step_state["step_start"] > 0:
+                    _step_state["durations"].append(now - _step_state["step_start"])
+                _step_state["completed"] = float(step_index + 1)
+                _step_state["step_start"] = now
                 _progress(f"STEP:{step_index + 1}/{steps}")
                 return callback_kwargs
             kw["callback_on_step_end"] = _cb_step_end
         elif supports_legacy_cb:
             def _cb_legacy(step, timestep, latents):
+                now = _time.monotonic()
+                if _step_state["step_start"] > 0:
+                    _step_state["durations"].append(now - _step_state["step_start"])
+                _step_state["completed"] = float(step + 1)
+                _step_state["step_start"] = now
                 _progress(f"STEP:{step + 1}/{steps}")
             kw["callback"] = _cb_legacy
             kw["callback_steps"] = 1
@@ -161,18 +198,29 @@ def main() -> None:
     result = None
     last_error: str = ""
 
-    for mode in modes:
-        use_img = mode == "img2img"
-        _log(f"Attempting {mode} ...")
-        try:
-            result = pipe(**make_kwargs(use_img))
-            _log(f"{mode} succeeded.")
-            break
-        except Exception as exc:
-            last_error = f"{type(exc).__name__}: {exc}"
-            _log(f"{mode} failed: {last_error}")
-            if mode == "img2img":
-                _log("Retrying as txt2img ...")
+    # Start the interpolation timer thread just before inference begins.
+    # It will begin emitting sub-step PROGRESS lines as soon as the first
+    # real step completes and we have a duration estimate.
+    _timer_thread = threading.Thread(target=_interpolation_thread, daemon=True)
+    _timer_thread.start()
+
+    try:
+        for mode in modes:
+            use_img = mode == "img2img"
+            _log(f"Attempting {mode} ...")
+            _step_state["step_start"] = _time.monotonic()
+            try:
+                result = pipe(**make_kwargs(use_img))
+                _log(f"{mode} succeeded.")
+                break
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                _log(f"{mode} failed: {last_error}")
+                if mode == "img2img":
+                    _log("Retrying as txt2img ...")
+    finally:
+        _infer_done.set()
+        _timer_thread.join(timeout=1.0)
 
     if result is None:
         _fail(last_error or "Unknown inference error")

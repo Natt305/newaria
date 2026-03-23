@@ -194,10 +194,13 @@ def _format_diffuser_progress(tag: str, name: str = "") -> Optional[str]:
         parts = tag[5:].split("/")
         if len(parts) == 2:
             try:
-                step, total = int(parts[0]), int(parts[1])
-                filled_count = round(step / total * BAR_WIDTH)
+                frac = float(parts[0])
+                total = int(parts[1])
+                filled_count = round(frac / total * BAR_WIDTH)
+                filled_count = max(0, min(BAR_WIDTH, filled_count))
                 bar = "🟩" * filled_count + "⬛" * (BAR_WIDTH - filled_count)
-                return f"{header}\n📦✅ {bar} 💾⬛  `{step}/{total}`"
+                step_display = int(frac) if frac == int(frac) else f"{frac:.1f}"
+                return f"{header}\n📦✅ {bar} 💾⬛  `{step_display}/{total}`"
             except (ValueError, ZeroDivisionError):
                 pass
     if tag == "STAGE:encoding":
