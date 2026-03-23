@@ -72,16 +72,23 @@ def main() -> None:
             local_files_only=True,
             torch_dtype=torch.bfloat16,
         )
-        pipe.enable_model_cpu_offload()
-        _log("Pipeline loaded.")
+        pipe.enable_sequential_cpu_offload()
+        pipe.vae.enable_tiling()
+        pipe.vae.enable_slicing()
+        if hasattr(pipe, "enable_attention_slicing"):
+            pipe.enable_attention_slicing(1)
+        if hasattr(pipe, "unet") and hasattr(pipe.unet, "enable_gradient_checkpointing"):
+            pipe.unet.enable_gradient_checkpointing()
+        _log("Pipeline loaded (sequential CPU offload, VAE tiling+slicing, attention slicing).")
     except Exception as exc:
         _fail(f"Pipeline load failed: {type(exc).__name__}: {exc}")
 
-    # Log available VRAM before inference so we can diagnose OOM issues
+    # Flush CUDA cache and log available VRAM before inference
     try:
         if torch.cuda.is_available():
+            torch.cuda.empty_cache()
             free_mb = torch.cuda.mem_get_info()[0] // 1024 ** 2
-            _log(f"Free VRAM before inference: {free_mb} MB")
+            _log(f"CUDA cache cleared — free VRAM: {free_mb} MB")
     except Exception:
         pass
 
