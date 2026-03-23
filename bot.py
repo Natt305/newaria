@@ -741,9 +741,11 @@ async def process_chat(
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
-        # Always append Flux-friendly anime style keywords to every prompt.
-        _full_suffix = "anime style, anime illustration, cel shading, flat colors, 2D anime art"
-        enriched_prompt = enriched_prompt.rstrip(" ,;") + ", " + _full_suffix
+        # Prepend a compact Flux-friendly style prefix so Flux anchors on style
+        # early (left-to-right token weighting).  Keep it short — the enriched
+        # prompt body already contains detailed style language from the LLM rewriter.
+        _style_prefix = "2D anime, cel-shaded, flat colors"
+        enriched_prompt = _style_prefix + ", " + enriched_prompt.lstrip(" ,")
 
         async with channel.typing():
             result, comment = await asyncio.gather(
