@@ -86,6 +86,3 @@ LOCAL_DIFFUSER_MODEL=
 # Inference steps (default 8, higher = slower but slightly better quality)
 LOCAL_DIFFUSER_STEPS=8
 
-# img2img 強度，0.0-1.0（預設 0.75；越低越貼近原圖，越高越自由發揮）
-# img2img strength, 0.0-1.0 (default 0.75; lower = closer to reference)
-LOCAL_DIFFUSER_STRENGTH=0.75

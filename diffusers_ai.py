@@ -68,11 +68,6 @@ def _run_pipeline(prompt: str, init_image=None) -> Optional[bytes]:
     except ValueError:
         print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_STEPS — using default 8.")
         steps = 8
-    try:
-        strength = float(os.environ.get("LOCAL_DIFFUSER_STRENGTH", "0.75"))
-    except ValueError:
-        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_STRENGTH — using default 0.75.")
-        strength = 0.75
 
     try:
         if init_image is not None:
@@ -80,7 +75,6 @@ def _run_pipeline(prompt: str, init_image=None) -> Optional[bytes]:
                 prompt=prompt,
                 image=init_image,
                 num_inference_steps=steps,
-                strength=strength,
                 width=512,
                 height=512,
             )
