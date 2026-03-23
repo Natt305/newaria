@@ -30,7 +30,6 @@ import io
 import json
 import os
 import sys
-import traceback
 
 
 def _log(msg: str) -> None:
@@ -72,14 +71,16 @@ def main() -> None:
             local_files_only=True,
             torch_dtype=torch.bfloat16,
         )
-        pipe.enable_sequential_cpu_offload()
-        pipe.vae.enable_tiling()
-        pipe.vae.enable_slicing()
+        # Attention slicing must be set BEFORE sequential CPU offload attaches hooks
         if hasattr(pipe, "enable_attention_slicing"):
             pipe.enable_attention_slicing(1)
-        if hasattr(pipe, "unet") and hasattr(pipe.unet, "enable_gradient_checkpointing"):
-            pipe.unet.enable_gradient_checkpointing()
-        _log("Pipeline loaded (sequential CPU offload, VAE tiling+slicing, attention slicing).")
+        # Sequential offload moves each sub-module on/off GPU one at a time —
+        # far lower peak VRAM than enable_model_cpu_offload()
+        pipe.enable_sequential_cpu_offload()
+        # VAE tiling/slicing are safe to set after offload
+        pipe.vae.enable_tiling()
+        pipe.vae.enable_slicing()
+        _log("Pipeline loaded (attention slicing → sequential CPU offload → VAE tiling+slicing).")
     except Exception as exc:
         _fail(f"Pipeline load failed: {type(exc).__name__}: {exc}")
 
