@@ -137,4 +137,4 @@ if __name__ == "__main__":
         print(f"完整錯誤已儲存至: {crash_log}")
         print("=" * 60)
     finally:
-        input("\n按 Enter 鍵關閉視窗...")  # keeps the window open on Windows
+        pass  # No interactive prompt needed on Replit
