@@ -3,12 +3,12 @@ Local image generation backend using HuggingFace diffusers Flux2KleinPipeline.
 Activated by setting IMAGE_BACKEND=local_diffusers in the environment.
 
 Required env vars:
-    LOCAL_DIFFUSER_MODEL   Path to the model (e.g. E:\Flux_Final). Required.
-    LOCAL_DIFFUSER_STEPS   Number of inference steps. Default: 8.
+    LOCAL_DIFFUSER_MODEL     Path to the model directory (e.g. E:\Flux_Final). Required.
+    LOCAL_DIFFUSER_STEPS     Number of inference steps. Default: 8.
     LOCAL_DIFFUSER_STRENGTH  img2img strength (0.0-1.0). Default: 0.75.
 
-Optional:
-    LOCAL_DIFFUSER_DEVICE  Force device (cuda / cpu / mps). Auto-detected if unset.
+Device placement is managed by pipe.enable_model_cpu_offload() and does not need
+to be configured manually.
 """
 import asyncio
 import io
@@ -63,8 +63,16 @@ def _run_pipeline(prompt: str, init_image=None) -> Optional[bytes]:
     if pipe is None:
         return None
 
-    steps = int(os.environ.get("LOCAL_DIFFUSER_STEPS", "8"))
-    strength = float(os.environ.get("LOCAL_DIFFUSER_STRENGTH", "0.75"))
+    try:
+        steps = int(os.environ.get("LOCAL_DIFFUSER_STEPS", "8"))
+    except ValueError:
+        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_STEPS — using default 8.")
+        steps = 8
+    try:
+        strength = float(os.environ.get("LOCAL_DIFFUSER_STRENGTH", "0.75"))
+    except ValueError:
+        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_STRENGTH — using default 0.75.")
+        strength = 0.75
 
     try:
         if init_image is not None:

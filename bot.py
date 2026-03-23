@@ -1882,15 +1882,26 @@ async def generate_cmd(ctx, *, prompt: str):
         view = ui.GenerateView(prompt, img_data, mime_type)
         await ctx.send(embed=embed, file=file, view=view)
     else:
-        await ctx.send(
-            "❌ **圖像生成失敗**\n"
-            "請查看機器人的控制台視窗，會顯示 `[Cloudflare]` 開頭的錯誤訊息。\n\n"
-            "常見原因:\n"
-            "• Cloudflare API Token 或 Account ID 錯誤\n"
-            "• Workers AI 未在帳戶中啟用\n"
-            "• 提示詞觸發內容過濾\n"
-            "• API 服務暫時中斷",
-        )
+        if _IMAGE_BACKEND == "local_diffusers":
+            await ctx.send(
+                "❌ **圖像生成失敗**\n"
+                "請查看機器人的控制台視窗，會顯示 `[LocalDiffusers]` 開頭的錯誤訊息。\n\n"
+                "常見原因:\n"
+                "• `LOCAL_DIFFUSER_MODEL` 路徑不存在或模型檔案損壞\n"
+                "• `torch` / `diffusers` 未安裝 (需在本機執行 `pip install torch diffusers`)\n"
+                "• 顯卡記憶體不足 (請確認 `enable_model_cpu_offload` 已啟用)\n"
+                "• 推理過程中發生例外 (詳情見控制台)",
+            )
+        else:
+            await ctx.send(
+                "❌ **圖像生成失敗**\n"
+                "請查看機器人的控制台視窗，會顯示 `[Cloudflare]` 開頭的錯誤訊息。\n\n"
+                "常見原因:\n"
+                "• Cloudflare API Token 或 Account ID 錯誤\n"
+                "• Workers AI 未在帳戶中啟用\n"
+                "• 提示詞觸發內容過濾\n"
+                "• API 服務暫時中斷",
+            )
 
 
 @bot.hybrid_command(name="clear", description="清除此頻道的對話歷史記錄")
