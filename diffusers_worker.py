@@ -73,7 +73,9 @@ def main() -> None:
             torch_dtype=torch.bfloat16,
         )
         pipe.enable_model_cpu_offload()
-        _log("Pipeline loaded.")
+        pipe.vae.enable_tiling()
+        pipe.vae.enable_slicing()
+        _log("Pipeline loaded (VAE tiling + slicing enabled).")
     except Exception as exc:
         _fail(f"Pipeline load failed: {type(exc).__name__}: {exc}")
 
