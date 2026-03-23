@@ -126,14 +126,18 @@ def main() -> None:
         try:
             img_bytes = base64.b64decode(image_b64)
             raw = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            # ImageOps.pad scales the image to fit entirely within the target
-            # size (preserving aspect ratio) then pads the remaining space with
-            # neutral gray — the full subject stays visible, no cropping.
-            init_image = ImageOps.pad(
-                raw, (width, height), method=Image.LANCZOS, color=(128, 128, 128)
+            # Smart crop-to-fill: for portrait sources (character art) anchor
+            # the crop slightly above centre so the face/head stays in frame.
+            # For landscape/square sources use dead centre.
+            if raw.height > raw.width:
+                centering = (0.5, 0.35)   # bias upward — keeps head/face
+            else:
+                centering = (0.5, 0.5)    # centre for landscape/square
+            init_image = ImageOps.fit(
+                raw, (width, height), method=Image.LANCZOS, centering=centering
             )
-            _log(f"Reference image decoded — padded to {width}×{height} "
-                 f"(original {raw.width}×{raw.height}).")
+            _log(f"Reference image decoded — smart-cropped to {width}×{height} "
+                 f"(original {raw.width}×{raw.height}, centering={centering}).")
         except Exception as exc:
             _log(f"Could not decode reference image ({exc}) — will use txt2img.")
 
