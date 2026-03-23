@@ -751,6 +751,15 @@ async def process_chat(
                     _ref_images.append(thumb)
                 if len(_ref_images) >= _MAX_REF_IMAGES:
                     break
+        if _has_kb_subject and len(_ref_images) < _MAX_REF_IMAGES:
+            for _kb_entry in _kb_matches:
+                _kb_entry_id = _kb_entry.get("id")
+                if _kb_entry_id:
+                    _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
+                    if _kb_thumb:
+                        _ref_images.append(_kb_thumb)
+                        if len(_ref_images) >= _MAX_REF_IMAGES:
+                            break
         # Run the LLM enhancement rewrite whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
         #   (b) character appearance context exists (self-referential prompt), OR
@@ -1854,7 +1863,14 @@ async def generate_cmd(ctx, *, prompt: str):
     await ctx.defer()
 
     enriched_prompt, kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(prompt)
-    result = await _generate_image(enriched_prompt)
+    _cmd_ref_image = None
+    if _IMAGE_BACKEND == "local_diffusers" and kb_matches:
+        for _cmd_entry in kb_matches:
+            _cmd_thumb = database.get_kb_image_thumb(_cmd_entry.get("id") or 0)
+            if _cmd_thumb:
+                _cmd_ref_image = _cmd_thumb
+                break
+    result = await _generate_image(enriched_prompt, reference_image=_cmd_ref_image)
 
     if result == ("API_KEY_ERROR", ""):
         await ctx.send(
