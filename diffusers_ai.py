@@ -9,6 +9,10 @@ Required env vars:
 
 The pipeline runs in a separate subprocess (diffusers_worker.py) so any GPU
 crash (OOM, segfault, CUDA illegal access) cannot take down the bot process.
+
+Progress reporting: the worker writes "PROGRESS:<tag>" lines to stderr which
+are parsed here in real time and forwarded to an optional async on_progress
+callback, enabling live Discord progress-bar updates.
 """
 
 import asyncio
@@ -16,12 +20,15 @@ import base64
 import json
 import os
 import sys
-from typing import Optional, Tuple
+from typing import Callable, Coroutine, Optional, Tuple
+
+_WORKER_TIMEOUT = 300  # seconds
 
 
 async def generate_image(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]] = None,
+    on_progress: Optional[Callable[[str], Coroutine]] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Generate an image by spawning diffusers_worker.py in a subprocess.
 
@@ -31,6 +38,12 @@ async def generate_image(
                          reference.  The worker auto-detects whether the pipeline
                          accepts image/strength kwargs and falls back to txt2img
                          if it does not.
+        on_progress:     Optional async callable(tag: str) called whenever the
+                         worker emits a PROGRESS: line.  Tags:
+                             "STAGE:loading"   — model is being loaded
+                             "STAGE:ready"     — model loaded, inference starting
+                             "STEP:<n>/<t>"    — inference step n of t completed
+                             "STAGE:encoding"  — inference done, encoding PNG
 
     Returns:
         (png_bytes, "image/png") on success, or None on failure.
@@ -59,10 +72,10 @@ async def generate_image(
         width = 512
 
     try:
-        height = int(os.environ.get("LOCAL_DIFFUSER_HEIGHT", "768"))
+        height = int(os.environ.get("LOCAL_DIFFUSER_HEIGHT", "512"))
     except ValueError:
-        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_HEIGHT — using default 768.")
-        height = 768
+        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_HEIGHT — using default 512.")
+        height = 512
 
     payload: dict = {
         "prompt": prompt,
@@ -87,47 +100,87 @@ async def generate_image(
     )
     stdin_data = json.dumps(payload).encode("utf-8")
 
-    result = await asyncio.to_thread(_run_worker, worker_path, stdin_data)
+    try:
+        result = await asyncio.wait_for(
+            _run_worker_async(worker_path, stdin_data, on_progress),
+            timeout=_WORKER_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        print(f"[LocalDiffusers] Worker timed out after {_WORKER_TIMEOUT}s.")
+        return None
+    except Exception as exc:
+        print(f"[LocalDiffusers] Unexpected error: {type(exc).__name__}: {exc}")
+        return None
+
     return result
 
 
-def _run_worker(
-    worker_path: str, stdin_data: bytes
+async def _run_worker_async(
+    worker_path: str,
+    stdin_data: bytes,
+    on_progress: Optional[Callable[[str], Coroutine]],
 ) -> Optional[Tuple[bytes, str]]:
-    """Blocking: spawn diffusers_worker.py, return (png_bytes, mime) or None."""
-    import subprocess
-
+    """Spawn the worker subprocess, stream stderr for progress, collect stdout."""
     try:
-        proc = subprocess.run(
-            [sys.executable, worker_path],
-            input=stdin_data,
-            capture_output=True,
-            timeout=300,
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            worker_path,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-    except subprocess.TimeoutExpired:
-        print("[LocalDiffusers] Worker timed out after 300 s.")
-        return None
     except Exception as exc:
         print(f"[LocalDiffusers] Worker launch error: {type(exc).__name__}: {exc}")
         return None
 
-    if proc.stderr:
-        for line in proc.stderr.decode("utf-8", errors="replace").splitlines():
-            print(line)
+    proc.stdin.write(stdin_data)
+    await proc.stdin.drain()
+    proc.stdin.close()
+
+    stdout_chunks: list[bytes] = []
+
+    async def _read_stderr() -> None:
+        assert proc.stderr is not None
+        while True:
+            line_bytes = await proc.stderr.readline()
+            if not line_bytes:
+                break
+            line = line_bytes.decode("utf-8", errors="replace").rstrip()
+            if line.startswith("PROGRESS:") and on_progress is not None:
+                tag = line[len("PROGRESS:"):]
+                try:
+                    await on_progress(tag)
+                except Exception as cb_exc:
+                    print(f"[LocalDiffusers] on_progress callback error: {cb_exc}")
+            else:
+                print(line)
+
+    async def _read_stdout() -> None:
+        assert proc.stdout is not None
+        while True:
+            chunk = await proc.stdout.read(65536)
+            if not chunk:
+                break
+            stdout_chunks.append(chunk)
+
+    await asyncio.gather(_read_stderr(), _read_stdout())
+    await proc.wait()
 
     if proc.returncode != 0:
         print(f"[LocalDiffusers] Worker exited with code {proc.returncode}.")
+        raw_stdout = b"".join(stdout_chunks)
         try:
-            err = json.loads(proc.stdout)
+            err = json.loads(raw_stdout)
             print(f"[LocalDiffusers] Worker error: {err.get('error', 'unknown')}")
         except Exception:
-            raw = proc.stdout.decode("utf-8", errors="replace").strip()
-            if raw:
-                print(f"[LocalDiffusers] Worker stdout: {raw}")
+            snippet = raw_stdout.decode("utf-8", errors="replace").strip()
+            if snippet:
+                print(f"[LocalDiffusers] Worker stdout: {snippet}")
         return None
 
+    raw_stdout = b"".join(stdout_chunks)
     try:
-        response = json.loads(proc.stdout)
+        response = json.loads(raw_stdout)
     except Exception as exc:
         print(f"[LocalDiffusers] Could not parse worker output: {exc}")
         return None

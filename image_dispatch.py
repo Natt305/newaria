@@ -11,7 +11,7 @@ Supported backends:
 """
 
 import os
-from typing import Optional, Tuple
+from typing import Callable, Coroutine, Optional, Tuple
 
 _IMAGE_BACKEND = os.environ.get("IMAGE_BACKEND", "cloudflare").lower()
 
@@ -33,6 +33,7 @@ def img2img_capable() -> bool:
 async def generate_image(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]] = None,
+    on_progress: Optional[Callable[[str], Coroutine]] = None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the configured backend.
 
@@ -41,13 +42,18 @@ async def generate_image(
         reference_image: Optional (bytes, mime_type) tuple used as the img2img
                          seed image. Passed to backends that support it
                          (local_diffusers, hf_spaces). Ignored by Cloudflare.
+        on_progress:     Optional async callable(tag: str) forwarded to
+                         local_diffusers backend for live progress reporting.
+                         Silently ignored by cloudflare and hf_spaces backends.
 
     Returns:
         (image_bytes, mime_type) on success, or None on failure.
     """
     if _IMAGE_BACKEND == "local_diffusers":
         import diffusers_ai as _diffusers_ai
-        return await _diffusers_ai.generate_image(prompt, reference_image=reference_image)
+        return await _diffusers_ai.generate_image(
+            prompt, reference_image=reference_image, on_progress=on_progress
+        )
     if _IMAGE_BACKEND == "hf_spaces":
         import hf_spaces_ai as _hf_spaces_ai
         return await _hf_spaces_ai.generate_image(prompt, reference_image=reference_image)

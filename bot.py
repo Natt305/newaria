@@ -5,6 +5,7 @@ import os
 import asyncio
 import aiohttp
 import io
+import time
 from typing import Optional, Union
 
 import database
@@ -145,6 +146,7 @@ def _image_ready() -> bool:
 async def _generate_image(
     prompt: str,
     reference_image=None,
+    on_progress=None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the active backend.
 
@@ -153,15 +155,67 @@ async def _generate_image(
         reference_image: Optional (bytes, mime) tuple passed to backends
                          that support img2img (local_diffusers, hf_spaces).
                          Ignored by the Cloudflare backend.
+        on_progress: Optional async callable(tag: str) for live progress
+                     updates. Only used by the local_diffusers backend.
     """
     import image_dispatch as _dispatch
-    return await _dispatch.generate_image(prompt, reference_image=reference_image)
+    return await _dispatch.generate_image(
+        prompt, reference_image=reference_image, on_progress=on_progress
+    )
 
 
 def _make_progress_bar(success: int, failed: int, total: int) -> str:
     done = success + failed
     bar = "🟩" * success + "🟥" * failed + "⬛" * (total - done)
     return f"{bar}  `{done}/{total}`"
+
+
+def _format_diffuser_progress(tag: str) -> Optional[str]:
+    """Convert a PROGRESS tag from diffusers_worker into a Discord message string.
+
+    Stages (in order):
+        STAGE:loading   — pipeline is being loaded from disk
+        STAGE:ready     — model loaded, inference about to start
+        STEP:n/t        — inference step n of t completed
+        STAGE:encoding  — inference done, encoding the PNG
+    """
+    if tag == "STAGE:loading":
+        return (
+            "⏳ **生成中**\n"
+            "📦 載入模型⋯\n"
+            "⬜ 🎨 生成\n"
+            "⬜ 💾 儲存"
+        )
+    if tag == "STAGE:ready":
+        return (
+            "⏳ **生成中**\n"
+            "✅ 載入完成\n"
+            "🎨 準備生成⋯\n"
+            "⬜ 💾 儲存"
+        )
+    if tag.startswith("STEP:"):
+        parts = tag[5:].split("/")
+        if len(parts) == 2:
+            try:
+                step, total = int(parts[0]), int(parts[1])
+                filled = "🟩" * step
+                empty = "⬛" * (total - step)
+                return (
+                    f"⏳ **生成中**\n"
+                    f"✅ 載入完成\n"
+                    f"🎨 生成中 {filled}{empty} `{step}/{total}`\n"
+                    f"⬜ 💾 儲存"
+                )
+            except ValueError:
+                pass
+    if tag == "STAGE:encoding":
+        return (
+            "⏳ **生成中**\n"
+            "✅ 載入完成\n"
+            "✅ 生成完成\n"
+            "💾 儲存圖像⋯"
+        )
+    return None
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -811,16 +865,49 @@ async def process_chat(
         _style_prefix = "2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body"
         enriched_prompt = _style_prefix + ", " + enriched_prompt.lstrip(" ,")
 
+        _chat_progress_msg = None
+        if _IMAGE_BACKEND == "local_diffusers":
+            try:
+                _chat_progress_msg = await channel.send(
+                    "⏳ **生成中**\n📦 載入模型⋯\n⬜ 🎨 生成\n⬜ 💾 儲存"
+                )
+            except discord.HTTPException:
+                pass
+
+        _chat_last_update = [0.0]
+
+        async def _chat_on_progress(tag: str) -> None:
+            if _chat_progress_msg is None:
+                return
+            content = _format_diffuser_progress(tag)
+            if not content:
+                return
+            now = time.monotonic()
+            is_stage = tag.startswith("STAGE:")
+            if is_stage or now - _chat_last_update[0] >= 1.0:
+                _chat_last_update[0] = now
+                try:
+                    await _chat_progress_msg.edit(content=content)
+                except discord.HTTPException:
+                    pass
+
         async with channel.typing():
             result, comment = await asyncio.gather(
                 _generate_image(
                     enriched_prompt,
                     _ref_images[0] if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images else None,
+                    on_progress=_chat_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
                 ),
                 groq_ai.generate_image_comment(
                     image_prompt, bot_name, background, user_text, history=history
                 ),
             )
+
+        if _chat_progress_msg is not None:
+            try:
+                await _chat_progress_msg.delete()
+            except discord.HTTPException:
+                pass
 
         if result and isinstance(result, tuple) and len(result) == 2:
             img_data, mime_type = result
@@ -1898,7 +1985,43 @@ async def generate_cmd(ctx, *, prompt: str):
             if _cmd_thumb:
                 _cmd_ref_image = _cmd_thumb
                 break
-    result = await _generate_image(enriched_prompt, reference_image=_cmd_ref_image)
+    _cmd_progress_msg = None
+    if _IMAGE_BACKEND == "local_diffusers":
+        try:
+            _cmd_progress_msg = await ctx.send(
+                "⏳ **生成中**\n📦 載入模型⋯\n⬜ 🎨 生成\n⬜ 💾 儲存"
+            )
+        except discord.HTTPException:
+            pass
+
+    _cmd_last_update = [0.0]
+
+    async def _cmd_on_progress(tag: str) -> None:
+        if _cmd_progress_msg is None:
+            return
+        content = _format_diffuser_progress(tag)
+        if not content:
+            return
+        now = time.monotonic()
+        is_stage = tag.startswith("STAGE:")
+        if is_stage or now - _cmd_last_update[0] >= 1.0:
+            _cmd_last_update[0] = now
+            try:
+                await _cmd_progress_msg.edit(content=content)
+            except discord.HTTPException:
+                pass
+
+    result = await _generate_image(
+        enriched_prompt,
+        reference_image=_cmd_ref_image,
+        on_progress=_cmd_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
+    )
+
+    if _cmd_progress_msg is not None:
+        try:
+            await _cmd_progress_msg.delete()
+        except discord.HTTPException:
+            pass
 
     if result == ("API_KEY_ERROR", ""):
         await ctx.send(

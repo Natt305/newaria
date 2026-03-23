@@ -5,6 +5,14 @@ Called by diffusers_ai.py as a subprocess.  Reads a JSON payload from stdin,
 runs Flux2KleinPipeline, and writes a JSON response to stdout.  All log/debug
 lines go to stderr so they do not corrupt the JSON stdout channel.
 
+Progress reporting: lines of the form "PROGRESS:<tag>" are written to stderr
+and parsed by diffusers_ai.py to drive live Discord progress updates.
+Tags:
+    STAGE:loading          pipeline is being loaded from disk
+    STAGE:ready            pipeline loaded, about to start inference
+    STEP:<n>/<total>       inference step n of total completed
+    STAGE:encoding         inference done, encoding PNG
+
 Input JSON (stdin):
     {
         "prompt":    "...",
@@ -34,6 +42,11 @@ import sys
 
 def _log(msg: str) -> None:
     print(f"[Worker] {msg}", file=sys.stderr, flush=True)
+
+
+def _progress(tag: str) -> None:
+    """Emit a progress marker that diffusers_ai.py parses in real time."""
+    print(f"PROGRESS:{tag}", file=sys.stderr, flush=True)
 
 
 def _fail(msg: str) -> None:
@@ -66,6 +79,7 @@ def main() -> None:
     if not model_path:
         _fail("LOCAL_DIFFUSER_MODEL is not set")
 
+    _progress("STAGE:loading")
     _log(f"Loading pipeline from {model_path!r} ...")
     try:
         pipe = Flux2KleinPipeline.from_pretrained(
@@ -98,7 +112,12 @@ def main() -> None:
     call_params = set(inspect.signature(pipe.__call__).parameters.keys())
     supports_image = "image" in call_params
     supports_strength = "strength" in call_params
-    _log(f"Accepted params — image={supports_image}, strength={supports_strength}")
+    supports_step_end_cb = "callback_on_step_end" in call_params
+    supports_legacy_cb = "callback" in call_params
+    _log(f"Accepted params — image={supports_image}, strength={supports_strength}, "
+         f"callback_on_step_end={supports_step_end_cb}, callback={supports_legacy_cb}")
+
+    _progress("STAGE:ready")
 
     init_image = None
     if image_b64 and supports_image:
@@ -124,6 +143,18 @@ def main() -> None:
             kw["image"] = init_image
             if supports_strength:
                 kw["strength"] = strength
+
+        if supports_step_end_cb:
+            def _cb_step_end(pipe, step_index, timestep, callback_kwargs):
+                _progress(f"STEP:{step_index + 1}/{steps}")
+                return callback_kwargs
+            kw["callback_on_step_end"] = _cb_step_end
+        elif supports_legacy_cb:
+            def _cb_legacy(step, timestep, latents):
+                _progress(f"STEP:{step + 1}/{steps}")
+            kw["callback"] = _cb_legacy
+            kw["callback_steps"] = 1
+
         return kw
 
     modes = ["img2img", "txt2img"] if init_image is not None else ["txt2img"]
@@ -146,6 +177,7 @@ def main() -> None:
     if result is None:
         _fail(last_error or "Unknown inference error")
 
+    _progress("STAGE:encoding")
     img = result.images[0]
     buf = io.BytesIO()
     img.save(buf, format="PNG")
