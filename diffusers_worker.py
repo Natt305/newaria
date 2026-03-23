@@ -52,6 +52,8 @@ def main() -> None:
     image_b64: str = payload.get("image_b64", "")
     steps: int = int(payload.get("steps", 8))
     strength: float = float(payload.get("strength", 0.75))
+    width: int = int(payload.get("width", 512))
+    height: int = int(payload.get("height", 768))
 
     try:
         import torch
@@ -105,9 +107,9 @@ def main() -> None:
             init_image = (
                 Image.open(io.BytesIO(img_bytes))
                 .convert("RGB")
-                .resize((512, 512))
+                .resize((width, height))
             )
-            _log(f"Reference image decoded — size {init_image.size}, mode {init_image.mode}.")
+            _log(f"Reference image decoded — resized to {width}×{height}, mode {init_image.mode}.")
         except Exception as exc:
             _log(f"Could not decode reference image ({exc}) — will use txt2img.")
 
@@ -115,8 +117,8 @@ def main() -> None:
         kw = {
             "prompt": prompt,
             "num_inference_steps": steps,
-            "width": 512,
-            "height": 512,
+            "width": width,
+            "height": height,
         }
         if use_image and init_image is not None:
             kw["image"] = init_image

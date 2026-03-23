@@ -52,10 +52,24 @@ async def generate_image(
         print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_STRENGTH — using default 0.75.")
         strength = 0.75
 
+    try:
+        width = int(os.environ.get("LOCAL_DIFFUSER_WIDTH", "512"))
+    except ValueError:
+        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_WIDTH — using default 512.")
+        width = 512
+
+    try:
+        height = int(os.environ.get("LOCAL_DIFFUSER_HEIGHT", "768"))
+    except ValueError:
+        print("[LocalDiffusers] Invalid LOCAL_DIFFUSER_HEIGHT — using default 768.")
+        height = 768
+
     payload: dict = {
         "prompt": prompt,
         "steps": steps,
         "strength": strength,
+        "width": width,
+        "height": height,
     }
 
     if reference_image is not None:

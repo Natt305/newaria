@@ -811,7 +811,7 @@ async def process_chat(
         # Prepend a compact Flux-friendly style prefix so Flux anchors on style
         # early (left-to-right token weighting).  Keep it short — the enriched
         # prompt body already contains detailed style language from the LLM rewriter.
-        _style_prefix = "2D anime, cel-shaded, flat colors"
+        _style_prefix = "2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body"
         enriched_prompt = _style_prefix + ", " + enriched_prompt.lstrip(" ,")
 
         async with channel.typing():
