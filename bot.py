@@ -183,23 +183,26 @@ def _format_diffuser_progress(tag: str, name: str = "") -> Optional[str]:
         STEP:n/t        — inference step n of t completed
         STAGE:encoding  — inference done, encoding the PNG
     """
+    BAR_WIDTH = 20
+    empty_bar = "⬛" * BAR_WIDTH
+    full_bar  = "🟩" * BAR_WIDTH
     header = f"**{name}正在準備中**" if name else "**正在準備中**"
     if tag == "STAGE:loading":
-        return f"{header}\n📦⏳ ⬛⬛⬛⬛ 💾⬛"
+        return f"{header}\n📦⏳ {empty_bar} 💾⬛"
     if tag == "STAGE:ready":
-        return f"{header}\n📦✅ ⬛⬛⬛⬛ 💾⬛"
+        return f"{header}\n📦✅ {empty_bar} 💾⬛"
     if tag.startswith("STEP:"):
         parts = tag[5:].split("/")
         if len(parts) == 2:
             try:
                 step, total = int(parts[0]), int(parts[1])
-                filled = "🟩" * step
-                empty = "⬛" * (total - step)
-                return f"{header}\n📦✅ {filled}{empty} 💾⬛  `{step}/{total}`"
-            except ValueError:
+                filled_count = round(step / total * BAR_WIDTH)
+                bar = "🟩" * filled_count + "⬛" * (BAR_WIDTH - filled_count)
+                return f"{header}\n📦✅ {bar} 💾⬛  `{step}/{total}`"
+            except (ValueError, ZeroDivisionError):
                 pass
     if tag == "STAGE:encoding":
-        return f"{header}\n📦✅ 🟩🟩🟩🟩 💾⏳"
+        return f"{header}\n📦✅ {full_bar} 💾⏳"
     return None
 
 intents = discord.Intents.default()
