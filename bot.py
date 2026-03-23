@@ -740,18 +740,10 @@ async def process_chat(
         else:
             char_images_ctx = ""
         # Collect reference thumbnails for the vision-assisted prompt rewriter.
-        # Cap at 3 images (char thumbnails first, then KB subject thumbnails).
+        # Cap at 3 images (KB subject thumbnails first, then char thumbnails).
         _ref_images: list = []
         _MAX_REF_IMAGES = 3
-        if _needs_char_ctx:
-            char_count = database.get_character_image_count()
-            for i in range(1, char_count + 1):
-                thumb = database.get_character_image_thumb(i)
-                if thumb:
-                    _ref_images.append(thumb)
-                if len(_ref_images) >= _MAX_REF_IMAGES:
-                    break
-        if _has_kb_subject and len(_ref_images) < _MAX_REF_IMAGES:
+        if _has_kb_subject:
             for _kb_entry in _kb_matches:
                 _kb_entry_id = _kb_entry.get("id")
                 if _kb_entry_id:
@@ -760,6 +752,14 @@ async def process_chat(
                         _ref_images.append(_kb_thumb)
                         if len(_ref_images) >= _MAX_REF_IMAGES:
                             break
+        if _needs_char_ctx and len(_ref_images) < _MAX_REF_IMAGES:
+            char_count = database.get_character_image_count()
+            for i in range(1, char_count + 1):
+                thumb = database.get_character_image_thumb(i)
+                if thumb:
+                    _ref_images.append(thumb)
+                if len(_ref_images) >= _MAX_REF_IMAGES:
+                    break
         # Run the LLM enhancement rewrite whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
         #   (b) character appearance context exists (self-referential prompt), OR
