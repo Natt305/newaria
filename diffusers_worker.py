@@ -126,10 +126,13 @@ def main() -> None:
         try:
             img_bytes = base64.b64decode(image_b64)
             raw = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            # ImageOps.fit crops-to-fill the target size while preserving aspect
-            # ratio — avoids squashing a portrait reference into a square canvas.
-            init_image = ImageOps.fit(raw, (width, height), method=Image.LANCZOS)
-            _log(f"Reference image decoded — crop-fitted to {width}×{height} "
+            # ImageOps.pad scales the image to fit entirely within the target
+            # size (preserving aspect ratio) then pads the remaining space with
+            # neutral gray — the full subject stays visible, no cropping.
+            init_image = ImageOps.pad(
+                raw, (width, height), method=Image.LANCZOS, color=(128, 128, 128)
+            )
+            _log(f"Reference image decoded — padded to {width}×{height} "
                  f"(original {raw.width}×{raw.height}).")
         except Exception as exc:
             _log(f"Could not decode reference image ({exc}) — will use txt2img.")
