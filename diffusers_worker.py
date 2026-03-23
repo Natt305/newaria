@@ -73,12 +73,17 @@ def main() -> None:
             torch_dtype=torch.bfloat16,
         )
         pipe.enable_model_cpu_offload()
-        pipe.vae.enable_tiling()
-        pipe.vae.enable_slicing()
-        pipe.enable_attention_slicing(1)
-        _log("Pipeline loaded (CPU offload, VAE tiling/slicing, attention slicing enabled).")
+        _log("Pipeline loaded.")
     except Exception as exc:
         _fail(f"Pipeline load failed: {type(exc).__name__}: {exc}")
+
+    # Log available VRAM before inference so we can diagnose OOM issues
+    try:
+        if torch.cuda.is_available():
+            free_mb = torch.cuda.mem_get_info()[0] // 1024 ** 2
+            _log(f"Free VRAM before inference: {free_mb} MB")
+    except Exception:
+        pass
 
     call_params = set(inspect.signature(pipe.__call__).parameters.keys())
     supports_image = "image" in call_params
@@ -94,7 +99,7 @@ def main() -> None:
                 .convert("RGB")
                 .resize((512, 512))
             )
-            _log("Reference image decoded and resized to 512×512.")
+            _log(f"Reference image decoded — size {init_image.size}, mode {init_image.mode}.")
         except Exception as exc:
             _log(f"Could not decode reference image ({exc}) — will use txt2img.")
 
@@ -110,10 +115,6 @@ def main() -> None:
             if supports_strength:
                 kw["strength"] = strength
         return kw
-
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        _log(f"CUDA cache cleared — free VRAM: {torch.cuda.mem_get_info()[0] // 1024**2} MB")
 
     modes = ["img2img", "txt2img"] if init_image is not None else ["txt2img"]
     result = None
