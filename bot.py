@@ -170,8 +170,12 @@ def _make_progress_bar(success: int, failed: int, total: int) -> str:
     return f"{bar}  `{done}/{total}`"
 
 
-def _format_diffuser_progress(tag: str) -> Optional[str]:
-    """Convert a PROGRESS tag from diffusers_worker into a Discord message string.
+def _format_diffuser_progress(tag: str, name: str = "") -> Optional[str]:
+    """Convert a PROGRESS tag from diffusers_worker into a single-bar Discord message.
+
+    Layout (two lines):
+        {name}正在準備中
+        📦[load] 🎨[step bar] 💾[encode]
 
     Stages (in order):
         STAGE:loading   — pipeline is being loaded from disk
@@ -179,20 +183,11 @@ def _format_diffuser_progress(tag: str) -> Optional[str]:
         STEP:n/t        — inference step n of t completed
         STAGE:encoding  — inference done, encoding the PNG
     """
+    header = f"**{name}正在準備中**" if name else "**正在準備中**"
     if tag == "STAGE:loading":
-        return (
-            "⏳ **生成中**\n"
-            "📦 載入模型⋯\n"
-            "⬜ 🎨 生成\n"
-            "⬜ 💾 儲存"
-        )
+        return f"{header}\n📦⏳ ⬛⬛⬛⬛⬛⬛⬛⬛ 💾⬛"
     if tag == "STAGE:ready":
-        return (
-            "⏳ **生成中**\n"
-            "✅ 載入完成\n"
-            "🎨 準備生成⋯\n"
-            "⬜ 💾 儲存"
-        )
+        return f"{header}\n📦✅ ⬛⬛⬛⬛⬛⬛⬛⬛ 💾⬛"
     if tag.startswith("STEP:"):
         parts = tag[5:].split("/")
         if len(parts) == 2:
@@ -200,21 +195,11 @@ def _format_diffuser_progress(tag: str) -> Optional[str]:
                 step, total = int(parts[0]), int(parts[1])
                 filled = "🟩" * step
                 empty = "⬛" * (total - step)
-                return (
-                    f"⏳ **生成中**\n"
-                    f"✅ 載入完成\n"
-                    f"🎨 生成中 {filled}{empty} `{step}/{total}`\n"
-                    f"⬜ 💾 儲存"
-                )
+                return f"{header}\n📦✅ {filled}{empty} 💾⬛  `{step}/{total}`"
             except ValueError:
                 pass
     if tag == "STAGE:encoding":
-        return (
-            "⏳ **生成中**\n"
-            "✅ 載入完成\n"
-            "✅ 生成完成\n"
-            "💾 儲存圖像⋯"
-        )
+        return f"{header}\n📦✅ 🟩🟩🟩🟩🟩🟩🟩🟩 💾⏳"
     return None
 
 intents = discord.Intents.default()
@@ -869,7 +854,7 @@ async def process_chat(
         if _IMAGE_BACKEND == "local_diffusers":
             try:
                 _chat_progress_msg = await channel.send(
-                    "⏳ **生成中**\n📦 載入模型⋯\n⬜ 🎨 生成\n⬜ 💾 儲存"
+                    _format_diffuser_progress("STAGE:loading", bot_name)
                 )
             except discord.HTTPException:
                 pass
@@ -879,7 +864,7 @@ async def process_chat(
         async def _chat_on_progress(tag: str) -> None:
             if _chat_progress_msg is None:
                 return
-            content = _format_diffuser_progress(tag)
+            content = _format_diffuser_progress(tag, bot_name)
             if not content:
                 return
             now = time.monotonic()
@@ -1985,11 +1970,12 @@ async def generate_cmd(ctx, *, prompt: str):
             if _cmd_thumb:
                 _cmd_ref_image = _cmd_thumb
                 break
+    _cmd_bot_name, *_ = load_character()
     _cmd_progress_msg = None
     if _IMAGE_BACKEND == "local_diffusers":
         try:
             _cmd_progress_msg = await ctx.send(
-                "⏳ **生成中**\n📦 載入模型⋯\n⬜ 🎨 生成\n⬜ 💾 儲存"
+                _format_diffuser_progress("STAGE:loading", _cmd_bot_name)
             )
         except discord.HTTPException:
             pass
@@ -1999,7 +1985,7 @@ async def generate_cmd(ctx, *, prompt: str):
     async def _cmd_on_progress(tag: str) -> None:
         if _cmd_progress_msg is None:
             return
-        content = _format_diffuser_progress(tag)
+        content = _format_diffuser_progress(tag, _cmd_bot_name)
         if not content:
             return
         now = time.monotonic()
