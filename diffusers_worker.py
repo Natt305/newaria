@@ -37,6 +37,7 @@ import inspect
 import io
 import json
 import os
+import pathlib
 import sys
 import threading
 import time as _time
@@ -84,22 +85,54 @@ def main() -> None:
     _progress("STAGE:loading")
     _log(f"Loading pipeline from {model_path!r} ...")
 
-    # ── Loading progress timer ────────────────────────────────────────────────
-    # from_pretrained() is a single blocking call with no built-in callbacks.
-    # Emit time-interpolated LOAD:frac tags every 500 ms so the Discord bar
-    # moves during the wait. Caps at 0.95 so we never overshoot before ready.
-    _load_estimated_s = float(os.environ.get("LOCAL_DIFFUSER_LOAD_SECONDS", "90"))
-    _load_done_event = threading.Event()
+    # ── Real loading progress via weight-file patching ────────────────────────
+    # Pre-scan the model dir to know total weight bytes, then patch
+    # safetensors.torch.load_file and torch.load so each completed file load
+    # advances the Discord bar by its real fraction of total model size.
+    _weight_exts = {".safetensors", ".bin"}
+    _weight_files: dict[str, int] = {
+        str(p.resolve()): p.stat().st_size
+        for p in pathlib.Path(model_path).rglob("*")
+        if p.suffix in _weight_exts
+    }
+    _total_bytes = sum(_weight_files.values()) or 1
+    _loaded = [0]  # mutable int shared across both patch closures
+    _log(f"Weight files: {len(_weight_files)} files, {_total_bytes // 1024**2} MB total")
 
-    def _loading_timer() -> None:
-        load_start = _time.monotonic()
-        while not _load_done_event.wait(timeout=0.5):
-            elapsed = _time.monotonic() - load_start
-            frac = min(elapsed / _load_estimated_s, 0.95)
-            _progress(f"LOAD:{frac:.3f}")
+    def _emit_load(filepath: str) -> None:
+        size = _weight_files.get(str(pathlib.Path(filepath).resolve()), 0)
+        if size:
+            _loaded[0] += size
+            _progress(f"LOAD:{min(_loaded[0] / _total_bytes, 0.99):.3f}")
 
-    _load_timer_thread = threading.Thread(target=_loading_timer, daemon=True)
-    _load_timer_thread.start()
+    # Patch safetensors (primary format for modern diffusers models)
+    _orig_st_load = None
+    _st_module = None
+    try:
+        import safetensors.torch as _st_module
+        _orig_st_load = _st_module.load_file
+
+        def _patched_st_load(filename, *args, **kwargs):
+            result = _orig_st_load(filename, *args, **kwargs)
+            _emit_load(str(filename))
+            return result
+
+        _st_module.load_file = _patched_st_load
+        _log("safetensors.torch.load_file patched for progress tracking.")
+    except ImportError:
+        _log("safetensors not available — load progress via torch.load only.")
+
+    # Patch torch.load as fallback for .bin files
+    _orig_torch_load = torch.load
+
+    def _patched_torch_load(f, *args, **kwargs):
+        result = _orig_torch_load(f, *args, **kwargs)
+        fname = f if isinstance(f, str) else getattr(f, "name", "")
+        if fname:
+            _emit_load(str(fname))
+        return result
+
+    torch.load = _patched_torch_load
 
     try:
         pipe = Flux2KleinPipeline.from_pretrained(
@@ -118,11 +151,12 @@ def main() -> None:
         pipe.vae.enable_slicing()
         _log("Pipeline loaded (attention slicing → sequential CPU offload → VAE tiling+slicing).")
     except Exception as exc:
-        _load_done_event.set()
         _fail(f"Pipeline load failed: {type(exc).__name__}: {exc}")
     finally:
-        _load_done_event.set()
-        _load_timer_thread.join(timeout=1.0)
+        # Always restore originals — even if from_pretrained raises
+        if _orig_st_load is not None and _st_module is not None:
+            _st_module.load_file = _orig_st_load
+        torch.load = _orig_torch_load
 
     # Flush CUDA cache and log available VRAM before inference
     try:

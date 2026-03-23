@@ -125,10 +125,6 @@ LOCAL_DIFFUSER_STEPS=4
 LOCAL_DIFFUSER_WIDTH=512
 LOCAL_DIFFUSER_HEIGHT=512
 
-# 模型載入時間估計（秒，預設 90）— 用於載入進度條插值，調整為你實際的載入速度
-# Estimated model load time in seconds (default 90) — tune to your actual load speed
-LOCAL_DIFFUSER_LOAD_SECONDS=90
-
 # img2img 強度，0.0–1.0（預設 0.75；越低越貼近參考圖，越高越自由發揮）
 # img2img strength, 0.0-1.0 (default 0.75; lower = closer to reference image)
 LOCAL_DIFFUSER_STRENGTH=0.75
