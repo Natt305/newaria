@@ -770,12 +770,18 @@ async def process_chat(
             if _has_kb_subject:
                 for _kb_entry in _kb_matches:
                     _kb_entry_id = _kb_entry.get("id")
-                    if _kb_entry_id:
-                        _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
-                        if _kb_thumb:
-                            _ref_images.append(_kb_thumb)
-                            if len(_ref_images) >= _MAX_REF_IMAGES:
-                                break
+                    _kb_title = _kb_entry.get("title", "?")
+                    if not _kb_entry_id:
+                        print(f"[Bot] KB entry {_kb_title!r} has no id — skipping")
+                        continue
+                    _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
+                    if _kb_thumb:
+                        _ref_images.append(_kb_thumb)
+                        print(f"[Bot] KB thumbnail loaded for {_kb_title!r} (id={_kb_entry_id})")
+                        if len(_ref_images) >= _MAX_REF_IMAGES:
+                            break
+                    else:
+                        print(f"[Bot] KB entry {_kb_title!r} (id={_kb_entry_id}) has no stored thumbnail — img2img unavailable for this subject")
             if _needs_char_ctx and len(_ref_images) < _MAX_REF_IMAGES:
                 char_count = database.get_character_image_count()
                 for i in range(1, char_count + 1):
