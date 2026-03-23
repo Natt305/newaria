@@ -729,6 +729,7 @@ async def enhance_image_prompt(
             system_prompt=system,
             model=DEFAULT_MODEL,
             context_images=reference_images if has_images else None,
+            max_tokens=2048,
         )
         if enhanced:
             enhanced = _THINK_RE.sub("", enhanced)
@@ -746,6 +747,7 @@ async def chat(
     system_prompt: str = "",
     model: str = DEFAULT_MODEL,
     context_images: Optional[list] = None,
+    max_tokens: int = 1024,
 ) -> tuple[str, Optional[str], bool]:
     """
     Send a chat request to Groq.
@@ -817,7 +819,7 @@ async def chat(
                 model=attempt_model,
                 messages=msgs_for_attempt,
                 temperature=0.8,
-                max_tokens=1024,
+                max_tokens=max_tokens,
             )
             text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
 
