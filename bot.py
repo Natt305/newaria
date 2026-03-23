@@ -170,50 +170,63 @@ def _make_progress_bar(success: int, failed: int, total: int) -> str:
 
 
 def _format_diffuser_progress(tag: str, name: str = "") -> Optional[str]:
-    """Convert a PROGRESS tag from diffusers_worker into a single-bar Discord message.
+    """Convert a PROGRESS tag from diffusers_worker into a single unified bar.
 
     Layout (two lines):
         {name}正在準備中
-        📦[load] 🎨[step bar] 💾[encode]
+        📦[icon] [━━━━━━━━━━━━━━━━━━━━] 💾[icon]  `label`
+
+    The 20-square bar is split into two halves that fill continuously left→right:
+        Squares  1-10  loading phase  (🟨 while loading, locked 🟩 once done)
+        Squares 11-20  inference phase (🟩 as diffusion steps complete)
 
     Stages (in order):
-        STAGE:loading   — pipeline is being loaded from disk
-        STAGE:ready     — model loaded, inference about to start
+        STAGE:loading   — pipeline loading not yet started
+        LOAD:frac       — loading in progress, frac in [0, 1)
+        STAGE:ready     — loading done, inference about to start
         STEP:n/t        — inference step n of t completed
         STAGE:encoding  — inference done, encoding the PNG
     """
-    BAR_WIDTH = 20
-    empty_bar = "⬛" * BAR_WIDTH
-    full_bar  = "🟩" * BAR_WIDTH
+    LOAD_W  = 10   # squares reserved for the loading phase
+    STEP_W  = 10   # squares reserved for the inference phase
     header = f"**{name}正在準備中**" if name else "**正在準備中**"
+
     if tag == "STAGE:loading":
-        return f"{header}\n📦⏳ {empty_bar} 💾⬛"
+        bar = "⬛" * (LOAD_W + STEP_W)
+        return f"{header}\n📦⏳ {bar} 💾⬛"
+
     if tag.startswith("LOAD:"):
         try:
             frac = max(0.0, min(1.0, float(tag[5:])))
-            filled_count = round(frac * BAR_WIDTH)
-            bar = "🟨" * filled_count + "⬛" * (BAR_WIDTH - filled_count)
+            filled = round(frac * LOAD_W)
+            bar = "🟨" * filled + "⬛" * (LOAD_W - filled) + "⬛" * STEP_W
             pct = int(frac * 100)
             return f"{header}\n📦⏳ {bar} 💾⬛  `{pct}%`"
         except ValueError:
             pass
+
     if tag == "STAGE:ready":
-        return f"{header}\n📦✅ {empty_bar} 💾⬛"
+        bar = "🟩" * LOAD_W + "⬛" * STEP_W
+        return f"{header}\n📦✅ {bar} 💾⬛"
+
     if tag.startswith("STEP:"):
         parts = tag[5:].split("/")
         if len(parts) == 2:
             try:
-                frac = float(parts[0])
+                frac  = float(parts[0])
                 total = int(parts[1])
-                filled_count = round(frac / total * BAR_WIDTH)
-                filled_count = max(0, min(BAR_WIDTH, filled_count))
-                bar = "🟩" * filled_count + "⬛" * (BAR_WIDTH - filled_count)
+                filled = round(frac / total * STEP_W)
+                filled = max(0, min(STEP_W, filled))
+                bar = "🟩" * LOAD_W + "🟩" * filled + "⬛" * (STEP_W - filled)
                 step_display = int(frac) if frac == int(frac) else f"{frac:.1f}"
                 return f"{header}\n📦✅ {bar} 💾⬛  `{step_display}/{total}`"
             except (ValueError, ZeroDivisionError):
                 pass
+
     if tag == "STAGE:encoding":
-        return f"{header}\n📦✅ {full_bar} 💾⏳"
+        bar = "🟩" * (LOAD_W + STEP_W)
+        return f"{header}\n📦✅ {bar} 💾⏳"
+
     return None
 
 intents = discord.Intents.default()
