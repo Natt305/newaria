@@ -1874,14 +1874,15 @@ async def addimage_cmd(
     await ctx.send(embed=embed)
 
 
-@bot.hybrid_command(name="generate", description="直接生成圖像 (Cloudflare 或本地 Diffusers)")
+@bot.hybrid_command(name="generate", description="直接生成圖像 (Cloudflare、HuggingFace Spaces 或本地 Diffusers)")
 @app_commands.describe(prompt="圖像提示詞 (英文效果最佳)")
 async def generate_cmd(ctx, *, prompt: str):
-    """生成圖像: !generate <提示詞> — 使用已設定的圖像後端 (Cloudflare 或本地 Diffusers)"""
+    """生成圖像: !generate <提示詞> — 使用已設定的圖像後端"""
     if not _image_ready():
         await ctx.reply(
             "❌ 圖像生成已禁用 — 未設定任何圖像生成後端。\n"
             "Cloudflare: 設定 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID`。\n"
+            "HuggingFace Spaces: 設定 `IMAGE_BACKEND=hf_spaces` 和 `HF_TOKEN=<妳的 HF 金鑰>`。\n"
             "本地 Diffusers: 設定 `IMAGE_BACKEND=local_diffusers` 和 `LOCAL_DIFFUSER_MODEL=<路徑>`。",
             mention_author=False,
         )

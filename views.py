@@ -3,11 +3,9 @@ Interactive Discord UI components for bot commands.
 Views and Modals used by command responses — NOT used for regular chat.
 """
 import io
-import os
 from typing import Optional
 import discord
 import database
-import cloudflare_ai
 import ai_backend as groq_ai
 import image_dispatch
 
