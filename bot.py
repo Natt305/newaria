@@ -739,27 +739,51 @@ async def process_chat(
             char_images_ctx = "\n\n".join(_ctx_parts)
         else:
             char_images_ctx = ""
-        # Collect reference thumbnails for the vision-assisted prompt rewriter.
-        # Cap at 3 images (KB subject thumbnails first, then char thumbnails).
+        # Collect reference thumbnails for img2img and the vision-assisted prompt
+        # rewriter.  Priority rule: the primary subject's images go first so that
+        # _ref_images[0] (used as the img2img seed) is always the correct one.
+        #   • Self-referential prompt  → character thumbnails first, KB after
+        #   • KB subject only          → KB thumbnails first, char after
         _ref_images: list = []
         _MAX_REF_IMAGES = 3
-        if _has_kb_subject:
-            for _kb_entry in _kb_matches:
-                _kb_entry_id = _kb_entry.get("id")
-                if _kb_entry_id:
-                    _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
-                    if _kb_thumb:
-                        _ref_images.append(_kb_thumb)
-                        if len(_ref_images) >= _MAX_REF_IMAGES:
-                            break
-        if _needs_char_ctx and len(_ref_images) < _MAX_REF_IMAGES:
-            char_count = database.get_character_image_count()
-            for i in range(1, char_count + 1):
-                thumb = database.get_character_image_thumb(i)
-                if thumb:
-                    _ref_images.append(thumb)
-                if len(_ref_images) >= _MAX_REF_IMAGES:
-                    break
+        if _is_self_ref:
+            # Bot's own character is the primary subject
+            if _needs_char_ctx:
+                char_count = database.get_character_image_count()
+                for i in range(1, char_count + 1):
+                    thumb = database.get_character_image_thumb(i)
+                    if thumb:
+                        _ref_images.append(thumb)
+                    if len(_ref_images) >= _MAX_REF_IMAGES:
+                        break
+            if _has_kb_subject and len(_ref_images) < _MAX_REF_IMAGES:
+                for _kb_entry in _kb_matches:
+                    _kb_entry_id = _kb_entry.get("id")
+                    if _kb_entry_id:
+                        _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
+                        if _kb_thumb:
+                            _ref_images.append(_kb_thumb)
+                            if len(_ref_images) >= _MAX_REF_IMAGES:
+                                break
+        else:
+            # KB subject is the primary subject (or no subject at all)
+            if _has_kb_subject:
+                for _kb_entry in _kb_matches:
+                    _kb_entry_id = _kb_entry.get("id")
+                    if _kb_entry_id:
+                        _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
+                        if _kb_thumb:
+                            _ref_images.append(_kb_thumb)
+                            if len(_ref_images) >= _MAX_REF_IMAGES:
+                                break
+            if _needs_char_ctx and len(_ref_images) < _MAX_REF_IMAGES:
+                char_count = database.get_character_image_count()
+                for i in range(1, char_count + 1):
+                    thumb = database.get_character_image_thumb(i)
+                    if thumb:
+                        _ref_images.append(thumb)
+                    if len(_ref_images) >= _MAX_REF_IMAGES:
+                        break
         # Run the LLM enhancement rewrite whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
         #   (b) character appearance context exists (self-referential prompt), OR
