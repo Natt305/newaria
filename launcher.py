@@ -117,4 +117,24 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import traceback
+    import datetime
+
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n[啟動器] 已停止。")
+    except Exception:
+        crash_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crash.log")
+        tb = traceback.format_exc()
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(crash_log, "a", encoding="utf-8") as f:
+            f.write(f"\n{'=' * 60}\n{timestamp}\n{'=' * 60}\n{tb}\n")
+        print("\n" + "=" * 60)
+        print("  !! 機器人發生錯誤並已停止 !!")
+        print("=" * 60)
+        print(tb)
+        print(f"完整錯誤已儲存至: {crash_log}")
+        print("=" * 60)
+    finally:
+        input("\n按 Enter 鍵關閉視窗...")  # keeps the window open on Windows
