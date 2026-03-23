@@ -729,7 +729,7 @@ async def enhance_image_prompt(
             system_prompt=system,
             model=DEFAULT_MODEL,
             context_images=reference_images if has_images else None,
-            max_tokens=2048,
+            max_tokens=4096,
         )
         if enhanced:
             enhanced = _THINK_RE.sub("", enhanced)
