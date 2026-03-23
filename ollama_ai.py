@@ -764,7 +764,7 @@ async def enhance_image_prompt(
             "Write: '[hue], [darkness statement — state NOT black/dark brown if that is the case], [weight]'. "
             "Example: 'cool greenish-grey lashes, NOT black or dark brown, moderate contrast, fine and delicate'.\n"
             "    • SKIN TONE: exact shade\n"
-            "    • OUTFIT: every garment piece with all 5 axes, joined by ' + '. "
+            "    • OUTFIT: every garment piece as '[exact-color] [type]; [detail, detail, ...]', joined by ' + '. "
             "When reading the photo, actively LOOK FOR and name these elements if present:\n"
             "      — Wide flared/circle-cut fabric hanging from the shoulders WITHOUT sleeves "
             "(not a coat — no sleeves, drapes freely) → this is a SHOULDER CAPE. Call it 'open-front [color] wide-hemmed shoulder cape'.\n"
