@@ -66,3 +66,26 @@ CF_IMAGE_MODEL=flux
 #sdxl
 #sdxl-lightning
 #dreamshaper
+
+# ================================================================
+#  本地 Diffusers 圖像生成（可選，替代 Cloudflare）
+#  Local Diffusers Image Generation (optional, alternative to Cloudflare)
+# ================================================================
+# 啟用本地後端：將 IMAGE_BACKEND 設為 local_diffusers
+# To enable local backend: set IMAGE_BACKEND to local_diffusers
+# 使用 Cloudflare 時保留 IMAGE_BACKEND=cloudflare（或不填）
+# To use Cloudflare: keep IMAGE_BACKEND=cloudflare (or leave blank)
+IMAGE_BACKEND=cloudflare
+
+# 本地模型資料夾路徑（IMAGE_BACKEND=local_diffusers 時必填）
+# Local model folder path (required when IMAGE_BACKEND=local_diffusers)
+# 例 / Example: LOCAL_DIFFUSER_MODEL=E:\Flux_Final
+LOCAL_DIFFUSER_MODEL=
+
+# 推理步數（預設 8，越高越慢但品質略提升）
+# Inference steps (default 8, higher = slower but slightly better quality)
+LOCAL_DIFFUSER_STEPS=8
+
+# img2img 強度，0.0-1.0（預設 0.75；越低越貼近原圖，越高越自由發揮）
+# img2img strength, 0.0-1.0 (default 0.75; lower = closer to reference)
+LOCAL_DIFFUSER_STRENGTH=0.75
