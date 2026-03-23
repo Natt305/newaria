@@ -899,6 +899,10 @@ async def process_chat(
         finally:
             if _chat_poller_task is not None:
                 _chat_poller_task.cancel()
+                try:
+                    await _chat_poller_task
+                except asyncio.CancelledError:
+                    pass
 
         if _chat_progress_msg is not None:
             try:
@@ -2024,6 +2028,10 @@ async def generate_cmd(ctx, *, prompt: str):
     finally:
         if _cmd_poller_task is not None:
             _cmd_poller_task.cancel()
+            try:
+                await _cmd_poller_task
+            except asyncio.CancelledError:
+                pass
 
     if _cmd_progress_msg is not None:
         try:

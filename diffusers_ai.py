@@ -148,7 +148,12 @@ async def _run_worker_async(
             line = line_bytes.decode("utf-8", errors="replace").rstrip()
             if line.startswith("PROGRESS:") and on_progress is not None:
                 tag = line[len("PROGRESS:"):]
-                asyncio.create_task(on_progress(tag))
+                async def _fire_progress(t: str = tag) -> None:
+                    try:
+                        await on_progress(t)
+                    except Exception as _cb_exc:
+                        print(f"[LocalDiffusers] on_progress callback error: {_cb_exc}")
+                asyncio.create_task(_fire_progress())
             else:
                 print(line)
 
