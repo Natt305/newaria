@@ -119,8 +119,8 @@ LOCAL_DIFFUSER_MODEL=
 # Inference steps (default 4, higher = slower but slightly better quality)
 LOCAL_DIFFUSER_STEPS=4
 
-# 輸出解析度（預設 512×768 直式，適合角色全身圖）
-# Output resolution (default 512×768 portrait, suits full-body character art)
+# 輸出解析度（預設 512×512 正方形）
+# Output resolution (default 512×512 square)
 # 必須是 64 的倍數 / Must be a multiple of 64
 LOCAL_DIFFUSER_WIDTH=512
 LOCAL_DIFFUSER_HEIGHT=512

@@ -68,12 +68,12 @@ def main() -> None:
     steps: int = int(payload.get("steps", 8))
     strength: float = float(payload.get("strength", 0.75))
     width: int = int(payload.get("width", 512))
-    height: int = int(payload.get("height", 768))
+    height: int = int(payload.get("height", 512))
 
     try:
         import torch
         from diffusers import Flux2KleinPipeline
-        from PIL import Image
+        from PIL import Image, ImageOps
     except ImportError as exc:
         _fail(f"Missing dependency: {exc}")
 
@@ -125,12 +125,12 @@ def main() -> None:
     if image_b64 and supports_image:
         try:
             img_bytes = base64.b64decode(image_b64)
-            init_image = (
-                Image.open(io.BytesIO(img_bytes))
-                .convert("RGB")
-                .resize((width, height))
-            )
-            _log(f"Reference image decoded — resized to {width}×{height}, mode {init_image.mode}.")
+            raw = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            # ImageOps.fit crops-to-fill the target size while preserving aspect
+            # ratio — avoids squashing a portrait reference into a square canvas.
+            init_image = ImageOps.fit(raw, (width, height), method=Image.LANCZOS)
+            _log(f"Reference image decoded — crop-fitted to {width}×{height} "
+                 f"(original {raw.width}×{raw.height}).")
         except Exception as exc:
             _log(f"Could not decode reference image ({exc}) — will use txt2img.")
 
