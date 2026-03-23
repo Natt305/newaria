@@ -93,7 +93,7 @@ def main() -> None:
     _weight_files: dict[str, int] = {
         str(p.resolve()): p.stat().st_size
         for p in pathlib.Path(model_path).rglob("*")
-        if p.suffix in _weight_exts
+        if p.suffix.lower() in _weight_exts
     }
     _total_bytes = sum(_weight_files.values()) or 1
     _loaded = [0]  # mutable int shared across both patch closures
@@ -127,9 +127,14 @@ def main() -> None:
 
     def _patched_torch_load(f, *args, **kwargs):
         result = _orig_torch_load(f, *args, **kwargs)
-        fname = f if isinstance(f, str) else getattr(f, "name", "")
+        if isinstance(f, (str, pathlib.Path)):
+            fname = str(f)
+        elif hasattr(f, "__fspath__"):
+            fname = os.fspath(f)
+        else:
+            fname = getattr(f, "name", "")
         if fname:
-            _emit_load(str(fname))
+            _emit_load(fname)
         return result
 
     torch.load = _patched_torch_load
