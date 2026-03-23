@@ -3,6 +3,7 @@ Interactive Discord UI components for bot commands.
 Views and Modals used by command responses — NOT used for regular chat.
 """
 import io
+import os
 from typing import Optional
 import discord
 import database
@@ -1292,7 +1293,15 @@ class GenerateView(discord.ui.View):
     @discord.ui.button(label="重新生成", style=discord.ButtonStyle.primary, emoji="🔄")
     async def regenerate(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(thinking=True)
-        result = await cloudflare_ai.generate_image(self.prompt)
+        _backend = os.environ.get("IMAGE_BACKEND", "cloudflare").lower()
+        if _backend == "local_diffusers":
+            import diffusers_ai as _diffusers_ai
+            result = await _diffusers_ai.generate_image(self.prompt)
+        elif _backend == "hf_spaces":
+            import hf_spaces_ai as _hf_spaces_ai
+            result = await _hf_spaces_ai.generate_image(self.prompt)
+        else:
+            result = await cloudflare_ai.generate_image(self.prompt)
         if result and result not in [("API_KEY_ERROR", ""), ("MODEL_ERROR", "")]:
             new_bytes, new_mime = result
             self.img_bytes = new_bytes

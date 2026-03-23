@@ -140,6 +140,8 @@ def _image_ready() -> bool:
     """True if any image generation backend is configured and ready."""
     if _IMAGE_BACKEND == "local_diffusers":
         return bool(os.environ.get("LOCAL_DIFFUSER_MODEL", "").strip())
+    if _IMAGE_BACKEND == "hf_spaces":
+        return bool(os.environ.get("HF_TOKEN", "").strip())
     return _cf_ready()
 
 
@@ -151,13 +153,16 @@ async def _generate_image(
 
     Args:
         prompt: The enriched Flux prompt string.
-        reference_image: Optional (bytes, mime) tuple passed to the local
-                         diffusers backend as the img2img init image.
+        reference_image: Optional (bytes, mime) tuple passed to backends
+                         that support img2img (local_diffusers, hf_spaces).
                          Ignored by the Cloudflare backend.
     """
     if _IMAGE_BACKEND == "local_diffusers":
         import diffusers_ai as _diffusers_ai
         return await _diffusers_ai.generate_image(prompt, reference_image=reference_image)
+    if _IMAGE_BACKEND == "hf_spaces":
+        import hf_spaces_ai as _hf_spaces_ai
+        return await _hf_spaces_ai.generate_image(prompt, reference_image=reference_image)
     return await cloudflare_ai.generate_image(prompt)
 
 
@@ -2677,6 +2682,8 @@ def main():
     if not _image_ready():
         if _IMAGE_BACKEND == "local_diffusers":
             print("[WARNING] IMAGE_BACKEND=local_diffusers 但 LOCAL_DIFFUSER_MODEL 未設定。圖像生成將被禁用。")
+        elif _IMAGE_BACKEND == "hf_spaces":
+            print("[WARNING] IMAGE_BACKEND=hf_spaces 但 HF_TOKEN 未設定。圖像生成將被禁用。")
         else:
             print("[WARNING] Cloudflare API 認證未設定。圖像生成將被禁用。")
 
@@ -2688,6 +2695,10 @@ def main():
     if _IMAGE_BACKEND == "local_diffusers":
         _local_model = os.environ.get("LOCAL_DIFFUSER_MODEL", "").strip()
         print(f"[Bot] 圖像後端: 本地 Diffusers — {'準備就緒 (' + _local_model + ')' if _local_model else '已禁用 (未設定 LOCAL_DIFFUSER_MODEL)'}")
+    elif _IMAGE_BACKEND == "hf_spaces":
+        _hf_space = os.environ.get("HF_SPACE_ID", "black-forest-labs/FLUX.2-klein-4B").strip()
+        _hf_ready = bool(os.environ.get("HF_TOKEN", "").strip())
+        print(f"[Bot] 圖像後端: HuggingFace Spaces ({_hf_space}) — {'準備就緒' if _hf_ready else '已禁用 (未設定 HF_TOKEN)'}")
     else:
         print(f"[Bot] 圖像後端: Cloudflare — {'準備就緒' if _cf_ready() else '已禁用'}")
     print("[Bot] 按 Ctrl+C 停止機器人。")

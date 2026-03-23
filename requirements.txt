@@ -22,3 +22,4 @@ google-genai
 groq
 Pillow
 requests
+gradio_client
