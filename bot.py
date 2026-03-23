@@ -188,6 +188,15 @@ def _format_diffuser_progress(tag: str, name: str = "") -> Optional[str]:
     header = f"**{name}正在準備中**" if name else "**正在準備中**"
     if tag == "STAGE:loading":
         return f"{header}\n📦⏳ {empty_bar} 💾⬛"
+    if tag.startswith("LOAD:"):
+        try:
+            frac = max(0.0, min(1.0, float(tag[5:])))
+            filled_count = round(frac * BAR_WIDTH)
+            bar = "🟨" * filled_count + "⬛" * (BAR_WIDTH - filled_count)
+            pct = int(frac * 100)
+            return f"{header}\n📦⏳ {bar} 💾⬛  `{pct}%`"
+        except ValueError:
+            pass
     if tag == "STAGE:ready":
         return f"{header}\n📦✅ {empty_bar} 💾⬛"
     if tag.startswith("STEP:"):

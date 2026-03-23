@@ -83,6 +83,24 @@ def main() -> None:
 
     _progress("STAGE:loading")
     _log(f"Loading pipeline from {model_path!r} ...")
+
+    # ── Loading progress timer ────────────────────────────────────────────────
+    # from_pretrained() is a single blocking call with no built-in callbacks.
+    # Emit time-interpolated LOAD:frac tags every 500 ms so the Discord bar
+    # moves during the wait. Caps at 0.95 so we never overshoot before ready.
+    _load_estimated_s = float(os.environ.get("LOCAL_DIFFUSER_LOAD_SECONDS", "90"))
+    _load_done_event = threading.Event()
+
+    def _loading_timer() -> None:
+        load_start = _time.monotonic()
+        while not _load_done_event.wait(timeout=0.5):
+            elapsed = _time.monotonic() - load_start
+            frac = min(elapsed / _load_estimated_s, 0.95)
+            _progress(f"LOAD:{frac:.3f}")
+
+    _load_timer_thread = threading.Thread(target=_loading_timer, daemon=True)
+    _load_timer_thread.start()
+
     try:
         pipe = Flux2KleinPipeline.from_pretrained(
             model_path,
@@ -100,7 +118,11 @@ def main() -> None:
         pipe.vae.enable_slicing()
         _log("Pipeline loaded (attention slicing → sequential CPU offload → VAE tiling+slicing).")
     except Exception as exc:
+        _load_done_event.set()
         _fail(f"Pipeline load failed: {type(exc).__name__}: {exc}")
+    finally:
+        _load_done_event.set()
+        _load_timer_thread.join(timeout=1.0)
 
     # Flush CUDA cache and log available VRAM before inference
     try:
