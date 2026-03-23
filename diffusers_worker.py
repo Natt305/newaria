@@ -75,7 +75,8 @@ def main() -> None:
         pipe.enable_model_cpu_offload()
         pipe.vae.enable_tiling()
         pipe.vae.enable_slicing()
-        _log("Pipeline loaded (VAE tiling + slicing enabled).")
+        pipe.enable_attention_slicing(1)
+        _log("Pipeline loaded (CPU offload, VAE tiling/slicing, attention slicing enabled).")
     except Exception as exc:
         _fail(f"Pipeline load failed: {type(exc).__name__}: {exc}")
 
@@ -109,6 +110,10 @@ def main() -> None:
             if supports_strength:
                 kw["strength"] = strength
         return kw
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        _log(f"CUDA cache cleared — free VRAM: {torch.cuda.mem_get_info()[0] // 1024**2} MB")
 
     modes = ["img2img", "txt2img"] if init_image is not None else ["txt2img"]
     result = None
