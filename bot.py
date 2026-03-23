@@ -138,11 +138,8 @@ _IMAGE_BACKEND = os.environ.get("IMAGE_BACKEND", "cloudflare").lower()
 
 def _image_ready() -> bool:
     """True if any image generation backend is configured and ready."""
-    if _IMAGE_BACKEND == "local_diffusers":
-        return bool(os.environ.get("LOCAL_DIFFUSER_MODEL", "").strip())
-    if _IMAGE_BACKEND == "hf_spaces":
-        return bool(os.environ.get("HF_TOKEN", "").strip())
-    return _cf_ready()
+    import image_dispatch as _dispatch
+    return _dispatch.image_ready()
 
 
 async def _generate_image(
@@ -157,13 +154,8 @@ async def _generate_image(
                          that support img2img (local_diffusers, hf_spaces).
                          Ignored by the Cloudflare backend.
     """
-    if _IMAGE_BACKEND == "local_diffusers":
-        import diffusers_ai as _diffusers_ai
-        return await _diffusers_ai.generate_image(prompt, reference_image=reference_image)
-    if _IMAGE_BACKEND == "hf_spaces":
-        import hf_spaces_ai as _hf_spaces_ai
-        return await _hf_spaces_ai.generate_image(prompt, reference_image=reference_image)
-    return await cloudflare_ai.generate_image(prompt)
+    import image_dispatch as _dispatch
+    return await _dispatch.generate_image(prompt, reference_image=reference_image)
 
 
 def _make_progress_bar(success: int, failed: int, total: int) -> str:
@@ -823,7 +815,7 @@ async def process_chat(
             result, comment = await asyncio.gather(
                 _generate_image(
                     enriched_prompt,
-                    _ref_images[0] if _IMAGE_BACKEND == "local_diffusers" and _ref_images else None,
+                    _ref_images[0] if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images else None,
                 ),
                 groq_ai.generate_image_comment(
                     image_prompt, bot_name, background, user_text, history=history
@@ -1899,7 +1891,7 @@ async def generate_cmd(ctx, *, prompt: str):
 
     enriched_prompt, kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(prompt)
     _cmd_ref_image = None
-    if _IMAGE_BACKEND == "local_diffusers" and kb_matches:
+    if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and kb_matches:
         for _cmd_entry in kb_matches:
             _cmd_thumb = database.get_kb_image_thumb(_cmd_entry.get("id") or 0)
             if _cmd_thumb:
