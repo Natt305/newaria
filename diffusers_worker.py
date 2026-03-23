@@ -173,12 +173,31 @@ def main() -> None:
         pass
 
     call_params = set(inspect.signature(pipe.__call__).parameters.keys())
-    supports_image = "image" in call_params
-    supports_strength = "strength" in call_params
+    supports_image    = "image"             in call_params
+    supports_strength = "strength"          in call_params
+    supports_neg      = "negative_prompt"   in call_params
     supports_step_end_cb = "callback_on_step_end" in call_params
-    supports_legacy_cb = "callback" in call_params
+    supports_legacy_cb   = "callback"             in call_params
     _log(f"Accepted params — image={supports_image}, strength={supports_strength}, "
+         f"negative_prompt={supports_neg}, "
          f"callback_on_step_end={supports_step_end_cb}, callback={supports_legacy_cb}")
+
+    # ── Anatomy quality boosters ──────────────────────────────────────────────
+    # Appended to every positive prompt to guide the model toward correct limb
+    # and hand anatomy. Kept as a suffix so the user's own prompt tokens retain
+    # highest weight.
+    _ANATOMY_SUFFIX = (
+        ", perfect anatomy, correct arms, well-drawn hands, "
+        "five fingers, proper limbs, symmetrical body"
+    )
+    # Applied as negative prompt when the pipeline supports it (FLUX-based
+    # models often do not, in which case supports_neg is False and this is skipped).
+    _ANATOMY_NEGATIVE = (
+        "bad anatomy, missing arms, extra arms, deformed arms, "
+        "missing hands, extra hands, fused fingers, missing fingers, "
+        "extra fingers, malformed hands, mutated hands, "
+        "extra limbs, missing limbs, poorly drawn hands"
+    )
 
     _progress("STAGE:ready")
 
@@ -229,11 +248,13 @@ def main() -> None:
 
     def make_kwargs(use_image: bool) -> dict:
         kw = {
-            "prompt": prompt,
+            "prompt": prompt + _ANATOMY_SUFFIX,
             "num_inference_steps": steps,
             "width": width,
             "height": height,
         }
+        if supports_neg:
+            kw["negative_prompt"] = _ANATOMY_NEGATIVE
         if use_image and init_image is not None:
             kw["image"] = init_image
             if supports_strength:
