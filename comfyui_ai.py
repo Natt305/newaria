@@ -278,8 +278,32 @@ def _run_generate(
         print(f"[ComfyUI] Job queued — prompt_id={prompt_id}")
 
         deadline = time.time() + timeout
+        last_log = time.time()
+        poll_interval = 2
         while time.time() < deadline:
-            time.sleep(1)
+            time.sleep(poll_interval)
+
+            now = time.time()
+            if now - last_log >= 15:
+                elapsed = int(now - (deadline - timeout))
+                try:
+                    q_resp = _requests.get(f"{base_url}/queue", timeout=5)
+                    if q_resp.status_code == 200:
+                        q = q_resp.json()
+                        running = [e for e in q.get("queue_running", []) if len(e) > 1 and e[1] == prompt_id]
+                        pending = [e for e in q.get("queue_pending", []) if len(e) > 1 and e[1] == prompt_id]
+                        if running:
+                            print(f"[ComfyUI] Still generating… ({elapsed}s elapsed, job is running)")
+                        elif pending:
+                            print(f"[ComfyUI] Still waiting… ({elapsed}s elapsed, job is queued)")
+                        else:
+                            print(f"[ComfyUI] Still waiting… ({elapsed}s elapsed)")
+                    else:
+                        print(f"[ComfyUI] Still waiting… ({elapsed}s elapsed)")
+                except Exception:
+                    print(f"[ComfyUI] Still waiting… ({elapsed}s elapsed)")
+                last_log = now
+
             hist_resp = _requests.get(f"{base_url}/history/{prompt_id}", timeout=10)
             if hist_resp.status_code != 200:
                 continue
