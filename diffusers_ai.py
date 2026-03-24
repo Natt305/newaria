@@ -3,8 +3,15 @@ Local image generation backend using HuggingFace diffusers Flux2KleinPipeline.
 Activated by setting IMAGE_BACKEND=local_diffusers in the environment.
 
 Required env vars:
-    LOCAL_DIFFUSER_MODEL     Path to the model directory (e.g. E:\Flux_Final). Required.
-    LOCAL_DIFFUSER_STEPS     Number of inference steps. Default: 8.
+    LOCAL_DIFFUSER_MODEL     Path to the base model directory (text encoders,
+                             VAE, scheduler). Required in all modes.
+    LOCAL_DIFFUSER_GGUF      (Optional) Full path to a .gguf quantised
+                             transformer file.  When set the transformer is
+                             loaded from this GGUF file and the rest of the
+                             pipeline (text encoders, VAE) comes from
+                             LOCAL_DIFFUSER_MODEL.  When empty the existing
+                             full safetensors directory is used unchanged.
+    LOCAL_DIFFUSER_STEPS     Number of inference steps. Default: 4.
     LOCAL_DIFFUSER_STRENGTH  img2img strength (0.0–1.0). Default: 0.75.
 
 The pipeline runs in a separate subprocess (diffusers_worker.py) so any GPU
@@ -53,6 +60,8 @@ async def generate_image(
         print("[LocalDiffusers] LOCAL_DIFFUSER_MODEL is not set — cannot generate.")
         return None
 
+    gguf_path = os.environ.get("LOCAL_DIFFUSER_GGUF", "").strip()
+
     try:
         steps = int(os.environ.get("LOCAL_DIFFUSER_STEPS", "4"))
     except ValueError:
@@ -85,6 +94,9 @@ async def generate_image(
         "height": height,
     }
 
+    if gguf_path:
+        payload["gguf_path"] = gguf_path
+
     if reference_image is not None:
         try:
             img_bytes, _mime = reference_image
@@ -93,7 +105,8 @@ async def generate_image(
             print(f"[LocalDiffusers] Could not encode reference image ({exc}); using txt2img.")
 
     mode = "img2img" if "image_b64" in payload else "txt2img"
-    print(f"[LocalDiffusers] Spawning worker — mode={mode} — prompt: {prompt[:100]!r}")
+    load_mode = f"GGUF ({gguf_path})" if gguf_path else "safetensors"
+    print(f"[LocalDiffusers] Spawning worker — load={load_mode} mode={mode} — prompt: {prompt[:100]!r}")
 
     worker_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "diffusers_worker.py"

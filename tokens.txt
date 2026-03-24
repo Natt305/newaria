@@ -72,9 +72,9 @@ CF_IMAGE_MODEL=flux
 #  選項 / Options:
 #    cloudflare      — Cloudflare Workers AI Flux 1 Schnell（需填入上方 Cloudflare 金鑰）
 #    hf_spaces       — HuggingFace Spaces FLUX.2-klein-4B（需填入下方 HF_TOKEN）
-#    local_diffusers — 本機 Diffusers（需填入下方 LOCAL_DIFFUSER_MODEL）
+#    local_diffusers — 本機 Diffusers / GGUF（需填入下方 LOCAL_DIFFUSER_MODEL）
 # ================================================================
-IMAGE_BACKEND=cloudflare
+IMAGE_BACKEND=local_diffusers
 
 # ================================================================
 #  HuggingFace Spaces 圖像生成（IMAGE_BACKEND=hf_spaces 時使用）
@@ -104,16 +104,25 @@ HF_GUIDANCE=1
 # HF_MODE=Distilled (4 steps)
 
 # ================================================================
-#  本地 Diffusers 圖像生成（可選，替代 Cloudflare）
-#  Local Diffusers Image Generation (optional, alternative to Cloudflare)
+#  本地 Diffusers 圖像生成（IMAGE_BACKEND=local_diffusers 時使用）
+#  Local Diffusers Image Generation (used when IMAGE_BACKEND=local_diffusers)
 # ================================================================
-# 啟用本地後端：將 IMAGE_BACKEND 設為 local_diffusers
-# To enable local backend: set IMAGE_BACKEND to local_diffusers
 
-# 本地模型資料夾路徑（IMAGE_BACKEND=local_diffusers 時必填）
-# Local model folder path (required when IMAGE_BACKEND=local_diffusers)
+# 本地模型資料夾路徑（文字編碼器、VAE、排程器所在目錄）
+# Local model folder path (directory containing text encoders, VAE, scheduler)
 # 例 / Example: LOCAL_DIFFUSER_MODEL=E:\Flux_Final
-LOCAL_DIFFUSER_MODEL=
+LOCAL_DIFFUSER_MODEL=E:\Flux_Final
+
+# ── GGUF 量化模型（可選）/ GGUF Quantised Model (optional) ──────────────────
+# 填入 GGUF 檔案的完整路徑，留空則使用上方資料夾中的 safetensors 原始權重。
+# Set to the full path of the .gguf file to load the transformer from a
+# quantised checkpoint. Leave blank to use the full safetensors weights in
+# LOCAL_DIFFUSER_MODEL instead.
+# LOCAL_DIFFUSER_MODEL 仍需填入完整模型資料夾（文字編碼器與 VAE 仍從該資料夾讀取）。
+# LOCAL_DIFFUSER_MODEL must still point to the base model directory — the text
+# encoders and VAE are always loaded from there regardless of this setting.
+# 例 / Example:
+LOCAL_DIFFUSER_GGUF=E:\Flux_Final\quantized\flux-2-klein-4b-Q5_K_M.gguf
 
 # 推理步數（預設 4，越高越慢但品質略提升）
 # Inference steps (default 4, higher = slower but slightly better quality)
