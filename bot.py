@@ -153,10 +153,10 @@ async def _generate_image(
     Args:
         prompt: The enriched Flux prompt string.
         reference_image: Optional (bytes, mime) tuple passed to backends
-                         that support img2img (local_diffusers, hf_spaces).
+                         that support img2img (local_diffusers, hf_spaces, comfyui).
                          Ignored by the Cloudflare backend.
         on_progress: Optional async callable(tag: str) for live progress
-                     updates. Only used by the local_diffusers backend.
+                     updates. Only used by the local_diffusers and comfyui backends.
     """
     import image_dispatch as _dispatch
     return await _dispatch.generate_image(
@@ -2195,7 +2195,7 @@ async def generate_cmd(ctx, *, prompt: str):
     _cmd_bot_name, *_ = load_character()
     _cmd_ref_images: list = []
     _cmd_ref_labels: list = []
-    if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces"):
+    if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces", "comfyui"):
         # Collect one thumbnail per matched KB entry (ordered by match priority)
         for _cmd_entry in kb_matches:
             _cmd_entry_title = _cmd_entry.get("title", "")
