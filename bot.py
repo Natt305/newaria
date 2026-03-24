@@ -165,40 +165,44 @@ async def _generate_image(
 
 def _composite_reference_images(
     ref_images: list,
-    target_w: int = 512,
-    target_h: int = 512,
-) -> Optional[tuple]:
-    """Tile multiple reference images side-by-side into one composite.
+    labels: Optional[list] = None,
+) -> Optional[object]:
+    """Tile multiple reference thumbnails into a raw wide horizontal strip.
 
-    When the img2img backends (local_diffusers, hf_spaces) receive a reference
-    image they use it as the visual starting point.  Passing a tiled composite
-    of all relevant subject thumbnails (char + KB entries) gives the model
-    simultaneous visual context from every source rather than just the first.
+    Each cell is exactly 512×512 (crop-filled, never stretched). The strip is
+    sent to the pipeline at its natural wide size; the diffusion model resizes
+    it internally to the output dimensions and uses it as a compositional prior
+    so it understands how many subjects to place in the frame.
 
     Args:
         ref_images: List of (bytes, mime_type) tuples from database thumbnails.
-        target_w/h: Final composite is resized to this size (default 512×512)
-                    so the worker receives a consistent input regardless of how
-                    many sources were tiled.
+        labels:     Optional list of subject names, one per image, used to
+                    stamp a text label in the top-left of each cell.
 
     Returns:
-        (jpeg_bytes, "image/jpeg") on success.
-        Falls back to ref_images[0] as-is if PIL is unavailable or on error.
+        Single image → (bytes, mime) tuple unchanged.
+        Multi image  → dict {"image": (bytes, "image/jpeg"), "layout": [str, …]}
+        Falls back to ref_images[0] bare tuple on any error.
     """
     if not ref_images:
         return None
     if len(ref_images) == 1:
         return ref_images[0]
     try:
-        from PIL import Image
+        from PIL import Image, ImageDraw, ImageFont, ImageOps
         import io as _io
 
-        frames: list[Image.Image] = []
-        for img_bytes, _mime in ref_images:
+        CELL = 512
+        frames: list = []
+        valid_labels: list = []
+        for idx, (img_bytes, _mime) in enumerate(ref_images):
             try:
-                frames.append(Image.open(_io.BytesIO(img_bytes)).convert("RGB"))
+                raw = Image.open(_io.BytesIO(img_bytes)).convert("RGB")
+                cell = ImageOps.fit(raw, (CELL, CELL), Image.LANCZOS)
+                frames.append(cell)
+                valid_labels.append(labels[idx] if labels and idx < len(labels) else "")
             except Exception as e:
-                print(f"[Bot] Composite: skipping unreadable thumbnail — {e}")
+                print(f"[Bot] Composite: skipping unreadable thumbnail [{idx}] — {e}")
 
         if not frames:
             return ref_images[0]
@@ -207,35 +211,65 @@ def _composite_reference_images(
             frames[0].save(buf, format="JPEG", quality=90)
             return (buf.getvalue(), "image/jpeg")
 
-        # Resize all frames to the same height so they tile cleanly.
-        strip_h = target_h
-        resized = [
-            f.resize(
-                (round(f.width * strip_h / f.height), strip_h),
-                Image.LANCZOS,
-            )
-            for f in frames
-        ]
-        total_w = sum(f.width for f in resized)
-        canvas = Image.new("RGB", (total_w, strip_h))
-        x = 0
-        for f in resized:
-            canvas.paste(f, (x, 0))
-            x += f.width
+        # Build wide strip — each cell stays at full 512×512, no squeeze.
+        n = len(frames)
+        canvas = Image.new("RGB", (n * CELL, CELL))
+        for i, frame in enumerate(frames):
+            canvas.paste(frame, (i * CELL, 0))
 
-        # Resize the wide strip back to the target square.
-        composite = canvas.resize((target_w, target_h), Image.LANCZOS)
+        # Stamp subject name in the top-left of each cell.
+        draw = ImageDraw.Draw(canvas, "RGBA")
+        try:
+            font = ImageFont.load_default(size=20)
+        except TypeError:
+            font = ImageFont.load_default()
+        for i, label in enumerate(valid_labels):
+            if not label:
+                continue
+            x0 = i * CELL + 6
+            y0 = 6
+            # Measure text bounding box
+            bbox = draw.textbbox((x0, y0), label, font=font)
+            pad = 4
+            draw.rectangle(
+                (bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad),
+                fill=(0, 0, 0, 160),
+            )
+            draw.text((x0, y0), label, fill=(255, 255, 255, 255), font=font)
+
         buf = _io.BytesIO()
-        composite.save(buf, format="JPEG", quality=90)
+        canvas.save(buf, format="JPEG", quality=90)
         print(
-            f"[Bot] Composite: tiled {len(frames)} reference images "
-            f"({total_w}×{strip_h} → {target_w}×{target_h})"
+            f"[Bot] Composite: {n} subjects → {n * CELL}×{CELL} strip"
+            + (f" — {valid_labels}" if any(valid_labels) else "")
         )
-        return (buf.getvalue(), "image/jpeg")
+        return {"image": (buf.getvalue(), "image/jpeg"), "layout": valid_labels}
 
     except Exception as exc:
         print(f"[Bot] Composite reference image failed ({exc}) — falling back to first image only.")
         return ref_images[0]
+
+
+def _build_spatial_prefix(labels: list) -> str:
+    """Map a left-to-right list of subject names to a positional prompt prefix.
+
+    Examples:
+        2 → "(left) Alice, (right) Aria"
+        3 → "(left) Alice, (center) Aria, (right) Bob"
+        4 → "(far-left) A, (center-left) B, (center-right) C, (far-right) D"
+        5 → "(far-left) A, (left) B, (center) C, (right) D, (far-right) E"
+    """
+    positions = {
+        1: ["center"],
+        2: ["left", "right"],
+        3: ["left", "center", "right"],
+        4: ["far-left", "center-left", "center-right", "far-right"],
+        5: ["far-left", "left", "center", "right", "far-right"],
+    }
+    n = len(labels)
+    pos = positions.get(n, [f"position-{i+1}" for i in range(n)])
+    parts = [f"({p}) {lbl}" for p, lbl in zip(pos, labels) if lbl]
+    return ", ".join(parts)
 
 
 def _make_progress_bar(success: int, failed: int, total: int) -> str:
@@ -884,7 +918,8 @@ async def process_chat(
         #   • Self-referential prompt  → character thumbnails first, KB after
         #   • KB subject only          → KB thumbnails first, char after
         _ref_images: list = []
-        _MAX_REF_IMAGES = 3
+        _ref_labels: list = []   # parallel subject names for composite labels
+        _MAX_REF_IMAGES = 5
         if _is_self_ref:
             # Bot's own character is the primary subject
             if _needs_char_ctx:
@@ -893,6 +928,7 @@ async def process_chat(
                     thumb = database.get_character_image_thumb(i)
                     if thumb:
                         _ref_images.append(thumb)
+                        _ref_labels.append(bot_name)
                     if len(_ref_images) >= _MAX_REF_IMAGES:
                         break
             if _has_kb_subject and len(_ref_images) < _MAX_REF_IMAGES:
@@ -902,6 +938,7 @@ async def process_chat(
                         _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
                         if _kb_thumb:
                             _ref_images.append(_kb_thumb)
+                            _ref_labels.append(_kb_entry.get("title", ""))
                             if len(_ref_images) >= _MAX_REF_IMAGES:
                                 break
         else:
@@ -916,6 +953,7 @@ async def process_chat(
                     _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
                     if _kb_thumb:
                         _ref_images.append(_kb_thumb)
+                        _ref_labels.append(_kb_title)
                         print(f"[Bot] KB thumbnail loaded for {_kb_title!r} (id={_kb_entry_id})")
                         if len(_ref_images) >= _MAX_REF_IMAGES:
                             break
@@ -927,8 +965,26 @@ async def process_chat(
                     thumb = database.get_character_image_thumb(i)
                     if thumb:
                         _ref_images.append(thumb)
+                        _ref_labels.append(bot_name)
                     if len(_ref_images) >= _MAX_REF_IMAGES:
                         break
+        # Build composite reference image and compute spatial layout prefix.
+        # Done before enhance_image_prompt so the LLM rewriter sees the
+        # left/right subject ordering in the prompt it is expanding.
+        _comp = (
+            _composite_reference_images(_ref_images, _ref_labels)
+            if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images
+            else None
+        )
+        if isinstance(_comp, dict):
+            _ref_image_for_gen = _comp["image"]
+            _spatial_prefix = _build_spatial_prefix(_comp["layout"])
+        else:
+            _ref_image_for_gen = _comp   # None or bare (bytes, mime) for single image
+            _spatial_prefix = ""
+        if _spatial_prefix:
+            enriched_prompt = _spatial_prefix + " — " + enriched_prompt
+
         # Run the LLM enhancement rewrite whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
         #   (b) character appearance context exists (self-referential prompt), OR
@@ -943,7 +999,7 @@ async def process_chat(
                 subject_references=_kb_subject_refs if _kb_subject_refs else None,
                 reference_images=_ref_images if _ref_images else None,
             )
-            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)})")
+            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, spatial={_spatial_prefix!r})")
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
@@ -990,7 +1046,7 @@ async def process_chat(
                 result, comment = await asyncio.gather(
                     _generate_image(
                         enriched_prompt,
-                        _composite_reference_images(_ref_images) if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images else None,
+                        _ref_image_for_gen,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
                     ),
                     groq_ai.generate_image_comment(
@@ -2080,25 +2136,37 @@ async def generate_cmd(ctx, *, prompt: str):
     await ctx.defer()
 
     enriched_prompt, kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(prompt)
+    _cmd_bot_name, *_ = load_character()
     _cmd_ref_images: list = []
+    _cmd_ref_labels: list = []
     if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces"):
         # Collect one thumbnail per matched KB entry (ordered by match priority)
         for _cmd_entry in kb_matches:
             _cmd_thumb = database.get_kb_image_thumb(_cmd_entry.get("id") or 0)
             if _cmd_thumb:
                 _cmd_ref_images.append(_cmd_thumb)
+                _cmd_ref_labels.append(_cmd_entry.get("title", ""))
+            if len(_cmd_ref_images) >= 5:
+                break
         # If the prompt mentions the bot itself (self-referential), also include
-        # character thumbnails so the composite covers all referenced subjects.
+        # one character thumbnail so the composite covers all referenced subjects.
         _cmd_is_self_ref = await groq_ai.is_self_referential_image(prompt)
-        if _cmd_is_self_ref:
+        if _cmd_is_self_ref and len(_cmd_ref_images) < 5:
             _cmd_char_count = database.get_character_image_count()
             for _i in range(1, _cmd_char_count + 1):
                 _cmd_char_thumb = database.get_character_image_thumb(_i)
                 if _cmd_char_thumb:
                     _cmd_ref_images.append(_cmd_char_thumb)
+                    _cmd_ref_labels.append(_cmd_bot_name)
                     break  # one character reference is enough
-    _cmd_ref_image = _composite_reference_images(_cmd_ref_images) if _cmd_ref_images else None
-    _cmd_bot_name, *_ = load_character()
+    _cmd_comp = _composite_reference_images(_cmd_ref_images, _cmd_ref_labels) if _cmd_ref_images else None
+    if isinstance(_cmd_comp, dict):
+        _cmd_ref_image = _cmd_comp["image"]
+        _cmd_spatial = _build_spatial_prefix(_cmd_comp["layout"])
+        if _cmd_spatial:
+            enriched_prompt = _cmd_spatial + " — " + enriched_prompt
+    else:
+        _cmd_ref_image = _cmd_comp   # None or bare (bytes, mime)
     _cmd_progress_msg = None
     _cmd_poller_task = None
     if _IMAGE_BACKEND == "local_diffusers":
