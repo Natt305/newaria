@@ -166,18 +166,18 @@ COMFYUI_VAE=flux2-vae.safetensors
 
 # 第一文字編碼器（DualCLIPLoaderGGUF 的 clip_name1）
 # First text encoder (clip_name1 for DualCLIPLoaderGGUF)
-# FLUX.2-klein-4B 使用 T5-XXL 作為第一編碼器
-# FLUX.2-klein-4B uses T5-XXL as the first encoder
-# 下載自 / Download from: https://huggingface.co/Comfy-Org/flux2-klein-4B/tree/main/split_files/text_encoders
-# 例 / Example:
-COMFYUI_CLIP=t5xxl_fp8_e4m3fn.safetensors
+# FLUX.2-klein-4B 仍需 CLIP-L 作為第一編碼器（與標準 FLUX 相同）
+# FLUX.2-klein-4B still needs CLIP-L as the first encoder (same as standard FLUX)
+# 若缺少此檔，請從以下位置下載：
+# If missing, download from:
+#   https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors
+# 存放至 ComfyUI 的 models/text_encoders/ 目錄
+# Place in ComfyUI's models/text_encoders/ directory
+COMFYUI_CLIP=clip_l.safetensors
 
-# 第二文字編碼器（DualCLIPLoaderGGUF 的 clip_name2）
-# Second text encoder (clip_name2 for DualCLIPLoaderGGUF)
-# FLUX.2-klein-4B 使用 Qwen-3-4B 取代 T5-XXL 作為第二編碼器
-# FLUX.2-klein-4B uses Qwen-3-4B in place of T5-XXL as the second encoder
+# 第二文字編碼器：Qwen-3-4B 取代標準 FLUX 的 T5-XXL
+# Second text encoder: Qwen-3-4B replaces the T5-XXL used by standard FLUX
 # 下載自 / Download from: https://huggingface.co/Comfy-Org/flux2-klein-4B/tree/main/split_files/text_encoders
-# 例 / Example:
 COMFYUI_CLIP2=qwen_3_4b.safetensors
 
 # 推理步數（預設 4）/ Inference steps (default: 4)

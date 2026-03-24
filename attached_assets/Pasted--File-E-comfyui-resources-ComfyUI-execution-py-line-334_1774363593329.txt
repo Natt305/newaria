@@ -1,0 +1,83 @@
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 334, in get_output_data
+    return_values = await _async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=
+execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 308, in _async_map_node_over_list
+    await process_inputs(input_dict, i)
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 296, in process_inputs
+    result = f(**inputs)
+  File "E:\comfyui\resources\ComfyUI\nodes.py", line 80, in encode
+    return (clip.encode_from_tokens_scheduled(tokens), )
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\sd.py", line 313, in encode_from_tokens_scheduled
+    pooled_dict = self.encode_from_tokens(tokens, return_pooled=return_pooled, return_dict=True)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd.py", line 377, in encode_from_tokens
+    o = self.cond_stage_model.encode_token_weights(tokens)
+  File "E:\comfyui\resources\ComfyUI\comfy\text_encoders\flux.py", line 57, in encode_token_weights
+    l_out, l_pooled = self.clip_l.encode_token_weights(token_weight_pairs_l)
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 45, in encode_token_weights
+    o = self.encode(to_encode)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 306, in encode
+    return self(tokens)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 279, in forward
+    outputs = self.transformer(None, attention_mask_model, embeds=embeds, num_tokens=num_tokens, intermediate_output=intermediate_output, final_layer_
+norm_intermediate=self.layer_norm_hidden_state, dtype=torch.float32, embeds_info=embeds_info)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\clip_model.py", line 208, in forward
+    x = self.text_model(*args, **kwargs)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\clip_model.py", line 181, in forward
+    x, i = self.encoder(x, mask=mask, intermediate_output=intermediate_output)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\clip_model.py", line 127, in forward
+    x = l(x, mask, optimized_attention)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\clip_model.py", line 104, in forward
+    x += self.self_attn(self.layer_norm1(x), mask, optimized_attention)
+         ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\clip_model.py", line 70, in forward
+    q = self.q_proj(x)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 392, in forward
+    return self.forward_comfy_cast_weights(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-GGUF\ops.py", line 217, in forward_comfy_cast_weights
+    out = super().forward_comfy_cast_weights(input, *args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 384, in forward_comfy_cast_weights
+    weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True)
+                                   ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 230, in cast_bias_weight
+    if offloadable and (device != s.weight.device or
