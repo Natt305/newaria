@@ -3,28 +3,34 @@ ComfyUI image generation backend using FLUX.2-klein-4B GGUF via city96's ComfyUI
 Activated by setting IMAGE_BACKEND=comfyui in the environment.
 
 Required env vars:
-    COMFYUI_GGUF     Full path to the GGUF model file (e.g. flux-2-klein-4b-Q5_K_M.gguf).
-    COMFYUI_VAE      VAE model filename as known to ComfyUI (e.g. ae.safetensors).
-    COMFYUI_CLIP     CLIP model filename as known to ComfyUI (e.g. t5xxl_fp8_e4m3fn.safetensors).
+    COMFYUI_GGUF     GGUF filename as known to ComfyUI (e.g. flux-2-klein-4b-Q5_K_M.gguf).
+    COMFYUI_VAE      VAE filename as known to ComfyUI (e.g. flux2-vae.safetensors).
+    COMFYUI_CLIP     Text-encoder filename as known to ComfyUI (e.g. qwen_3_4b.safetensors).
 
 Optional env vars:
     COMFYUI_URL      ComfyUI server address (default: http://127.0.0.1:8188).
     COMFYUI_STEPS    Number of inference steps (default: 4).
     COMFYUI_WIDTH    Output width in pixels (default: 512).
     COMFYUI_HEIGHT   Output height in pixels (default: 512).
-    COMFYUI_STRENGTH img2img denoise strength, 0.0–1.0 (default: 0.75).
+    COMFYUI_STRENGTH img2img denoise strength, 0.0-1.0 (default: 0.75).
     COMFYUI_WORKFLOW Path to a custom workflow JSON file (overrides built-in template).
     COMFYUI_TIMEOUT  Max seconds to wait for job completion (default: 300).
+
+Progress reporting:
+    ComfyUI's plain HTTP API does not expose per-step callbacks, so the
+    on_progress argument accepted by generate_image() is silently ignored.
+    The bot's live progress bar will not update during generation.
+    Use COMFYUI_WORKFLOW + a websocket-enabled custom node if you need it.
 """
 
 import asyncio
-import base64
+import io
 import json
 import os
 import tempfile
 import time
 import uuid
-from typing import Optional, Tuple
+from typing import Callable, Coroutine, Optional, Tuple
 
 DEFAULT_URL = "http://127.0.0.1:8188"
 DEFAULT_STEPS = 4
@@ -32,6 +38,18 @@ DEFAULT_WIDTH = 512
 DEFAULT_HEIGHT = 512
 DEFAULT_STRENGTH = 0.75
 DEFAULT_TIMEOUT = 300
+
+# Matches diffusers_worker.py — applied to every generation for anatomy quality.
+_ANATOMY_SUFFIX = (
+    ", perfect anatomy, correct arms, well-drawn hands, "
+    "five fingers, proper limbs, symmetrical body"
+)
+_ANATOMY_NEGATIVE = (
+    "bad anatomy, missing arms, extra arms, deformed arms, "
+    "missing hands, extra hands, fused fingers, missing fingers, "
+    "extra fingers, malformed hands, mutated hands, "
+    "extra limbs, missing limbs, poorly drawn hands"
+)
 
 
 def _get_int(key: str, default: int) -> int:
@@ -50,6 +68,43 @@ def _get_float(key: str, default: float) -> float:
         return default
 
 
+def _preprocess_reference_image(
+    img_bytes: bytes,
+    mime: str,
+    width: int,
+    height: int,
+) -> Optional[bytes]:
+    """Smart-crop and resize reference image to (width, height), return PNG bytes.
+
+    Uses the same portrait-aware centering as diffusers_worker.py:
+    - Portrait originals (height > width) are cropped with centering (0.5, 0.35)
+      to keep faces / upper bodies in frame.
+    - Landscape originals use center crop (0.5, 0.5).
+
+    Returns PNG bytes, or None if PIL is not available / decoding fails.
+    """
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        print("[ComfyUI] Pillow not installed — uploading reference image as-is.")
+        return None
+
+    try:
+        raw = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        centering = (0.5, 0.35) if raw.height > raw.width else (0.5, 0.5)
+        cropped = ImageOps.fit(raw, (width, height), method=Image.LANCZOS, centering=centering)
+        print(
+            f"[ComfyUI] Reference image smart-cropped to {width}x{height} "
+            f"(original {raw.width}x{raw.height}, centering={centering})."
+        )
+        buf = io.BytesIO()
+        cropped.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as exc:
+        print(f"[ComfyUI] Reference image preprocessing failed ({exc}) — uploading as-is.")
+        return None
+
+
 def _build_txt2img_workflow(
     prompt: str,
     gguf_path: str,
@@ -60,9 +115,8 @@ def _build_txt2img_workflow(
     height: int,
     seed: int,
 ) -> dict:
-    """Return a ComfyUI API-format workflow dict for text-to-image.
-    Designed for FLUX.2-klein-4B with DualCLIPLoaderGGUF + Qwen-3-4B text encoder.
-    """
+    """ComfyUI API workflow for FLUX.2-klein-4B txt2img (DualCLIPLoaderGGUF + Qwen-3-4B)."""
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
     return {
         "1": {
             "class_type": "UnetLoaderGGUF",
@@ -78,11 +132,11 @@ def _build_txt2img_workflow(
         },
         "4": {
             "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": prompt},
+            "inputs": {"clip": ["2", 0], "text": enhanced_prompt},
         },
         "5": {
             "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": ""},
+            "inputs": {"clip": ["2", 0], "text": _ANATOMY_NEGATIVE},
         },
         "6": {
             "class_type": "EmptyLatentImage",
@@ -126,7 +180,13 @@ def _build_img2img_workflow(
     strength: float,
     uploaded_image_name: str,
 ) -> dict:
-    """Return a ComfyUI API-format workflow dict for image-to-image."""
+    """ComfyUI API workflow for FLUX.2-klein-4B img2img (DualCLIPLoaderGGUF + Qwen-3-4B).
+
+    The reference image is assumed to already be smart-cropped to (width, height)
+    by _preprocess_reference_image. ImageScale is kept as a safety net in case the
+    uploaded dimensions differ slightly.
+    """
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
     return {
         "1": {
             "class_type": "UnetLoaderGGUF",
@@ -142,11 +202,11 @@ def _build_img2img_workflow(
         },
         "4": {
             "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": prompt},
+            "inputs": {"clip": ["2", 0], "text": enhanced_prompt},
         },
         "5": {
             "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": ""},
+            "inputs": {"clip": ["2", 0], "text": _ANATOMY_NEGATIVE},
         },
         "10": {
             "class_type": "LoadImage",
@@ -225,8 +285,11 @@ def _run_generate(
                 workflow = json.load(f)
             print(f"[ComfyUI] Using custom workflow: {custom_workflow_path}")
         elif reference_image is not None:
-            img_bytes, _mime = reference_image
-            uploaded_name = _upload_image(base_url, img_bytes, _requests)
+            img_bytes, mime = reference_image
+            # Pre-process: smart-crop + convert to PNG (matches diffusers_worker.py)
+            processed = _preprocess_reference_image(img_bytes, mime, width, height)
+            upload_bytes = processed if processed is not None else img_bytes
+            uploaded_name = _upload_image(base_url, upload_bytes, _requests)
             if uploaded_name:
                 print(f"[ComfyUI] img2img mode — uploaded reference as '{uploaded_name}', strength={strength}")
                 workflow = _build_img2img_workflow(
@@ -243,7 +306,8 @@ def _run_generate(
                 prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
             )
 
-        print(f"[ComfyUI] Queuing job — size={width}x{height}, steps={steps}")
+        mode = "img2img" if (reference_image is not None and "12" in workflow) else "txt2img"
+        print(f"[ComfyUI] Queuing {mode} job — size={width}x{height}, steps={steps}, strength={strength if mode == 'img2img' else 'n/a'}")
         print(f"[ComfyUI] Prompt: {prompt[:120]!r}")
 
         payload = {"prompt": workflow, "client_id": str(uuid.uuid4())}
@@ -281,9 +345,8 @@ def _run_generate(
 
         deadline = time.time() + timeout
         last_log = time.time()
-        poll_interval = 2
         while time.time() < deadline:
-            time.sleep(poll_interval)
+            time.sleep(2)
 
             now = time.time()
             if now - last_log >= 15:
@@ -366,7 +429,7 @@ def _run_generate(
 
 
 def _upload_image(base_url: str, img_bytes: bytes, requests_mod) -> Optional[str]:
-    """Upload image bytes to ComfyUI /upload/image; return the server filename or None."""
+    """Upload PNG bytes to ComfyUI /upload/image; return the server filename or None."""
     try:
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             tmp.write(img_bytes)
@@ -401,13 +464,20 @@ def image_ready() -> bool:
 async def generate_image(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]] = None,
+    on_progress: Optional[Callable[[str], Coroutine]] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Generate an image via a locally-running ComfyUI instance.
 
     Args:
-        prompt:          Text prompt for image generation.
+        prompt:          Text prompt for image generation. An anatomy quality
+                         suffix is appended automatically (matches diffusers backend).
         reference_image: Optional (bytes, mime_type) tuple used as the img2img
-                         reference image. Uploaded to ComfyUI via /upload/image.
+                         reference image. Pre-processed with smart portrait-aware
+                         cropping (matches diffusers_worker.py) before upload.
+        on_progress:     Accepted for interface compatibility with other backends
+                         but silently ignored — ComfyUI's plain HTTP API does not
+                         expose per-step callbacks. Use a websocket-enabled node
+                         or COMFYUI_WORKFLOW override for progress reporting.
 
     Returns:
         (image_bytes, "image/png") on success, or None on failure.

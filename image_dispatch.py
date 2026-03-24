@@ -63,6 +63,6 @@ async def generate_image(
         return await _hf_spaces_ai.generate_image(prompt, reference_image=reference_image)
     if _IMAGE_BACKEND == "comfyui":
         import comfyui_ai as _comfyui_ai
-        return await _comfyui_ai.generate_image(prompt, reference_image=reference_image)
+        return await _comfyui_ai.generate_image(prompt, reference_image=reference_image, on_progress=on_progress)
     import cloudflare_ai as _cloudflare_ai
     return await _cloudflare_ai.generate_image(prompt)
