@@ -68,7 +68,7 @@ def _build_txt2img_workflow(
         },
         "2": {
             "class_type": "CLIPLoader",
-            "inputs": {"clip_name": clip_name, "type": "flux"},
+            "inputs": {"clip_name": clip_name, "type": "flux2"},
         },
         "3": {
             "class_type": "VAELoader",
@@ -132,7 +132,7 @@ def _build_img2img_workflow(
         },
         "2": {
             "class_type": "CLIPLoader",
-            "inputs": {"clip_name": clip_name, "type": "flux"},
+            "inputs": {"clip_name": clip_name, "type": "flux2"},
         },
         "3": {
             "class_type": "VAELoader",
