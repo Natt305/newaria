@@ -166,11 +166,11 @@ COMFYUI_VAE=flux2-vae.safetensors
 
 # 第一文字編碼器（DualCLIPLoaderGGUF 的 clip_name1）
 # First text encoder (clip_name1 for DualCLIPLoaderGGUF)
-# FLUX.2-klein-4B 使用 CLIP-L 作為第一編碼器
-# FLUX.2-klein-4B uses CLIP-L as the first encoder
+# FLUX.2-klein-4B 使用 T5-XXL 作為第一編碼器
+# FLUX.2-klein-4B uses T5-XXL as the first encoder
 # 下載自 / Download from: https://huggingface.co/Comfy-Org/flux2-klein-4B/tree/main/split_files/text_encoders
 # 例 / Example:
-COMFYUI_CLIP=clip_l.safetensors
+COMFYUI_CLIP=t5xxl_fp8_e4m3fn.safetensors
 
 # 第二文字編碼器（DualCLIPLoaderGGUF 的 clip_name2）
 # Second text encoder (clip_name2 for DualCLIPLoaderGGUF)
