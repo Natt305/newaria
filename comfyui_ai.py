@@ -130,7 +130,7 @@ def _build_txt2img_workflow(
             "inputs": {"unet_name": gguf_path},
         },
         "2": {
-            "class_type": "DualCLIPLoaderGGUF",
+            "class_type": "DualCLIPLoader",
             "inputs": {"clip_name1": clip_name, "clip_name2": clip_name2, "type": "flux"},
         },
         "3": {
@@ -201,7 +201,7 @@ def _build_img2img_workflow(
             "inputs": {"unet_name": gguf_path},
         },
         "2": {
-            "class_type": "DualCLIPLoaderGGUF",
+            "class_type": "DualCLIPLoader",
             "inputs": {"clip_name1": clip_name, "clip_name2": clip_name2, "type": "flux"},
         },
         "3": {
