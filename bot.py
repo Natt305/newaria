@@ -5,6 +5,7 @@ import os
 import asyncio
 import aiohttp
 import io
+import time
 from typing import Optional, Union
 
 import database
@@ -346,6 +347,14 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 conversation_contexts: dict = {}
 MAX_HISTORY = 10
+
+# ── Bot-to-bot chat session state ────────────────────────────────────────────
+_bot_chat_targets: dict[str, int] = {}       # channel_id → target bot user ID
+_bot_chat_last_reply: dict[str, float] = {}  # channel_id → last reply monotonic time
+_bot_chat_turn_count: dict[str, int] = {}    # channel_id → number of auto-reply turns
+_BOT_CHAT_MIN_INTERVAL: float = 3.0          # minimum seconds between auto-replies
+_BOT_CHAT_MAX_TURNS: int = 50               # safety cap; auto-stops the session
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def load_character() -> tuple[str, str, str, str]:
@@ -1415,6 +1424,39 @@ async def on_ready():
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
+        # If an active bot-chat session is running in this channel, handle the
+        # target bot's messages and route them through our normal chat pipeline.
+        if bot.user and message.author.id != bot.user.id:
+            _bc_channel_id = str(message.channel.id)
+            _bc_target = _bot_chat_targets.get(_bc_channel_id)
+            if _bc_target and message.author.id == _bc_target:
+                # Rate-limit: ignore reply if the cooldown has not elapsed
+                _bc_now = time.monotonic()
+                if _bc_now - _bot_chat_last_reply.get(_bc_channel_id, 0.0) < _BOT_CHAT_MIN_INTERVAL:
+                    return
+                # Turn-cap: auto-stop when the limit is reached
+                _bc_turns = _bot_chat_turn_count.get(_bc_channel_id, 0) + 1
+                _bot_chat_turn_count[_bc_channel_id] = _bc_turns
+                if _bc_turns > _BOT_CHAT_MAX_TURNS:
+                    _bot_chat_targets.pop(_bc_channel_id, None)
+                    _bot_chat_last_reply.pop(_bc_channel_id, None)
+                    _bot_chat_turn_count.pop(_bc_channel_id, None)
+                    await message.channel.send(
+                        f"⏹️ Bot 對話已自動停止（已達 {_BOT_CHAT_MAX_TURNS} 輪上限）。"
+                    )
+                    return
+                _bot_chat_last_reply[_bc_channel_id] = _bc_now
+                _bc_text = message.content.strip()
+                if _bc_text:
+                    await process_chat(
+                        channel=message.channel,
+                        author=message.author,
+                        user_text=_bc_text,
+                        reply_target=message,
+                        channel_id=_bc_channel_id,
+                        image_bytes=None,
+                        image_mime=None,
+                    )
         return
 
     await bot.process_commands(message)
@@ -2964,6 +3006,52 @@ async def help_cmd(ctx):
         embed.add_field(name=section_name, value=section_value, inline=False)
     embed.set_footer(text="設定指令請使用 /helpsetting · 所有指令均支援 / 斜線與 ! 前綴兩種方式")
     await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.hybrid_command(name="botchat", description="開始與另一個 Bot 的對話 (提及目標 Bot)")
+@app_commands.describe(
+    target="目標 Bot 的 @ 提及",
+    opener="開場白訊息 (選填；留空則由機器人自行開口)",
+)
+async def botchat_cmd(ctx, target: discord.User, *, opener: str = ""):
+    """開始 Bot 對 Bot 的自動對話: !botchat @Bot 開場白"""
+    if not await check_command_role(ctx):
+        return
+    if not target.bot:
+        await ctx.reply("❌ 目標必須是一個 Bot。", mention_author=False)
+        return
+    if bot.user and target.id == bot.user.id:
+        await ctx.reply("❌ 不能和自己對話。", mention_author=False)
+        return
+    channel_id = str(ctx.channel.id)
+    _bot_chat_targets[channel_id] = target.id
+    _bot_chat_last_reply[channel_id] = 0.0
+    _bot_chat_turn_count[channel_id] = 0
+    await ctx.reply(
+        f"✅ 已開始與 {target.mention} 的對話。使用 `/stopchat` 或 `!stopchat` 可隨時停止。",
+        mention_author=False,
+    )
+    # Send the opener (or a default greeting) to kick off the conversation.
+    first_message = opener.strip() if opener.strip() else "你好！很高興認識你～"
+    await ctx.channel.send(f"{target.mention} {first_message}")
+
+
+@bot.hybrid_command(name="stopchat", description="停止與 Bot 的自動對話")
+async def stopchat_cmd(ctx):
+    """停止此頻道的 Bot 對話: !stopchat 或 /stopchat"""
+    if not await check_command_role(ctx):
+        return
+    channel_id = str(ctx.channel.id)
+    if channel_id in _bot_chat_targets:
+        target_id = _bot_chat_targets.pop(channel_id)
+        _bot_chat_last_reply.pop(channel_id, None)
+        turns = _bot_chat_turn_count.pop(channel_id, 0)
+        await ctx.reply(
+            f"⏹️ 已停止與 <@{target_id}> 的對話（共 {turns} 輪）。",
+            mention_author=False,
+        )
+    else:
+        await ctx.reply("❌ 此頻道目前沒有進行中的 Bot 對話。", mention_author=False)
 
 
 @bot.hybrid_command(name="helpsetting", description="顯示所有設定與管理指令說明 (管理員/指定角色)")
