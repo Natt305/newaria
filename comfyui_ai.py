@@ -316,13 +316,11 @@ def _run_generate(
             completed = status.get("completed", False)
             status_str = status.get("status_str", "")
 
-            if not completed:
-                print(f"[ComfyUI] Job in history but not yet complete — "
-                      f"status_str={status_str!r}, completed={completed}, "
-                      f"keys={list(job.keys())}")
+            is_error = status_str == "error"
+            if not completed and not is_error:
                 continue
 
-            if status_str == "error":
+            if is_error:
                 messages = status.get("messages", [])
                 for msg in messages:
                     if isinstance(msg, (list, tuple)) and len(msg) >= 2 and msg[0] == "execution_error":
