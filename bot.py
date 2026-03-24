@@ -668,16 +668,18 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
     # Combined scan text — includes hint_text so subjects named in the original
     # user message are found even when the LLM dropped their names from the marker.
     match_lower = (image_prompt + " " + hint_text).lower() if hint_text else image_prompt.lower()
-    matched = []
+    matched_with_desc = []   # (title, desc) for entries that have a text description
+    title_matched = []       # all entries matched by title — used for thumbnail loading
     subject_references: dict = {}
     for entry in image_entries:
         title = (entry.get("title") or "").strip()
         if not title:
             continue
         if title.lower() in match_lower and len(title) >= 2:
+            title_matched.append(entry)
             desc = (entry.get("appearance_description") or "").strip()
             if desc:
-                matched.append((title, desc))
+                matched_with_desc.append((title, desc))
                 # Keep the LONGEST (most detailed) description when multiple entries
                 # share the same title. A manually curated description is typically
                 # much longer than a brief auto-generated one and should win.
@@ -685,15 +687,21 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
                 if len(desc) > len(existing):
                     subject_references[title] = desc
 
-    if not matched:
+    if not title_matched:
         return image_prompt, [], {}
 
-    # Include up to 2000 chars of each description so physical traits aren't cut off
-    ref_parts = [f"{title}: {desc[:2000]}" for title, desc in matched[:2]]
-    refs_text = "; ".join(ref_parts)
-    enriched = f"{image_prompt}, appearance reference — {refs_text}"
-    print(f"[Bot] KB image enrichment: {len(matched)} title match(es) applied to prompt")
-    return enriched, [e for e in image_entries if (e.get("title") or "").lower() in match_lower], subject_references
+    if matched_with_desc:
+        # Include up to 2000 chars of each description so physical traits aren't cut off
+        ref_parts = [f"{title}: {desc[:2000]}" for title, desc in matched_with_desc[:2]]
+        refs_text = "; ".join(ref_parts)
+        enriched = f"{image_prompt}, appearance reference — {refs_text}"
+        print(f"[Bot] KB image enrichment: {len(matched_with_desc)} text description(s) applied to prompt")
+    else:
+        # Photo-only entry — no text description to inject into the base prompt.
+        # The thumbnail will drive img2img; vision model will read traits from the photo.
+        enriched = image_prompt
+        print(f"[Bot] KB image enrichment: {len(title_matched)} title match(es) — photo-only, no text descriptions")
+    return enriched, title_matched, subject_references
 
 
 async def get_suggestion_topic(channel_id: str) -> str:
@@ -906,7 +914,7 @@ async def process_chat(
         # A prompt referencing a named KB subject (e.g. "draw Mortis") is NOT
         # self-referential — do not inject the bot's own appearance in that case.
         _has_char_photos = database.get_character_image_count() > 0
-        _has_kb_subject = bool(_kb_subject_refs)
+        _has_kb_subject = bool(_kb_matches)  # True for any title-matched KB entry, even photo-only
         # Only inject the bot's own character context when:
         #   (a) the prompt explicitly refers to the bot itself, OR
         #   (b) the prompt came from the [IMAGE:] marker AND no named KB subject was
@@ -1012,15 +1020,25 @@ async def process_chat(
         #   (c) KB subject references were found — even for marker prompts, the LLM
         #       that wrote the [IMAGE:] tag may have hallucinated wrong colors/styles,
         #       so we rewrite using the verified database descriptions as ground truth.
-        has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs)
+        #
+        # Photo priority: when a KB subject has a reference photo, the vision model
+        # reads traits directly from the image — the stored text description is NOT
+        # passed as "ABSOLUTE AUTHORITY" because the photo itself is the ground truth.
+        # Text descriptions are injected only for subjects without a photo.
+        _kb_refs_no_photo = {
+            name: desc
+            for name, desc in _kb_subject_refs.items()
+            if name not in _ref_labels  # this subject has no reference photo
+        }
+        has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs) or bool(_ref_images)
         if not _prompt_from_marker or has_visual_refs:
             enriched_prompt = await groq_ai.enhance_image_prompt(
                 enriched_prompt,
                 character_context=char_images_ctx,
-                subject_references=_kb_subject_refs if _kb_subject_refs else None,
+                subject_references=_kb_refs_no_photo if _kb_refs_no_photo else None,
                 reference_images=_ref_images if _ref_images else None,
             )
-            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, spatial={_spatial_prefix!r})")
+            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, text_overrides={list(_kb_refs_no_photo.keys())}, spatial={_spatial_prefix!r})")
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
