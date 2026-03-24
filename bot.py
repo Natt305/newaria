@@ -351,9 +351,9 @@ MAX_HISTORY = 10
 # ── Bot-to-bot chat session state ────────────────────────────────────────────
 _bot_chat_targets: dict[str, int] = {}       # channel_id → target bot user ID
 _bot_chat_last_reply: dict[str, float] = {}  # channel_id → last reply monotonic time
-_bot_chat_turn_count: dict[str, int] = {}    # channel_id → number of auto-reply turns
-_BOT_CHAT_MIN_INTERVAL: float = 3.0          # minimum seconds between auto-replies
-_BOT_CHAT_MAX_TURNS: int = 50               # safety cap; auto-stops the session
+_bot_chat_turn_count: dict[str, int] = {}           # channel_id → number of auto-reply turns
+_bot_chat_max_turns: dict[str, Optional[int]] = {}  # channel_id → turn cap (None = unlimited)
+_BOT_CHAT_MIN_INTERVAL: float = 3.0                 # minimum seconds between auto-replies
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -1434,15 +1434,17 @@ async def on_message(message: discord.Message):
                 _bc_now = time.monotonic()
                 if _bc_now - _bot_chat_last_reply.get(_bc_channel_id, 0.0) < _BOT_CHAT_MIN_INTERVAL:
                     return
-                # Turn-cap: auto-stop when the limit is reached
+                # Turn-cap: auto-stop when the limit is reached (None = unlimited)
                 _bc_turns = _bot_chat_turn_count.get(_bc_channel_id, 0) + 1
                 _bot_chat_turn_count[_bc_channel_id] = _bc_turns
-                if _bc_turns > _BOT_CHAT_MAX_TURNS:
+                _bc_max = _bot_chat_max_turns.get(_bc_channel_id)
+                if _bc_max is not None and _bc_turns > _bc_max:
                     _bot_chat_targets.pop(_bc_channel_id, None)
                     _bot_chat_last_reply.pop(_bc_channel_id, None)
                     _bot_chat_turn_count.pop(_bc_channel_id, None)
+                    _bot_chat_max_turns.pop(_bc_channel_id, None)
                     await message.channel.send(
-                        f"⏹️ Bot 對話已自動停止（已達 {_BOT_CHAT_MAX_TURNS} 輪上限）。"
+                        f"⏹️ Bot 對話已自動停止（已達 {_bc_max} 輪上限）。"
                     )
                     return
                 _bot_chat_last_reply[_bc_channel_id] = _bc_now
@@ -3012,9 +3014,10 @@ async def help_cmd(ctx):
 @app_commands.describe(
     target="目標 Bot 的 @ 提及",
     opener="開場白訊息 (選填；留空則由機器人自行開口)",
+    max_turns="最多對話幾輪後自動停止 (選填；不填則無限對話)",
 )
-async def botchat_cmd(ctx, target: discord.User, *, opener: str = ""):
-    """開始 Bot 對 Bot 的自動對話: !botchat @Bot 開場白"""
+async def botchat_cmd(ctx, target: discord.User, max_turns: Optional[int] = None, *, opener: str = ""):
+    """開始 Bot 對 Bot 的自動對話: !botchat @Bot [max_turns] [開場白]"""
     if not await check_command_role(ctx):
         return
     if not target.bot:
@@ -3023,12 +3026,17 @@ async def botchat_cmd(ctx, target: discord.User, *, opener: str = ""):
     if bot.user and target.id == bot.user.id:
         await ctx.reply("❌ 不能和自己對話。", mention_author=False)
         return
+    if max_turns is not None and max_turns < 1:
+        await ctx.reply("❌ `max_turns` 必須是正整數。", mention_author=False)
+        return
     channel_id = str(ctx.channel.id)
     _bot_chat_targets[channel_id] = target.id
     _bot_chat_last_reply[channel_id] = 0.0
     _bot_chat_turn_count[channel_id] = 0
+    _bot_chat_max_turns[channel_id] = max_turns  # None = unlimited
+    limit_note = f"（上限 {max_turns} 輪）" if max_turns is not None else "（無輪數限制）"
     await ctx.reply(
-        f"✅ 已開始與 {target.mention} 的對話。使用 `/stopchat` 或 `!stopchat` 可隨時停止。",
+        f"✅ 已開始與 {target.mention} 的對話 {limit_note}。使用 `/stopchat` 或 `!stopchat` 可隨時停止。",
         mention_author=False,
     )
     # Send the opener (or a default greeting) to kick off the conversation.
@@ -3046,6 +3054,7 @@ async def stopchat_cmd(ctx):
         target_id = _bot_chat_targets.pop(channel_id)
         _bot_chat_last_reply.pop(channel_id, None)
         turns = _bot_chat_turn_count.pop(channel_id, 0)
+        _bot_chat_max_turns.pop(channel_id, None)
         await ctx.reply(
             f"⏹️ 已停止與 <@{target_id}> 的對話（共 {turns} 輪）。",
             mention_author=False,
