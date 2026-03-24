@@ -994,7 +994,7 @@ async def process_chat(
         # left/right subject ordering in the prompt it is expanding.
         _comp = (
             _composite_reference_images(_ref_images, _ref_labels)
-            if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images
+            if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces", "comfyui") and _ref_images
             else None
         )
         if isinstance(_comp, dict):
