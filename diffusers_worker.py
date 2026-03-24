@@ -145,6 +145,7 @@ def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
             import diffusers as _df
             cls = getattr(_df, cls_name, None)
             if cls is None:
+                _log(f"{cls_name} not found in installed diffusers — skipping.")
                 continue
             _log(f"Loading transformer from GGUF using {cls_name} ...")
             base_kwargs = dict(
