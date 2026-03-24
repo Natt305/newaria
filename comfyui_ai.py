@@ -42,7 +42,7 @@ DEFAULT_URL = "http://127.0.0.1:8188"
 DEFAULT_STEPS = 4
 DEFAULT_WIDTH = 512
 DEFAULT_HEIGHT = 512
-DEFAULT_STRENGTH = 0.75
+DEFAULT_STRENGTH = 0.65
 DEFAULT_TIMEOUT = 300
 
 # Matches diffusers_worker.py — applied to every generation for anatomy quality.
@@ -192,7 +192,7 @@ def _build_img2img_workflow(
     by _preprocess_reference_image. ImageScale is kept as a safety net in case the
     uploaded dimensions differ slightly.
     """
-    enhanced_prompt = "referencing the provided image, " + prompt + _ANATOMY_SUFFIX
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
     return {
         "1": {
             "class_type": "UnetLoaderGGUF",
