@@ -1032,7 +1032,7 @@ async def process_chat(
 
         _chat_progress_msg = None
         _chat_poller_task = None
-        if _IMAGE_BACKEND == "local_diffusers":
+        if _IMAGE_BACKEND in ("local_diffusers", "comfyui"):
             try:
                 _chat_progress_msg = await channel.send(
                     _format_diffuser_progress("STAGE:loading", bot_name)
@@ -1068,7 +1068,7 @@ async def process_chat(
                     _generate_image(
                         enriched_prompt,
                         _ref_image_for_gen,
-                        on_progress=_chat_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
+                        on_progress=_chat_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
                     ),
                     groq_ai.generate_image_comment(
                         image_prompt, bot_name, background, user_text, history=history
@@ -2228,7 +2228,7 @@ async def generate_cmd(ctx, *, prompt: str):
         _cmd_ref_image = _cmd_comp   # None or bare (bytes, mime)
     _cmd_progress_msg = None
     _cmd_poller_task = None
-    if _IMAGE_BACKEND == "local_diffusers":
+    if _IMAGE_BACKEND in ("local_diffusers", "comfyui"):
         try:
             _cmd_progress_msg = await ctx.send(
                 _format_diffuser_progress("STAGE:loading", _cmd_bot_name)
@@ -2262,7 +2262,7 @@ async def generate_cmd(ctx, *, prompt: str):
         result = await _generate_image(
             enriched_prompt,
             reference_image=_cmd_ref_image,
-            on_progress=_cmd_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
+            on_progress=_cmd_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
         )
     finally:
         if _cmd_poller_task is not None:

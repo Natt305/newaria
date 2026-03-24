@@ -11,3 +11,4 @@ discord.py
 groq
 Pillow
 requests
+websockets

@@ -17,10 +17,16 @@ Optional env vars:
     COMFYUI_TIMEOUT  Max seconds to wait for job completion (default: 300).
 
 Progress reporting:
-    ComfyUI's plain HTTP API does not expose per-step callbacks, so the
-    on_progress argument accepted by generate_image() is silently ignored.
-    The bot's live progress bar will not update during generation.
-    Use COMFYUI_WORKFLOW + a websocket-enabled custom node if you need it.
+    generate_image() connects to ComfyUI's WebSocket API (ws://.../ws?clientId=…)
+    and translates server-sent events to the same tag format used by the diffusers
+    backend:
+        STAGE:loading   — job accepted, model loading (fake LOAD ticks follow)
+        LOAD:<frac>     — fractional loading progress 0.0–1.0 (approximated)
+        STAGE:ready     — first inference step received, model fully loaded
+        STEP:<n>/<t>    — inference step n of t completed
+        STAGE:encoding  — final step done, VAE decoding / saving
+    If the websockets package is not installed or the connection fails the
+    on_progress callback is silently skipped and HTTP polling handles completion.
 """
 
 import asyncio
@@ -255,6 +261,7 @@ def _build_img2img_workflow(
 def _run_generate(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]],
+    client_id: str,
 ) -> Optional[Tuple[bytes, str]]:
     """Blocking: submit a job to ComfyUI and return (png_bytes, mime) or None."""
     try:
@@ -310,7 +317,7 @@ def _run_generate(
         print(f"[ComfyUI] Queuing {mode} job — size={width}x{height}, steps={steps}, strength={strength if mode == 'img2img' else 'n/a'}")
         print(f"[ComfyUI] Prompt: {prompt[:120]!r}")
 
-        payload = {"prompt": workflow, "client_id": str(uuid.uuid4())}
+        payload = {"prompt": workflow, "client_id": client_id}
         resp = _requests.post(f"{base_url}/prompt", json=payload, timeout=15)
 
         if resp.status_code != 200:
@@ -461,6 +468,110 @@ def image_ready() -> bool:
         return False
 
 
+async def _ws_progress(
+    ws_url: str,
+    on_progress: Callable[[str], Coroutine],
+) -> None:
+    """Connect to ComfyUI's WebSocket and forward live progress tags.
+
+    Tag mapping (matches diffusers_worker.py / bot.py _format_diffuser_progress):
+        execution_start          → STAGE:loading  then fake LOAD ticks every ~10 s
+        first progress message   → STAGE:ready    (model fully loaded)
+        progress value/max       → STEP:{value}/{max}
+        all steps done           → STAGE:encoding
+        execution_success / null → stop
+
+    Falls back silently if the websockets package is unavailable or the
+    connection cannot be established.
+    """
+    try:
+        import websockets
+    except ImportError:
+        print("[ComfyUI] 'websockets' not installed — progress bar disabled.")
+        return
+
+    async def _fake_load_ticker(stop: asyncio.Event) -> None:
+        """Emit approximate LOAD fractions while the model is loading."""
+        schedule = [(0, 0.05), (10, 0.40), (30, 0.80), (60, 0.95)]
+        t0 = asyncio.get_event_loop().time()
+        for delay, frac in schedule:
+            wait = delay - (asyncio.get_event_loop().time() - t0)
+            if wait > 0:
+                try:
+                    await asyncio.wait_for(asyncio.shield(stop.wait()), timeout=wait)
+                    return
+                except asyncio.TimeoutError:
+                    pass
+            if stop.is_set():
+                return
+            try:
+                await on_progress(f"LOAD:{frac:.2f}")
+            except Exception:
+                pass
+
+    load_stop = asyncio.Event()
+    load_task: Optional[asyncio.Task] = None
+    first_step_seen = False
+
+    try:
+        async with websockets.connect(ws_url, ping_interval=20, open_timeout=10) as ws:
+            async for raw in ws:
+                try:
+                    msg = json.loads(raw)
+                except Exception:
+                    continue
+
+                msg_type = msg.get("type", "")
+                data = msg.get("data", {})
+
+                if msg_type == "execution_start":
+                    try:
+                        await on_progress("STAGE:loading")
+                    except Exception:
+                        pass
+                    load_task = asyncio.create_task(_fake_load_ticker(load_stop))
+
+                elif msg_type == "progress":
+                    value = data.get("value", 0)
+                    max_val = data.get("max", 1)
+
+                    if not first_step_seen:
+                        first_step_seen = True
+                        load_stop.set()
+                        if load_task and not load_task.done():
+                            load_task.cancel()
+                        try:
+                            await on_progress("STAGE:ready")
+                        except Exception:
+                            pass
+
+                    try:
+                        await on_progress(f"STEP:{value}/{max_val}")
+                    except Exception:
+                        pass
+
+                    if value >= max_val:
+                        try:
+                            await on_progress("STAGE:encoding")
+                        except Exception:
+                            pass
+
+                elif msg_type in ("execution_success", "execution_error"):
+                    break
+
+                elif msg_type == "executing" and data.get("node") is None:
+                    break
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        print(f"[ComfyUI] WebSocket progress error: {type(exc).__name__}: {exc}")
+    finally:
+        load_stop.set()
+        if load_task and not load_task.done():
+            load_task.cancel()
+
+
 async def generate_image(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]] = None,
@@ -474,12 +585,38 @@ async def generate_image(
         reference_image: Optional (bytes, mime_type) tuple used as the img2img
                          reference image. Pre-processed with smart portrait-aware
                          cropping (matches diffusers_worker.py) before upload.
-        on_progress:     Accepted for interface compatibility with other backends
-                         but silently ignored — ComfyUI's plain HTTP API does not
-                         expose per-step callbacks. Use a websocket-enabled node
-                         or COMFYUI_WORKFLOW override for progress reporting.
+        on_progress:     Optional async callable(tag: str) called with live
+                         progress tags (same format as diffusers backend):
+                             "STAGE:loading"   — model is being loaded
+                             "LOAD:<frac>"     — fractional loading 0.0–1.0
+                             "STAGE:ready"     — inference starting
+                             "STEP:<n>/<t>"    — inference step n of t
+                             "STAGE:encoding"  — encoding final image
+                         Requires the 'websockets' package. Silently skipped
+                         if websockets is not installed or the connection fails.
 
     Returns:
         (image_bytes, "image/png") on success, or None on failure.
     """
-    return await asyncio.to_thread(_run_generate, prompt, reference_image)
+    client_id = str(uuid.uuid4())
+    base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
+
+    gen_coro = asyncio.to_thread(_run_generate, prompt, reference_image, client_id)
+
+    if on_progress is None:
+        return await gen_coro
+
+    ws_base = base_url.replace("http://", "ws://", 1).replace("https://", "wss://", 1)
+    ws_url = f"{ws_base}/ws?clientId={client_id}"
+
+    ws_task = asyncio.create_task(_ws_progress(ws_url, on_progress))
+    try:
+        result = await gen_coro
+    finally:
+        ws_task.cancel()
+        try:
+            await ws_task
+        except asyncio.CancelledError:
+            pass
+
+    return result
