@@ -17,6 +17,32 @@ from groq import AsyncGroq
 # A model is considered exhausted until the next midnight UTC after that point.
 _daily_exhausted: dict[str, float] = {}
 
+# ── Refusal-detection for enhance_image_prompt ────────────────────────────────
+# When vision models are unavailable and the fallback text model receives a
+# request that depends on seeing images, it produces a polite refusal.  These
+# phrases identify that case so we can discard the response and return the
+# original prompt instead of sending a refusal as an image-generation prompt.
+_REFUSAL_PHRASES: tuple[str, ...] = (
+    "i'm sorry",
+    "i am sorry",
+    "i cannot",
+    "i can't",
+    "i am unable",
+    "i'm unable",
+    "unable to view",
+    "unable to see",
+    "cannot view",
+    "can't view",
+    "without being able to view",
+    "without being able to see",
+    "without access to the",
+    "no image was provided",
+    "no reference image",
+    "don't have access to",
+    "do not have access to",
+    "cannot access the image",
+)
+
 def _mark_daily_exhausted(model: str) -> None:
     """Record that this model hit its daily token limit."""
     _daily_exhausted[model] = time.time()
@@ -388,6 +414,17 @@ async def enhance_image_prompt(
         return raw_prompt
 
     has_images = bool(reference_images)
+
+    # If images were provided but ALL vision models are daily-exhausted, any text-model
+    # fallback will refuse (it cannot see the photos).  When there is also no stored text
+    # context to work from, skip the API call entirely and return the raw prompt unchanged
+    # rather than risk sending an apology sentence to the image generator.
+    if has_images and not character_context and not subject_references:
+        configured_vision = _default_vision_model()
+        all_vision = [configured_vision] + [m for m in VISION_MODELS if m != configured_vision]
+        if all(_is_daily_exhausted(m) for m in all_vision):
+            print("[Groq] All vision models exhausted and no text context — skipping enhancement, using raw prompt")
+            return raw_prompt
 
     # Strip any ART STYLE section from stored character descriptions before using
     # them as ground truth — stored descriptions may say "ART STYLE: 3D rendered" etc.
@@ -765,6 +802,14 @@ async def enhance_image_prompt(
             enhanced = _THINK_RE.sub("", enhanced)
             enhanced = _THINK_RE_UNCLOSED.sub("", enhanced).strip()
             if len(enhanced) > 5:
+                # Detect refusals: text-model fallbacks that couldn't see the
+                # reference images produce polite apologies.  Using that text as
+                # an image prompt would generate garbage, so fall through to the
+                # raw_prompt return at the bottom instead.
+                lower = enhanced.lower()
+                if any(phrase in lower for phrase in _REFUSAL_PHRASES):
+                    print(f"[Groq] Enhancement returned a refusal — discarding, using raw prompt")
+                    return raw_prompt
                 print(f"[Groq] Prompt enhanced: {enhanced}")
                 return enhanced
     except Exception as e:
