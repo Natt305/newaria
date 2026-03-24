@@ -152,20 +152,22 @@ LOCAL_DIFFUSER_STRENGTH=0.75
 # ComfyUI server address (default: http://127.0.0.1:8188)
 COMFYUI_URL=http://127.0.0.1:8188
 
-# GGUF 模型路徑（ComfyUI 模型目錄下的相對路徑或絕對路徑）
-# GGUF model path (relative to ComfyUI models/unet directory, or absolute path)
+# GGUF 模型路徑（ComfyUI models/unet 目錄中的檔名）
+# GGUF model filename (as it appears in ComfyUI's models/unet directory)
 # 例 / Example:
-COMFYUI_GGUF=flux2-klein-4b-Q5_K_M.gguf
+COMFYUI_GGUF=flux-2-klein-4b-Q5_K_M.gguf
 
 # VAE 模型檔名（ComfyUI models/vae 目錄中的檔名）
 # VAE model filename (as it appears in ComfyUI's models/vae directory)
 # 例 / Example:
-COMFYUI_VAE=ae.safetensors
+COMFYUI_VAE=diffusion_pytorch_model.safetensors
 
 # CLIP 模型檔名（ComfyUI models/clip 目錄中的檔名）
 # CLIP/text-encoder filename (as it appears in ComfyUI's models/clip directory)
+# 分片模型請填入第一片檔名，ComfyUI 會自動載入其餘分片。
+# For sharded models, use the first shard filename — ComfyUI loads the rest automatically.
 # 例 / Example:
-COMFYUI_CLIP=t5xxl_fp8_e4m3fn.safetensors
+COMFYUI_CLIP=model-00001-of-00002.safetensors
 
 # 推理步數（預設 4）/ Inference steps (default: 4)
 COMFYUI_STEPS=4
