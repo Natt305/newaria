@@ -73,6 +73,7 @@ CF_IMAGE_MODEL=flux
 #    cloudflare      — Cloudflare Workers AI Flux 1 Schnell（需填入上方 Cloudflare 金鑰）
 #    hf_spaces       — HuggingFace Spaces FLUX.2-klein-4B（需填入下方 HF_TOKEN）
 #    local_diffusers — 本機 Diffusers / GGUF（需填入下方 LOCAL_DIFFUSER_MODEL）
+#    comfyui         — 本機 ComfyUI + ComfyUI-GGUF（需填入下方 COMFYUI_GGUF 等設定）
 # ================================================================
 IMAGE_BACKEND=local_diffusers
 
@@ -137,4 +138,51 @@ LOCAL_DIFFUSER_HEIGHT=512
 # img2img 強度，0.0–1.0（預設 0.75；越低越貼近參考圖，越高越自由發揮）
 # img2img strength, 0.0-1.0 (default 0.75; lower = closer to reference image)
 LOCAL_DIFFUSER_STRENGTH=0.75
+
+# ================================================================
+#  ComfyUI 圖像生成（IMAGE_BACKEND=comfyui 時使用）
+#  ComfyUI Image Generation (used when IMAGE_BACKEND=comfyui)
+#
+#  需先在本機安裝 ComfyUI 並啟用 ComfyUI-GGUF 擴充套件（city96）。
+#  Requires a locally-running ComfyUI instance with the ComfyUI-GGUF
+#  extension (city96) installed. The bot queues jobs via ComfyUI's HTTP API.
+# ================================================================
+
+# ComfyUI 伺服器位址（預設 http://127.0.0.1:8188）
+# ComfyUI server address (default: http://127.0.0.1:8188)
+COMFYUI_URL=http://127.0.0.1:8188
+
+# GGUF 模型路徑（ComfyUI 模型目錄下的相對路徑或絕對路徑）
+# GGUF model path (relative to ComfyUI models/unet directory, or absolute path)
+# 例 / Example:
+COMFYUI_GGUF=flux2-klein-4b-Q5_K_M.gguf
+
+# VAE 模型檔名（ComfyUI models/vae 目錄中的檔名）
+# VAE model filename (as it appears in ComfyUI's models/vae directory)
+# 例 / Example:
+COMFYUI_VAE=ae.safetensors
+
+# CLIP 模型檔名（ComfyUI models/clip 目錄中的檔名）
+# CLIP/text-encoder filename (as it appears in ComfyUI's models/clip directory)
+# 例 / Example:
+COMFYUI_CLIP=t5xxl_fp8_e4m3fn.safetensors
+
+# 推理步數（預設 4）/ Inference steps (default: 4)
+COMFYUI_STEPS=4
+
+# 輸出解析度（預設 512×512）/ Output resolution (default: 512×512)
+# 必須是 64 的倍數 / Must be a multiple of 64
+COMFYUI_WIDTH=512
+COMFYUI_HEIGHT=512
+
+# img2img 去雜訊強度，0.0–1.0（預設 0.75；越低越貼近參考圖）
+# img2img denoise strength, 0.0-1.0 (default: 0.75; lower = closer to reference)
+COMFYUI_STRENGTH=0.75
+
+# 最長等待時間（秒，預設 300）/ Max wait time in seconds (default: 300)
+# COMFYUI_TIMEOUT=300
+
+# 自訂工作流程 JSON 檔案路徑（留空使用內建 Flux GGUF 工作流程）
+# Path to a custom ComfyUI workflow JSON file (leave blank for built-in Flux GGUF workflow)
+# COMFYUI_WORKFLOW=
 

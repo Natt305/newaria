@@ -1,0 +1,41 @@
+#10 - ComfyUI Image Generation Backend
+What & Why
+
+Add a fourth image generation backend (IMAGE_BACKEND=comfyui) that talks to a locally-running ComfyUI instance via its HTTP API. This allows the bot to use city96's ComfyUI-GGUF extension to load the Unsloth FLUX.2-klein-4B GGUF file, which is incompatible with the diffusers library.
+
+ComfyUI runs as a background server (no interaction needed); the bot queues jobs, polls for completion, and downloads the output image.
+Done looks like
+
+    Setting IMAGE_BACKEND=comfyui in tokens.txt routes all image generation through a running ComfyUI instance.
+    COMFYUI_URL, COMFYUI_GGUF, COMFYUI_VAE, COMFYUI_CLIP are read from tokens.txt with bilingual (EN/ZH) comments.
+    Text-to-image and img2img (reference image) both work.
+    Bot log shows job ID queued, polling status, and bytes received.
+    If ComfyUI is not running or job fails, the backend logs clearly and returns None (bot handles gracefully as it does for other backends).
+
+Out of scope
+
+    Installing or configuring ComfyUI itself (user does this manually).
+    Any ComfyUI UI interaction.
+    Progress bar updates mid-generation (ComfyUI API does not expose per-step callbacks over plain HTTP; websocket support can be a future addition).
+
+Tasks
+
+    Create comfyui_ai.py — new backend module following the same pattern as hf_spaces_ai.py:
+        generate_image(prompt, reference_image=None, on_progress=None) wraps a blocking _run_generate() in asyncio.to_thread.
+        Reads config from env: COMFYUI_URL (default http://127.0.0.1:8188), COMFYUI_GGUF, COMFYUI_VAE, COMFYUI_CLIP, COMFYUI_STEPS (default 4), COMFYUI_WIDTH / COMFYUI_HEIGHT (default 512×512), COMFYUI_STRENGTH (default 0.75, img2img only), COMFYUI_WORKFLOW (optional path to a custom workflow JSON file).
+        Default workflow: a Python dict template for Flux.2-klein via UnetLoaderGGUF (city96 node), CLIPLoader, VAELoader, CLIPTextEncode, EmptyLatentImage, KSampler, VAEDecode, SaveImage. Prompt and all settings are substituted before posting.
+        img2img variant: adds ETN_LoadImageBase64 (or LoadImage with temp file upload via /upload/image), VAEEncode, replaces EmptyLatentImage with the encoded latent, adds strength via SetLatentNoiseMask or equivalent. Falls back to txt2img if upload fails.
+        Job flow: POST /prompt → get prompt_id → poll GET /history/{id} every 1 s until status is complete or timeout (default 300 s) → fetch image via GET /view?filename=…&type=output → return bytes.
+        image_ready() check: GET /system_stats on COMFYUI_URL; returns True if 200 OK.
+
+    Update image_dispatch.py — add comfyui branch in image_ready(), img2img_capable() (returns True), and generate_image().
+
+    Update tokens.txt — add a comfyui backend section with bilingual comments after the existing local_diffusers section. Include:
+        IMAGE_BACKEND comment update mentioning comfyui as a new option.
+        COMFYUI_URL, COMFYUI_GGUF, COMFYUI_VAE, COMFYUI_CLIP, COMFYUI_STEPS, COMFYUI_WIDTH, COMFYUI_HEIGHT, COMFYUI_STRENGTH, COMFYUI_WORKFLOW with example values matching the user's file layout.
+
+Relevant files
+
+    hf_spaces_ai.py (pattern to follow)
+    image_dispatch.py
+    tokens.txt

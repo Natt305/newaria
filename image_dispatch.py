@@ -8,6 +8,7 @@ Supported backends:
     cloudflare      — cloudflare_ai.generate_image()
     hf_spaces       — hf_spaces_ai.generate_image()
     local_diffusers — diffusers_ai.generate_image()
+    comfyui         — comfyui_ai.generate_image()
 """
 
 import os
@@ -22,12 +23,15 @@ def image_ready() -> bool:
         return bool(os.environ.get("LOCAL_DIFFUSER_MODEL", "").strip())
     if _IMAGE_BACKEND == "hf_spaces":
         return bool(os.environ.get("HF_TOKEN", "").strip())
+    if _IMAGE_BACKEND == "comfyui":
+        import comfyui_ai as _comfyui_ai
+        return _comfyui_ai.image_ready()
     return bool(os.environ.get("CLOUDFLARE_API_TOKEN") and os.environ.get("CLOUDFLARE_ACCOUNT_ID"))
 
 
 def img2img_capable() -> bool:
     """Return True if the active backend supports reference image (img2img)."""
-    return _IMAGE_BACKEND in ("local_diffusers", "hf_spaces")
+    return _IMAGE_BACKEND in ("local_diffusers", "hf_spaces", "comfyui")
 
 
 async def generate_image(
@@ -57,5 +61,8 @@ async def generate_image(
     if _IMAGE_BACKEND == "hf_spaces":
         import hf_spaces_ai as _hf_spaces_ai
         return await _hf_spaces_ai.generate_image(prompt, reference_image=reference_image)
+    if _IMAGE_BACKEND == "comfyui":
+        import comfyui_ai as _comfyui_ai
+        return await _comfyui_ai.generate_image(prompt, reference_image=reference_image)
     import cloudflare_ai as _cloudflare_ai
     return await _cloudflare_ai.generate_image(prompt)
