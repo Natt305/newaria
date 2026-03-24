@@ -317,6 +317,9 @@ def _run_generate(
             status_str = status.get("status_str", "")
 
             if not completed:
+                print(f"[ComfyUI] Job in history but not yet complete — "
+                      f"status_str={status_str!r}, completed={completed}, "
+                      f"keys={list(job.keys())}")
                 continue
 
             if status_str == "error":
