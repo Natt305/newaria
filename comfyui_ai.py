@@ -12,9 +12,14 @@ Optional env vars:
     COMFYUI_STEPS    Number of inference steps (default: 4).
     COMFYUI_WIDTH    Output width in pixels (default: 512).
     COMFYUI_HEIGHT   Output height in pixels (default: 512).
-    COMFYUI_STRENGTH img2img denoise strength, 0.0-1.0 (default: 0.75).
-    COMFYUI_WORKFLOW Path to a custom workflow JSON file (overrides built-in template).
-    COMFYUI_TIMEOUT  Max seconds to wait for job completion (default: 300).
+    COMFYUI_STRENGTH         img2img denoise strength, 0.0-1.0 (default: 0.75).
+    COMFYUI_FLUX_MAX_SHIFT   ModelSamplingFlux max_shift for img2img (default: 1.15).
+                             Patching the FLUX timestep schedule with this value corrects
+                             the noise sigma for the target resolution so the reference
+                             latent is not drowned and img2img actually follows the photo.
+    COMFYUI_FLUX_BASE_SHIFT  ModelSamplingFlux base_shift for img2img (default: 0.5).
+    COMFYUI_WORKFLOW         Path to a custom workflow JSON file (overrides built-in template).
+    COMFYUI_TIMEOUT          Max seconds to wait for job completion (default: 300).
 
 Progress reporting:
     generate_image() connects to ComfyUI's WebSocket API (ws://.../ws?clientId=…)
