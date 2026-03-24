@@ -935,7 +935,7 @@ async def process_chat(
                 char_count = database.get_character_image_count()
                 for i in range(1, char_count + 1):
                     thumb = database.get_character_image_thumb(i)
-                    if thumb:
+                    if thumb and bot_name not in _ref_labels:
                         _ref_images.append(thumb)
                         _ref_labels.append(bot_name)
                     if len(_ref_images) >= _MAX_REF_IMAGES:
@@ -943,11 +943,12 @@ async def process_chat(
             if _has_kb_subject and len(_ref_images) < _MAX_REF_IMAGES:
                 for _kb_entry in _kb_matches:
                     _kb_entry_id = _kb_entry.get("id")
-                    if _kb_entry_id:
+                    _kb_label = _kb_entry.get("title", "")
+                    if _kb_entry_id and _kb_label not in _ref_labels:
                         _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
                         if _kb_thumb:
                             _ref_images.append(_kb_thumb)
-                            _ref_labels.append(_kb_entry.get("title", ""))
+                            _ref_labels.append(_kb_label)
                             if len(_ref_images) >= _MAX_REF_IMAGES:
                                 break
         else:
@@ -958,6 +959,9 @@ async def process_chat(
                     _kb_title = _kb_entry.get("title", "?")
                     if not _kb_entry_id:
                         print(f"[Bot] KB entry {_kb_title!r} has no id — skipping")
+                        continue
+                    if _kb_title in _ref_labels:
+                        print(f"[Bot] KB entry {_kb_title!r} already in composite — skipping duplicate")
                         continue
                     _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
                     if _kb_thumb:
@@ -972,7 +976,7 @@ async def process_chat(
                 char_count = database.get_character_image_count()
                 for i in range(1, char_count + 1):
                     thumb = database.get_character_image_thumb(i)
-                    if thumb:
+                    if thumb and bot_name not in _ref_labels:
                         _ref_images.append(thumb)
                         _ref_labels.append(bot_name)
                     if len(_ref_images) >= _MAX_REF_IMAGES:
@@ -2186,16 +2190,19 @@ async def generate_cmd(ctx, *, prompt: str):
     if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces"):
         # Collect one thumbnail per matched KB entry (ordered by match priority)
         for _cmd_entry in kb_matches:
+            _cmd_entry_title = _cmd_entry.get("title", "")
+            if _cmd_entry_title in _cmd_ref_labels:
+                continue  # skip duplicate subject
             _cmd_thumb = database.get_kb_image_thumb(_cmd_entry.get("id") or 0)
             if _cmd_thumb:
                 _cmd_ref_images.append(_cmd_thumb)
-                _cmd_ref_labels.append(_cmd_entry.get("title", ""))
+                _cmd_ref_labels.append(_cmd_entry_title)
             if len(_cmd_ref_images) >= 5:
                 break
         # If the prompt mentions the bot itself (self-referential), also include
         # one character thumbnail so the composite covers all referenced subjects.
         _cmd_is_self_ref = await groq_ai.is_self_referential_image(prompt)
-        if _cmd_is_self_ref and len(_cmd_ref_images) < 5:
+        if _cmd_is_self_ref and len(_cmd_ref_images) < 5 and _cmd_bot_name not in _cmd_ref_labels:
             _cmd_char_count = database.get_character_image_count()
             for _i in range(1, _cmd_char_count + 1):
                 _cmd_char_thumb = database.get_character_image_thumb(_i)
