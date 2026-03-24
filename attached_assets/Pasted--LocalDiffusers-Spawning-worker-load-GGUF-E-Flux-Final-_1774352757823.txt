@@ -1,0 +1,116 @@
+[LocalDiffusers] Spawning worker — load=GGUF (E:\Flux_Final\quantized\flux-2-klein-4b-Q5_K_M.gguf) mode=img2img — prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, 若葉睦 and Mortis standing '
+[Worker] Loading transformer from GGUF: 'E:\\Flux_Final\\quantized\\flux-2-klein-4b-Q5_K_M.gguf'
+[Worker] GGUF mode �X pipeline from_single_file: 'E:\\Flux_Final\\quantized\\flux-2-klein-4b-Q5_K_M.gguf'
+[Worker] GGUF mode �X base model (text encoders, VAE): 'E:\\Flux_Final'
+[Worker] Pre-loading text_encoder (Qwen3ForCausalLM) from 'E:\\Flux_Final\\text_encoder' ...
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\compiler\__init__.py:148: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  return torch._dynamo.allow_in_graph(fn)
+Loading weights: 100%|�i�i�i�i�i�i�i�i�i�i| 398/398 [00:00<00:00, 6519.46it/s]
+[Worker]   text_encoder pre-loaded OK.
+[Worker] Pre-loading tokenizer (Qwen2TokenizerFast) from 'E:\\Flux_Final\\tokenizer' ...
+[Worker]   tokenizer pre-loaded OK.
+[Worker] Pre-loaded components: ['text_encoder', 'tokenizer']
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention_processor.py:51: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\hooks\context_parallel.py:339: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:537: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:579: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:751: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:1132: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:1334: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\auraflow_transformer_2d.py:146: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\auraflow_transformer_2d.py:196: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\cogvideox_transformer_3d.py:37: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\consisid_transformer_3d.py:231: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\hunyuan_transformer_2d.py:56: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\stable_audio_transformer.py:64: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_allegro.py:35: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention_dispatch.py:1782: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention_dispatch.py:1816: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_bria.py:365: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_bria.py:450: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_bria_fibo.py:243: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_bria_fibo.py:306: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_flux.py:355: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_flux.py:409: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_chroma.py:203: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_chroma.py:275: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_chronoedit.py:433: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_cogview4.py:455: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_easyanimate.py:208: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_glm_image.py:350: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_helios.py:373: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hidream_image.py:139: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hidream_image.py:420: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hidream_image.py:489: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hunyuanimage.py:266: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hunyuanimage.py:460: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hunyuanimage.py:537: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_longcat_image.py:214: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_longcat_image.py:268: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_ltx.py:281: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_ltx.py:384: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_mochi.py:118: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_mochi.py:308: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_ovis_image.py:214: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_ovis_image.py:271: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_qwenimage.py:576: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_sd3.py:38: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_skyreels_v2.py:438: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_wan.py:419: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_z_image.py:183: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+[Worker] Calling FluxPipeline.from_single_file ...
+Loading pipeline components...:   0%|          | 0/5 [00:00<?, ?it/s]C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\controlnets\controlnet_z_image.py:188: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\controlnets\controlnet_z_image.py:336: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+Loading pipeline components...:  60%|�i�i�i�i�i�i    | 3/5 [00:00<00:00, 48.36it/s]
+[LocalDiffusers] Worker exited with code 1.
+[LocalDiffusers] Worker error: FluxPipeline.from_single_file failed: ValueError: Cannot load  because double_stream_modulation_img.linear.weight expected shape torch.Size([18432, 3072]), but got torch.Size([18432, 6144]). If you want to instead overwrite randomly initialized weights, please make sure to pass both `low_cpu_mem_usage=False` and `ignore_mismatched_sizes=True`. For more information, see also: https://github.com/huggingface/diffusers/issues/1619#issuecomment-1345604389 as an example.
