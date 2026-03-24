@@ -499,11 +499,72 @@ async def enhance_image_prompt(
     else:
         image_note = ""
 
+    # Multi-character composition and interaction block.
+    # Activated when >= 2 reference images are provided OR when the raw prompt
+    # already contains spatial position terms injected by _build_spatial_prefix
+    # (e.g. "(left) Aria, (right) Mortis").
+    _spatial_terms = ("(left)", "(right)", "(center)", "(far-left)", "(far-right)",
+                      "(center-left)", "(center-right)")
+    _has_spatial_terms = any(t in raw_prompt for t in _spatial_terms)
+    n_subjects_hint = max(
+        len(reference_images) if reference_images else 0,
+        len(subject_references) if subject_references else 0,
+        2 if _has_spatial_terms else 0,
+    )
+    if n_subjects_hint >= 2:
+        _raw_lower = raw_prompt.lower()
+        _interaction_verbs = (
+            "together", "hug", "hugging", "fight", "fighting", "battle", "sparring",
+            "talk", "talking", "chat", "chatting", "play", "playing", "dance", "dancing",
+            "hold hands", "holding hands", "interact", "interacting", "alongside",
+            "side by side", "with each other", "facing each other", "looking at each other",
+            "sitting with", "standing with", "walk with", "walking with",
+            "lean", "leaning", "embrace", "embracing", "wrestle", "wrestling",
+            "一起", "抱", "打架", "說話", "跳舞", "握手", "互動", "並肩",
+        )
+        _has_interaction = any(v in _raw_lower for v in _interaction_verbs)
+        multi_char_note = (
+            f"\n[MULTI-CHARACTER SCENE — {n_subjects_hint} SUBJECTS — MANDATORY RULES]\n"
+            "This image contains MULTIPLE characters. Apply ALL rules below without exception:\n"
+            "\n"
+            "RULE 1 — COMPOSITION (NON-NEGOTIABLE): All characters must appear FULLY VISIBLE "
+            "inside the frame. No character may be cut off at any edge. "
+            "Use a centered composition — all subjects grouped near the center of the image, "
+            "close enough together that both fit within a portrait-format frame without cropping. "
+            "Use phrasing such as 'centered composition', 'both characters fully visible in frame', "
+            "'full-body view of all characters', 'close together in the center of the scene'.\n"
+            "\n"
+            "RULE 2 — PROXIMITY: Characters must be near each other — not pushed to opposite far "
+            "edges with empty space between them. They share the same immediate space.\n"
+        )
+        if _has_interaction:
+            multi_char_note += (
+                "\n"
+                "RULE 3 — INTERACTION (MANDATORY — user's request implies shared action): "
+                "The characters are actively engaged with each other, not merely standing side by side. "
+                "You MUST explicitly describe the physical interaction or shared activity: "
+                "body language, eye contact, gesture, touch, or shared motion showing they are "
+                "reacting to and engaging with each other. "
+                "Examples: 'leaning toward each other', 'arms around each other's shoulders', "
+                "'locked in combat with swords clashing', 'mid-conversation, one gesturing toward the other', "
+                "'side by side with intertwined arms'. "
+                "Be specific and vivid — do NOT write that they are simply 'standing together'.\n"
+            )
+        multi_char_note += (
+            "\n"
+            f"RULE — DESCRIBE EACH CHARACTER SEPARATELY: There are {n_subjects_hint} characters. "
+            "Give each their own appearance block — hair, eyes, outfit — labelled clearly so the "
+            "image model knows which traits belong to which subject.\n"
+        )
+    else:
+        multi_char_note = ""
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
         "rewrite it as a single, rich English prompt for an AI image model.\n"
         f"{image_note}"
+        f"{multi_char_note}"
         f"{ref_block}"
         "Rules:\n"
         "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"

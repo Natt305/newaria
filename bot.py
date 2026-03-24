@@ -254,11 +254,13 @@ def _composite_reference_images(
 def _build_spatial_prefix(labels: list) -> str:
     """Map a left-to-right list of subject names to a positional prompt prefix.
 
+    For two or more subjects, appends a centered-composition constraint so the
+    LLM rewriter keeps all characters grouped and fully visible in frame.
+
     Examples:
-        2 → "(left) Alice, (right) Aria"
-        3 → "(left) Alice, (center) Aria, (right) Bob"
-        4 → "(far-left) A, (center-left) B, (center-right) C, (far-right) D"
-        5 → "(far-left) A, (left) B, (center) C, (right) D, (far-right) E"
+        1 → "(center) Alice"
+        2 → "(left) Alice, (right) Aria, centered composition, all characters fully visible in frame"
+        3 → "(left) Alice, (center) Aria, (right) Bob, centered composition, all characters fully visible in frame"
     """
     positions = {
         1: ["center"],
@@ -270,7 +272,10 @@ def _build_spatial_prefix(labels: list) -> str:
     n = len(labels)
     pos = positions.get(n, [f"position-{i+1}" for i in range(n)])
     parts = [f"({p}) {lbl}" for p, lbl in zip(pos, labels) if lbl]
-    return ", ".join(parts)
+    result = ", ".join(parts)
+    if n >= 2 and result:
+        result += ", centered composition, all characters fully visible in frame"
+    return result
 
 
 def _make_progress_bar(success: int, failed: int, total: int) -> str:
@@ -1000,17 +1005,25 @@ async def process_chat(
         # Build composite reference image and compute spatial layout prefix.
         # Done before enhance_image_prompt so the LLM rewriter sees the
         # left/right subject ordering in the prompt it is expanding.
-        _comp = (
-            _composite_reference_images(_ref_images, _ref_labels)
-            if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces", "comfyui") and _ref_images
-            else None
-        )
-        if isinstance(_comp, dict):
-            _ref_image_for_gen = _comp["image"]
-            _spatial_prefix = _build_spatial_prefix(_comp["layout"])
-        else:
-            _ref_image_for_gen = _comp   # None or bare (bytes, mime) for single image
-            _spatial_prefix = ""
+        #
+        # ComfyUI special case: a wide composite (e.g. 1024×512 for two subjects)
+        # would be center-cropped to 512×512 by _preprocess_reference_image, landing
+        # exactly at the seam between the two characters and cutting both in half.
+        # Fix: use the primary reference directly (already 512×512, natural crop).
+        # Groq vision still receives all images individually via _ref_images.
+        _ref_image_for_gen = None
+        _spatial_prefix = ""
+        if _IMAGE_BACKEND == "comfyui" and _ref_images:
+            _ref_image_for_gen = _ref_images[0]
+            if len(_ref_images) > 1:
+                _spatial_prefix = _build_spatial_prefix(_ref_labels)
+        elif _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images:
+            _comp = _composite_reference_images(_ref_images, _ref_labels)
+            if isinstance(_comp, dict):
+                _ref_image_for_gen = _comp["image"]
+                _spatial_prefix = _build_spatial_prefix(_comp["layout"])
+            else:
+                _ref_image_for_gen = _comp  # None or bare (bytes, mime) for single image
         if _spatial_prefix:
             enriched_prompt = _spatial_prefix + " — " + enriched_prompt
 
@@ -2236,14 +2249,24 @@ async def generate_cmd(ctx, *, prompt: str):
                     _cmd_ref_images.append(_cmd_char_thumb)
                     _cmd_ref_labels.append(_cmd_bot_name)
                     break  # one character reference is enough
-    _cmd_comp = _composite_reference_images(_cmd_ref_images, _cmd_ref_labels) if _cmd_ref_images else None
-    if isinstance(_cmd_comp, dict):
-        _cmd_ref_image = _cmd_comp["image"]
-        _cmd_spatial = _build_spatial_prefix(_cmd_comp["layout"])
-        if _cmd_spatial:
-            enriched_prompt = _cmd_spatial + " — " + enriched_prompt
-    else:
-        _cmd_ref_image = _cmd_comp   # None or bare (bytes, mime)
+    # Build reference image for generation and spatial prefix.
+    # ComfyUI: use primary reference directly — composite gets center-cropped to the
+    # character seam for multi-subject strips, cutting both subjects in half.
+    _cmd_ref_image = None
+    _cmd_spatial = ""
+    if _IMAGE_BACKEND == "comfyui" and _cmd_ref_images:
+        _cmd_ref_image = _cmd_ref_images[0]
+        if len(_cmd_ref_images) > 1:
+            _cmd_spatial = _build_spatial_prefix(_cmd_ref_labels)
+    elif _cmd_ref_images:
+        _cmd_comp = _composite_reference_images(_cmd_ref_images, _cmd_ref_labels)
+        if isinstance(_cmd_comp, dict):
+            _cmd_ref_image = _cmd_comp["image"]
+            _cmd_spatial = _build_spatial_prefix(_cmd_comp["layout"])
+        else:
+            _cmd_ref_image = _cmd_comp  # None or bare (bytes, mime)
+    if _cmd_spatial:
+        enriched_prompt = _cmd_spatial + " — " + enriched_prompt
     _cmd_progress_msg = None
     _cmd_poller_task = None
     if _IMAGE_BACKEND in ("local_diffusers", "comfyui"):
