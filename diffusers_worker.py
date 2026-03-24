@@ -64,29 +64,25 @@ def _gguf_progress_thread(stop_event: threading.Event) -> None:
 
     GGUF loading cannot be patched like safetensors, so we emit timed
     markers so the Discord bar visibly advances while the user waits.
-    Schedule: 0→0.05 immediately, then 0.20 @ 10s, 0.45 @ 25s, 0.70 @ 45s,
-    0.88 @ 70s — all capped at 0.95 so the bar never claims "done" early.
+    Uses a simple three-step Timer chain: 0.05 immediately, 0.50 @ 15 s,
+    0.95 @ 45 s — the bar will never falsely claim completion because
+    the stop_event cancels any remaining timers the moment loading ends.
     """
     schedule = [
-        (0,   0.05),
-        (10,  0.20),
-        (25,  0.45),
-        (45,  0.70),
-        (70,  0.88),
-        (100, 0.95),
+        (0,  0.05),
+        (15, 0.50),
+        (45, 0.95),
     ]
     start = _time.monotonic()
-    idx = 0
-    while not stop_event.is_set() and idx < len(schedule):
-        delay, frac = schedule[idx]
+    for delay, frac in schedule:
         elapsed = _time.monotonic() - start
         wait = delay - elapsed
         if wait > 0:
-            stop_event.wait(timeout=wait)
+            if stop_event.wait(timeout=wait):
+                break
         if stop_event.is_set():
             break
         _progress(f"LOAD:{frac:.2f}")
-        idx += 1
 
 
 def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
