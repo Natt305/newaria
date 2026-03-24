@@ -135,6 +135,11 @@ def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
     transformer = None
     used_class = None
 
+    transformer_config_dir = os.path.join(model_path, "transformer")
+    if not os.path.isdir(transformer_config_dir):
+        transformer_config_dir = model_path
+    _log(f"Transformer config dir: {transformer_config_dir!r}")
+
     for cls_name in ("Flux2KleinTransformer2DModel", "FluxTransformer2DModel"):
         try:
             import diffusers as _df
@@ -142,17 +147,15 @@ def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
             if cls is None:
                 continue
             _log(f"Loading transformer from GGUF using {cls_name} ...")
+            base_kwargs = dict(
+                torch_dtype=torch.bfloat16,
+                config=transformer_config_dir,
+            )
             if GGUFQuantizationConfig is not None:
-                transformer = cls.from_single_file(
-                    gguf_path,
-                    quantization_config=GGUFQuantizationConfig(compute_dtype=torch.bfloat16),
-                    torch_dtype=torch.bfloat16,
+                base_kwargs["quantization_config"] = GGUFQuantizationConfig(
+                    compute_dtype=torch.bfloat16
                 )
-            else:
-                transformer = cls.from_single_file(
-                    gguf_path,
-                    torch_dtype=torch.bfloat16,
-                )
+            transformer = cls.from_single_file(gguf_path, **base_kwargs)
             used_class = cls_name
             _log(f"Transformer loaded via {cls_name}.")
             break
