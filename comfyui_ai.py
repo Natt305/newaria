@@ -185,12 +185,21 @@ def _build_img2img_workflow(
     seed: int,
     strength: float,
     uploaded_image_name: str,
+    max_shift: float = 1.15,
+    base_shift: float = 0.5,
 ) -> dict:
     """ComfyUI API workflow for FLUX.2-klein-4B img2img (CLIPLoader flux2 + Qwen-3-4B).
 
     The reference image is assumed to already be smart-cropped to (width, height)
     by _preprocess_reference_image. ImageScale is kept as a safety net in case the
     uploaded dimensions differ slightly.
+
+    ModelSamplingFlux (node 13) patches the model's timestep schedule to be
+    resolution-aware before the KSampler runs.  Without it, FLUX's default linear
+    noise schedule maps denoise values to the wrong sigma for small resolutions
+    (e.g. 512x512), so the reference latent is overwhelmed with noise and the
+    model effectively ignores it.  The diffusers FluxImg2ImgPipeline applies this
+    correction automatically; ComfyUI requires an explicit node.
     """
     enhanced_prompt = "referencing the provided image, " + prompt + _ANATOMY_SUFFIX
     return {
@@ -232,10 +241,20 @@ def _build_img2img_workflow(
             "class_type": "VAEEncode",
             "inputs": {"pixels": ["11", 0], "vae": ["3", 0]},
         },
+        "13": {
+            "class_type": "ModelSamplingFlux",
+            "inputs": {
+                "model": ["1", 0],
+                "max_shift": max_shift,
+                "base_shift": base_shift,
+                "width": width,
+                "height": height,
+            },
+        },
         "7": {
             "class_type": "KSampler",
             "inputs": {
-                "model": ["1", 0],
+                "model": ["13", 0],
                 "positive": ["4", 0],
                 "negative": ["5", 0],
                 "latent_image": ["12", 0],
@@ -278,6 +297,8 @@ def _run_generate(
     width = _get_int("COMFYUI_WIDTH", DEFAULT_WIDTH)
     height = _get_int("COMFYUI_HEIGHT", DEFAULT_HEIGHT)
     strength = _get_float("COMFYUI_STRENGTH", DEFAULT_STRENGTH)
+    flux_max_shift = _get_float("COMFYUI_FLUX_MAX_SHIFT", 1.15)
+    flux_base_shift = _get_float("COMFYUI_FLUX_BASE_SHIFT", 0.5)
     timeout = _get_int("COMFYUI_TIMEOUT", DEFAULT_TIMEOUT)
     custom_workflow_path = os.environ.get("COMFYUI_WORKFLOW", "").strip()
     seed = int(uuid.uuid4().int % (2**31))
@@ -298,10 +319,11 @@ def _run_generate(
             upload_bytes = processed if processed is not None else img_bytes
             uploaded_name = _upload_image(base_url, upload_bytes, _requests)
             if uploaded_name:
-                print(f"[ComfyUI] img2img mode — uploaded reference as '{uploaded_name}', strength={strength}")
+                print(f"[ComfyUI] img2img mode — uploaded reference as '{uploaded_name}', strength={strength}, shift=({flux_max_shift},{flux_base_shift})")
                 workflow = _build_img2img_workflow(
                     prompt, gguf_path, vae_name, clip_name,
                     steps, width, height, seed, strength, uploaded_name,
+                    max_shift=flux_max_shift, base_shift=flux_base_shift,
                 )
             else:
                 print("[ComfyUI] Image upload failed — falling back to txt2img.")

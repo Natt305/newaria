@@ -185,6 +185,18 @@ COMFYUI_HEIGHT=512
 # img2img denoise strength, 0.0-1.0 (default: 0.75; lower = closer to reference)
 COMFYUI_STRENGTH=0.75
 
+# FLUX img2img 時間步移位參數（用於 ModelSamplingFlux 節點）
+# FLUX img2img timestep shift parameters (used by ModelSamplingFlux node)
+# ModelSamplingFlux 根據輸出解析度校正 FLUX 的噪聲調度，使 img2img 的去雜訊強度
+# 能正確對應到實際的 sigma 值。若不加此節點，參考圖像會被過度加噪而遭到忽略。
+# ModelSamplingFlux corrects FLUX's noise schedule for the target resolution so
+# that the denoise strength maps to the correct sigma. Without it the reference
+# latent is overwhelmed by noise and effectively ignored (identical to txt2img).
+# 預設值來自 FLUX.1 官方建議（max_shift=1.15, base_shift=0.5）。
+# Defaults are the official FLUX.1 recommended values (max_shift=1.15, base_shift=0.5).
+# COMFYUI_FLUX_MAX_SHIFT=1.15
+# COMFYUI_FLUX_BASE_SHIFT=0.5
+
 # 最長等待時間（秒，預設 300）/ Max wait time in seconds (default: 300)
 # COMFYUI_TIMEOUT=300
 
