@@ -175,10 +175,14 @@ COMFYUI_VAE=flux2-vae.safetensors
 # Place in ComfyUI's models/text_encoders/ directory
 COMFYUI_CLIP=clip_l.safetensors
 
-# 第二文字編碼器：Qwen-3-4B 取代標準 FLUX 的 T5-XXL
-# Second text encoder: Qwen-3-4B replaces the T5-XXL used by standard FLUX
-# 下載自 / Download from: https://huggingface.co/Comfy-Org/flux2-klein-4B/tree/main/split_files/text_encoders
-COMFYUI_CLIP2=qwen_3_4b.safetensors
+# 第二文字編碼器：使用 T5-XXL（標準 FLUX 設置，與內建 workflow 相容）
+# Second text encoder: T5-XXL (standard FLUX pairing, compatible with the built-in workflow)
+# 注意：qwen_3_4b.safetensors 需要 ComfyUI 的 Qwen 文字編碼器支援，尚未在標準節點中實作。
+# Note: qwen_3_4b.safetensors requires Qwen text-encoder support in ComfyUI which is not yet
+#       in standard node types. To use Qwen, set COMFYUI_WORKFLOW to the official
+#       Comfy-Org FLUX.2-klein-4B workflow JSON instead of relying on the built-in template.
+#       Official workflow: https://huggingface.co/Comfy-Org/flux2-klein-4B
+COMFYUI_CLIP2=t5xxl_fp8_e4m3fn.safetensors
 
 # 推理步數（預設 4）/ Inference steps (default: 4)
 COMFYUI_STEPS=4

@@ -1,0 +1,225 @@
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 334, in get_output_data
+    return_values = await _async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=
+execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 308, in _async_map_node_over_list
+    await process_inputs(input_dict, i)
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 296, in process_inputs
+    result = f(**inputs)
+  File "E:\comfyui\resources\ComfyUI\nodes.py", line 80, in encode
+    return (clip.encode_from_tokens_scheduled(tokens), )
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\sd.py", line 313, in encode_from_tokens_scheduled
+    pooled_dict = self.encode_from_tokens(tokens, return_pooled=return_pooled, return_dict=True)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd.py", line 377, in encode_from_tokens
+    o = self.cond_stage_model.encode_token_weights(tokens)
+  File "E:\comfyui\resources\ComfyUI\comfy\text_encoders\flux.py", line 56, in encode_token_weights
+    t5_out, t5_pooled = self.t5xxl.encode_token_weights(token_weight_pairs_t5)
+                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 45, in encode_token_weights
+    o = self.encode(to_encode)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 306, in encode
+    return self(tokens)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 279, in forward
+    outputs = self.transformer(None, attention_mask_model, embeds=embeds, num_tokens=num_tokens, intermediate_output=intermediate_output, final_layer_
+norm_intermediate=self.layer_norm_hidden_state, dtype=torch.float32, embeds_info=embeds_info)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\text_encoders\t5.py", line 249, in forward
+    return self.encoder(x, attention_mask=attention_mask, **kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\text_encoders\t5.py", line 217, in forward
+    x, past_bias = l(x, mask, past_bias, optimized_attention)
+                   ~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\text_encoders\t5.py", line 189, in forward
+    x = self.layer[-1](x)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\text_encoders\t5.py", line 66, in forward
+    forwarded_states = self.DenseReluDense(forwarded_states)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\text_encoders\t5.py", line 46, in forward
+    hidden_gelu = self.act(self.wi_0(x))
+                           ~~~~~~~~~^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 392, in forward
+    return self.forward_comfy_cast_weights(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-GGUF\ops.py", line 217, in forward_comfy_cast_weights
+    out = super().forward_comfy_cast_weights(input, *args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 385, in forward_comfy_cast_weights
+    x = torch.nn.functional.linear(input, weight, bias)
+RuntimeError: mat1 and mat2 shapes cannot be multiplied (256x4096 and 10240x4096)
+Prompt executed in 17.59 seconds
+got prompt
+clip missing: ['text_projection.weight']
+clip missing: ['encoder.block.0.layer.0.SelfAttention.q.weight', 'encoder.block.0.layer.0.SelfAttention.k.weight', 'encoder.block.0.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.0.layer.0.SelfAttention.o.weight', 'encoder.block.0.layer.0.layer_norm.weight', 'encoder.block.0.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.0.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.0.layer.1.DenseReluDense.wo.weight', 'encoder.block.0.layer.1.layer
+_norm.weight', 'encoder.block.1.layer.0.SelfAttention.q.weight', 'encoder.block.1.layer.0.SelfAttention.k.weight', 'encoder.block.1.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.1.layer.0.SelfAttention.o.weight', 'encoder.block.1.layer.0.layer_norm.weight', 'encoder.block.1.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.1.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.1.layer.1.DenseReluDense.wo.weight', 'encoder.block.1.layer.1.layer
+_norm.weight', 'encoder.block.2.layer.0.SelfAttention.q.weight', 'encoder.block.2.layer.0.SelfAttention.k.weight', 'encoder.block.2.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.2.layer.0.SelfAttention.o.weight', 'encoder.block.2.layer.0.layer_norm.weight', 'encoder.block.2.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.2.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.2.layer.1.DenseReluDense.wo.weight', 'encoder.block.2.layer.1.layer
+_norm.weight', 'encoder.block.3.layer.0.SelfAttention.q.weight', 'encoder.block.3.layer.0.SelfAttention.k.weight', 'encoder.block.3.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.3.layer.0.SelfAttention.o.weight', 'encoder.block.3.layer.0.layer_norm.weight', 'encoder.block.3.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.3.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.3.layer.1.DenseReluDense.wo.weight', 'encoder.block.3.layer.1.layer
+_norm.weight', 'encoder.block.4.layer.0.SelfAttention.q.weight', 'encoder.block.4.layer.0.SelfAttention.k.weight', 'encoder.block.4.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.4.layer.0.SelfAttention.o.weight', 'encoder.block.4.layer.0.layer_norm.weight', 'encoder.block.4.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.4.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.4.layer.1.DenseReluDense.wo.weight', 'encoder.block.4.layer.1.layer
+_norm.weight', 'encoder.block.5.layer.0.SelfAttention.q.weight', 'encoder.block.5.layer.0.SelfAttention.k.weight', 'encoder.block.5.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.5.layer.0.SelfAttention.o.weight', 'encoder.block.5.layer.0.layer_norm.weight', 'encoder.block.5.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.5.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.5.layer.1.DenseReluDense.wo.weight', 'encoder.block.5.layer.1.layer
+_norm.weight', 'encoder.block.6.layer.0.SelfAttention.q.weight', 'encoder.block.6.layer.0.SelfAttention.k.weight', 'encoder.block.6.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.6.layer.0.SelfAttention.o.weight', 'encoder.block.6.layer.0.layer_norm.weight', 'encoder.block.6.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.6.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.6.layer.1.DenseReluDense.wo.weight', 'encoder.block.6.layer.1.layer
+_norm.weight', 'encoder.block.7.layer.0.SelfAttention.q.weight', 'encoder.block.7.layer.0.SelfAttention.k.weight', 'encoder.block.7.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.7.layer.0.SelfAttention.o.weight', 'encoder.block.7.layer.0.layer_norm.weight', 'encoder.block.7.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.7.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.7.layer.1.DenseReluDense.wo.weight', 'encoder.block.7.layer.1.layer
+_norm.weight', 'encoder.block.8.layer.0.SelfAttention.q.weight', 'encoder.block.8.layer.0.SelfAttention.k.weight', 'encoder.block.8.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.8.layer.0.SelfAttention.o.weight', 'encoder.block.8.layer.0.layer_norm.weight', 'encoder.block.8.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.8.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.8.layer.1.DenseReluDense.wo.weight', 'encoder.block.8.layer.1.layer
+_norm.weight', 'encoder.block.9.layer.0.SelfAttention.q.weight', 'encoder.block.9.layer.0.SelfAttention.k.weight', 'encoder.block.9.layer.0.SelfAttent
+ion.v.weight', 'encoder.block.9.layer.0.SelfAttention.o.weight', 'encoder.block.9.layer.0.layer_norm.weight', 'encoder.block.9.layer.1.DenseReluDense.
+wi_0.weight', 'encoder.block.9.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.9.layer.1.DenseReluDense.wo.weight', 'encoder.block.9.layer.1.layer
+_norm.weight', 'encoder.block.10.layer.0.SelfAttention.q.weight', 'encoder.block.10.layer.0.SelfAttention.k.weight', 'encoder.block.10.layer.0.SelfAtt
+ention.v.weight', 'encoder.block.10.layer.0.SelfAttention.o.weight', 'encoder.block.10.layer.0.layer_norm.weight', 'encoder.block.10.layer.1.DenseRelu
+Dense.wi_0.weight', 'encoder.block.10.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.10.layer.1.DenseReluDense.wo.weight', 'encoder.block.10.laye
+r.1.layer_norm.weight', 'encoder.block.11.layer.0.SelfAttention.q.weight', 'encoder.block.11.layer.0.SelfAttention.k.weight', 'encoder.block.11.layer.
+0.SelfAttention.v.weight', 'encoder.block.11.layer.0.SelfAttention.o.weight', 'encoder.block.11.layer.0.layer_norm.weight', 'encoder.block.11.layer.1.
+DenseReluDense.wi_0.weight', 'encoder.block.11.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.11.layer.1.DenseReluDense.wo.weight', 'encoder.bloc
+k.11.layer.1.layer_norm.weight', 'encoder.block.12.layer.0.SelfAttention.q.weight', 'encoder.block.12.layer.0.SelfAttention.k.weight', 'encoder.block.
+12.layer.0.SelfAttention.v.weight', 'encoder.block.12.layer.0.SelfAttention.o.weight', 'encoder.block.12.layer.0.layer_norm.weight', 'encoder.block.12
+.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.12.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.12.layer.1.DenseReluDense.wo.weight', 'enc
+oder.block.12.layer.1.layer_norm.weight', 'encoder.block.13.layer.0.SelfAttention.q.weight', 'encoder.block.13.layer.0.SelfAttention.k.weight', 'encod
+er.block.13.layer.0.SelfAttention.v.weight', 'encoder.block.13.layer.0.SelfAttention.o.weight', 'encoder.block.13.layer.0.layer_norm.weight', 'encoder
+.block.13.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.13.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.13.layer.1.DenseReluDense.wo.weig
+ht', 'encoder.block.13.layer.1.layer_norm.weight', 'encoder.block.14.layer.0.SelfAttention.q.weight', 'encoder.block.14.layer.0.SelfAttention.k.weight
+', 'encoder.block.14.layer.0.SelfAttention.v.weight', 'encoder.block.14.layer.0.SelfAttention.o.weight', 'encoder.block.14.layer.0.layer_norm.weight',
+ 'encoder.block.14.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.14.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.14.layer.1.DenseReluDens
+e.wo.weight', 'encoder.block.14.layer.1.layer_norm.weight', 'encoder.block.15.layer.0.SelfAttention.q.weight', 'encoder.block.15.layer.0.SelfAttention
+.k.weight', 'encoder.block.15.layer.0.SelfAttention.v.weight', 'encoder.block.15.layer.0.SelfAttention.o.weight', 'encoder.block.15.layer.0.layer_norm
+.weight', 'encoder.block.15.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.15.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.15.layer.1.Dens
+eReluDense.wo.weight', 'encoder.block.15.layer.1.layer_norm.weight', 'encoder.block.16.layer.0.SelfAttention.q.weight', 'encoder.block.16.layer.0.Self
+Attention.k.weight', 'encoder.block.16.layer.0.SelfAttention.v.weight', 'encoder.block.16.layer.0.SelfAttention.o.weight', 'encoder.block.16.layer.0.l
+ayer_norm.weight', 'encoder.block.16.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.16.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.16.lay
+er.1.DenseReluDense.wo.weight', 'encoder.block.16.layer.1.layer_norm.weight', 'encoder.block.17.layer.0.SelfAttention.q.weight', 'encoder.block.17.lay
+er.0.SelfAttention.k.weight', 'encoder.block.17.layer.0.SelfAttention.v.weight', 'encoder.block.17.layer.0.SelfAttention.o.weight', 'encoder.block.17.
+layer.0.layer_norm.weight', 'encoder.block.17.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.17.layer.1.DenseReluDense.wi_1.weight', 'encoder.blo
+ck.17.layer.1.DenseReluDense.wo.weight', 'encoder.block.17.layer.1.layer_norm.weight', 'encoder.block.18.layer.0.SelfAttention.q.weight', 'encoder.blo
+ck.18.layer.0.SelfAttention.k.weight', 'encoder.block.18.layer.0.SelfAttention.v.weight', 'encoder.block.18.layer.0.SelfAttention.o.weight', 'encoder.
+block.18.layer.0.layer_norm.weight', 'encoder.block.18.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.18.layer.1.DenseReluDense.wi_1.weight', 'en
+coder.block.18.layer.1.DenseReluDense.wo.weight', 'encoder.block.18.layer.1.layer_norm.weight', 'encoder.block.19.layer.0.SelfAttention.q.weight', 'en
+coder.block.19.layer.0.SelfAttention.k.weight', 'encoder.block.19.layer.0.SelfAttention.v.weight', 'encoder.block.19.layer.0.SelfAttention.o.weight', 
+'encoder.block.19.layer.0.layer_norm.weight', 'encoder.block.19.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.19.layer.1.DenseReluDense.wi_1.wei
+ght', 'encoder.block.19.layer.1.DenseReluDense.wo.weight', 'encoder.block.19.layer.1.layer_norm.weight', 'encoder.block.20.layer.0.SelfAttention.q.wei
+ght', 'encoder.block.20.layer.0.SelfAttention.k.weight', 'encoder.block.20.layer.0.SelfAttention.v.weight', 'encoder.block.20.layer.0.SelfAttention.o.
+weight', 'encoder.block.20.layer.0.layer_norm.weight', 'encoder.block.20.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.20.layer.1.DenseReluDense
+.wi_1.weight', 'encoder.block.20.layer.1.DenseReluDense.wo.weight', 'encoder.block.20.layer.1.layer_norm.weight', 'encoder.block.21.layer.0.SelfAttent
+ion.q.weight', 'encoder.block.21.layer.0.SelfAttention.k.weight', 'encoder.block.21.layer.0.SelfAttention.v.weight', 'encoder.block.21.layer.0.SelfAtt
+ention.o.weight', 'encoder.block.21.layer.0.layer_norm.weight', 'encoder.block.21.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.21.layer.1.Dense
+ReluDense.wi_1.weight', 'encoder.block.21.layer.1.DenseReluDense.wo.weight', 'encoder.block.21.layer.1.layer_norm.weight', 'encoder.block.22.layer.0.S
+elfAttention.q.weight', 'encoder.block.22.layer.0.SelfAttention.k.weight', 'encoder.block.22.layer.0.SelfAttention.v.weight', 'encoder.block.22.layer.
+0.SelfAttention.o.weight', 'encoder.block.22.layer.0.layer_norm.weight', 'encoder.block.22.layer.1.DenseReluDense.wi_0.weight', 'encoder.block.22.laye
+r.1.DenseReluDense.wi_1.weight', 'encoder.block.22.layer.1.DenseReluDense.wo.weight', 'encoder.block.22.layer.1.layer_norm.weight', 'encoder.block.23.
+layer.0.SelfAttention.q.weight', 'encoder.block.23.layer.0.SelfAttention.k.weight', 'encoder.block.23.layer.0.SelfAttention.v.weight', 'encoder.block.
+23.layer.0.SelfAttention.o.weight', 'encoder.block.23.layer.0.layer_norm.weight', 'encoder.block.23.layer.1.DenseReluDense.wi_0.weight', 'encoder.bloc
+k.23.layer.1.DenseReluDense.wi_1.weight', 'encoder.block.23.layer.1.DenseReluDense.wo.weight', 'encoder.block.23.layer.1.layer_norm.weight', 'encoder.
+final_layer_norm.weight']
+CLIP/text encoder model load device: cuda:0, offload device: cpu, current: cpu, dtype: torch.float16
+Requested to load FluxClipModel_
+Model FluxClipModel_ prepared for dynamic VRAM loading. 9318MB Staged. 0 patches attached. Force pre-loaded 49 weights: 392 KB.
+!!! Exception during processing !!! Cannot copy out of meta tensor; no data!
+Traceback (most recent call last):
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 525, in execute
+    output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=exec
+ution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 334, in get_output_data
+    return_values = await _async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=
+execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 308, in _async_map_node_over_list
+    await process_inputs(input_dict, i)
+  File "E:\comfyui\resources\ComfyUI\execution.py", line 296, in process_inputs
+    result = f(**inputs)
+  File "E:\comfyui\resources\ComfyUI\nodes.py", line 80, in encode
+    return (clip.encode_from_tokens_scheduled(tokens), )
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\sd.py", line 313, in encode_from_tokens_scheduled
+    pooled_dict = self.encode_from_tokens(tokens, return_pooled=return_pooled, return_dict=True)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd.py", line 377, in encode_from_tokens
+    o = self.cond_stage_model.encode_token_weights(tokens)
+  File "E:\comfyui\resources\ComfyUI\comfy\text_encoders\flux.py", line 56, in encode_token_weights
+    t5_out, t5_pooled = self.t5xxl.encode_token_weights(token_weight_pairs_t5)
+                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 45, in encode_token_weights
+    o = self.encode(to_encode)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 306, in encode
+    return self(tokens)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 266, in forward
+    embeds, attention_mask, num_tokens, embeds_info = self.process_tokens(tokens, device)
+                                                      ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\sd1_clip.py", line 213, in process_tokens
+    tokens_embed = self.transformer.get_input_embeddings()(tokens_embed, out_dtype=torch.float32)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 633, in forward
+    return self.forward_comfy_cast_weights(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 624, in forward_comfy_cast_weights
+    weight, bias, offload_stream = cast_bias_weight(self, device=input.device, dtype=out_dtype, offloadable=True)
+                                   ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 228, in cast_bias_weight
+    return cast_bias_weight_with_vbar(s, dtype, device, bias_dtype, non_blocking, compute_dtype, want_requant)
+  File "E:\comfyui\resources\ComfyUI\comfy\ops.py", line 151, in cast_bias_weight_with_vbar
+    comfy.model_management.cast_to_gathered(xfer_source, xfer_dest, non_blocking=non_blocking, stream=offload_stream)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\comfy\model_management.py", line 1286, in cast_to_gathered
+    dest_view.copy_(tensor, non_blocking=non_blocking)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+NotImplementedError: Cannot copy out of meta tensor; no data!
+Prompt executed in 6.72 seconds
