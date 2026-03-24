@@ -163,6 +163,81 @@ async def _generate_image(
     )
 
 
+def _composite_reference_images(
+    ref_images: list,
+    target_w: int = 512,
+    target_h: int = 512,
+) -> Optional[tuple]:
+    """Tile multiple reference images side-by-side into one composite.
+
+    When the img2img backends (local_diffusers, hf_spaces) receive a reference
+    image they use it as the visual starting point.  Passing a tiled composite
+    of all relevant subject thumbnails (char + KB entries) gives the model
+    simultaneous visual context from every source rather than just the first.
+
+    Args:
+        ref_images: List of (bytes, mime_type) tuples from database thumbnails.
+        target_w/h: Final composite is resized to this size (default 512×512)
+                    so the worker receives a consistent input regardless of how
+                    many sources were tiled.
+
+    Returns:
+        (jpeg_bytes, "image/jpeg") on success.
+        Falls back to ref_images[0] as-is if PIL is unavailable or on error.
+    """
+    if not ref_images:
+        return None
+    if len(ref_images) == 1:
+        return ref_images[0]
+    try:
+        from PIL import Image
+        import io as _io
+
+        frames: list[Image.Image] = []
+        for img_bytes, _mime in ref_images:
+            try:
+                frames.append(Image.open(_io.BytesIO(img_bytes)).convert("RGB"))
+            except Exception as e:
+                print(f"[Bot] Composite: skipping unreadable thumbnail — {e}")
+
+        if not frames:
+            return ref_images[0]
+        if len(frames) == 1:
+            buf = _io.BytesIO()
+            frames[0].save(buf, format="JPEG", quality=90)
+            return (buf.getvalue(), "image/jpeg")
+
+        # Resize all frames to the same height so they tile cleanly.
+        strip_h = target_h
+        resized = [
+            f.resize(
+                (round(f.width * strip_h / f.height), strip_h),
+                Image.LANCZOS,
+            )
+            for f in frames
+        ]
+        total_w = sum(f.width for f in resized)
+        canvas = Image.new("RGB", (total_w, strip_h))
+        x = 0
+        for f in resized:
+            canvas.paste(f, (x, 0))
+            x += f.width
+
+        # Resize the wide strip back to the target square.
+        composite = canvas.resize((target_w, target_h), Image.LANCZOS)
+        buf = _io.BytesIO()
+        composite.save(buf, format="JPEG", quality=90)
+        print(
+            f"[Bot] Composite: tiled {len(frames)} reference images "
+            f"({total_w}×{strip_h} → {target_w}×{target_h})"
+        )
+        return (buf.getvalue(), "image/jpeg")
+
+    except Exception as exc:
+        print(f"[Bot] Composite reference image failed ({exc}) — falling back to first image only.")
+        return ref_images[0]
+
+
 def _make_progress_bar(success: int, failed: int, total: int) -> str:
     done = success + failed
     bar = "🟩" * success + "🟥" * failed + "⬛" * (total - done)
@@ -803,8 +878,9 @@ async def process_chat(
         else:
             char_images_ctx = ""
         # Collect reference thumbnails for img2img and the vision-assisted prompt
-        # rewriter.  Priority rule: the primary subject's images go first so that
-        # _ref_images[0] (used as the img2img seed) is always the correct one.
+        # rewriter.  All collected images are later composited into a single
+        # side-by-side tile that serves as the img2img seed, so every referenced
+        # subject is visible to the model simultaneously.
         #   • Self-referential prompt  → character thumbnails first, KB after
         #   • KB subject only          → KB thumbnails first, char after
         _ref_images: list = []
@@ -914,7 +990,7 @@ async def process_chat(
                 result, comment = await asyncio.gather(
                     _generate_image(
                         enriched_prompt,
-                        _ref_images[0] if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images else None,
+                        _composite_reference_images(_ref_images) if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images else None,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND == "local_diffusers" else None,
                     ),
                     groq_ai.generate_image_comment(
@@ -2004,13 +2080,24 @@ async def generate_cmd(ctx, *, prompt: str):
     await ctx.defer()
 
     enriched_prompt, kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(prompt)
-    _cmd_ref_image = None
-    if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and kb_matches:
+    _cmd_ref_images: list = []
+    if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces"):
+        # Collect one thumbnail per matched KB entry (ordered by match priority)
         for _cmd_entry in kb_matches:
             _cmd_thumb = database.get_kb_image_thumb(_cmd_entry.get("id") or 0)
             if _cmd_thumb:
-                _cmd_ref_image = _cmd_thumb
-                break
+                _cmd_ref_images.append(_cmd_thumb)
+        # If the prompt mentions the bot itself (self-referential), also include
+        # character thumbnails so the composite covers all referenced subjects.
+        _cmd_is_self_ref = await groq_ai.is_self_referential_image(prompt)
+        if _cmd_is_self_ref:
+            _cmd_char_count = database.get_character_image_count()
+            for _i in range(1, _cmd_char_count + 1):
+                _cmd_char_thumb = database.get_character_image_thumb(_i)
+                if _cmd_char_thumb:
+                    _cmd_ref_images.append(_cmd_char_thumb)
+                    break  # one character reference is enough
+    _cmd_ref_image = _composite_reference_images(_cmd_ref_images) if _cmd_ref_images else None
     _cmd_bot_name, *_ = load_character()
     _cmd_progress_msg = None
     _cmd_poller_task = None
