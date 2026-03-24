@@ -85,103 +85,50 @@ def _gguf_progress_thread(stop_event: threading.Event) -> None:
         _progress(f"LOAD:{frac:.2f}")
 
 
-def _import_gguf_quantization_config():
-    """Try every known export location for GGUFQuantizationConfig.
-
-    Returns the class if found in any of the known locations, or None when
-    the installed diffusers version does not expose it (in which case
-    from_single_file auto-detects the GGUF format from the file extension).
-    """
-    candidates = [
-        ("diffusers",                 "GGUFQuantizationConfig"),
-        ("diffusers.quantizers.gguf", "GGUFQuantizationConfig"),
-        ("diffusers.quantizers",      "GGUFQuantizationConfig"),
-    ]
-    for mod_name, attr in candidates:
-        try:
-            mod = __import__(mod_name, fromlist=[attr])
-            cls = getattr(mod, attr, None)
-            if cls is not None:
-                _log(f"GGUFQuantizationConfig found at {mod_name}.{attr}")
-                return cls
-        except Exception:
-            pass
-    _log("GGUFQuantizationConfig not found in any known location — "
-         "will use from_single_file auto-detect mode (no quantization_config kwarg).")
-    return None
-
-
 def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
-    """Load Flux2KleinPipeline with a GGUF-quantised transformer.
+    """Load a Flux pipeline from a GGUF transformer file using pipeline-level
+    from_single_file — the method recommended by HuggingFace's own model pages.
 
-    The transformer is loaded from `gguf_path`.  If GGUFQuantizationConfig is
-    available in the installed diffusers, it is passed as quantization_config;
-    otherwise from_single_file is called without it and diffusers auto-detects
-    the GGUF format from the .gguf file extension.
-    Text encoders, VAE and scheduler come from `model_path` (the base
-    model directory — same as the normal safetensors path).
+    The pipeline class handles all GGUF key mapping internally.
+    Text encoders, VAE and scheduler config come from `model_path` (the base
+    model directory), passed as the `config` argument.
+
+    Tries FluxPipeline first, then DiffusionPipeline as a generic fallback.
     """
-    try:
-        from diffusers import Flux2KleinPipeline
-    except ImportError as exc:
-        _fail(f"Cannot import Flux2KleinPipeline from diffusers: {exc}. "
-              f"Run: pip install diffusers --upgrade")
+    _log(f"GGUF mode — pipeline from_single_file: {gguf_path!r}")
+    _log(f"GGUF mode — base model config (text encoders, VAE): {model_path!r}")
 
-    GGUFQuantizationConfig = _import_gguf_quantization_config()
+    import diffusers as _df
 
-    _log(f"GGUF mode — transformer from: {gguf_path!r}")
-    _log(f"GGUF mode — base model (text encoders, VAE): {model_path!r}")
+    pipeline_candidates = [
+        ("FluxPipeline",       getattr(_df, "FluxPipeline",       None)),
+        ("DiffusionPipeline",  getattr(_df, "DiffusionPipeline",  None)),
+    ]
 
-    transformer = None
-    used_class = None
-
-    transformer_config_dir = os.path.join(model_path, "transformer")
-    if not os.path.isdir(transformer_config_dir):
-        transformer_config_dir = model_path
-    _log(f"Transformer config dir: {transformer_config_dir!r}")
-
-    for cls_name in ("Flux2KleinTransformer2DModel", "FluxTransformer2DModel"):
+    errors = []
+    for cls_name, cls in pipeline_candidates:
+        if cls is None:
+            _log(f"{cls_name} not found in installed diffusers — skipping.")
+            continue
+        _log(f"Trying {cls_name}.from_single_file ...")
         try:
-            import diffusers as _df
-            cls = getattr(_df, cls_name, None)
-            if cls is None:
-                _log(f"{cls_name} not found in installed diffusers — skipping.")
-                continue
-            _log(f"Loading transformer from GGUF using {cls_name} ...")
-            base_kwargs = dict(
+            pipe = cls.from_single_file(
+                gguf_path,
+                config=model_path,
                 torch_dtype=torch.bfloat16,
-                config=transformer_config_dir,
+                local_files_only=True,
             )
-            if GGUFQuantizationConfig is not None:
-                base_kwargs["quantization_config"] = GGUFQuantizationConfig(
-                    compute_dtype=torch.bfloat16
-                )
-            transformer = cls.from_single_file(gguf_path, **base_kwargs)
-            used_class = cls_name
-            _log(f"Transformer loaded via {cls_name}.")
-            break
+            _log(f"Pipeline loaded via {cls_name}.from_single_file.")
+            return pipe
         except Exception as exc:
-            _log(f"{cls_name}.from_single_file failed: {type(exc).__name__}: {exc}")
+            msg = f"{cls_name}.from_single_file failed: {type(exc).__name__}: {exc}"
+            _log(msg)
+            errors.append(msg)
 
-    if transformer is None:
-        _fail(
-            "Could not load GGUF transformer — tried Flux2KleinTransformer2DModel "
-            "and FluxTransformer2DModel. Check the gguf file path and diffusers version. "
-            "To update diffusers run: pip install diffusers --upgrade"
-        )
-
-    _log(f"Loading pipeline from base model directory {model_path!r} (transformer={used_class}) ...")
-    try:
-        pipe = Flux2KleinPipeline.from_pretrained(
-            model_path,
-            transformer=transformer,
-            torch_dtype=torch.bfloat16,
-            local_files_only=True,
-        )
-    except Exception as exc:
-        _fail(f"Pipeline.from_pretrained (GGUF mode) failed: {type(exc).__name__}: {exc}")
-
-    return pipe
+    _fail(
+        "Could not load GGUF pipeline — tried FluxPipeline and DiffusionPipeline "
+        "from_single_file. Errors:\n" + "\n".join(errors)
+    )
 
 
 def _load_pipeline_safetensors(model_path: str, torch):
