@@ -116,13 +116,12 @@ def _build_txt2img_workflow(
     gguf_path: str,
     vae_name: str,
     clip_name: str,
-    clip_name2: str,
     steps: int,
     width: int,
     height: int,
     seed: int,
 ) -> dict:
-    """ComfyUI API workflow for FLUX.2-klein-4B txt2img (DualCLIPLoaderGGUF + Qwen-3-4B)."""
+    """ComfyUI API workflow for FLUX.2-klein-4B txt2img (CLIPLoader flux2 + Qwen-3-4B)."""
     enhanced_prompt = prompt + _ANATOMY_SUFFIX
     return {
         "1": {
@@ -130,8 +129,8 @@ def _build_txt2img_workflow(
             "inputs": {"unet_name": gguf_path},
         },
         "2": {
-            "class_type": "DualCLIPLoader",
-            "inputs": {"clip_name1": clip_name, "clip_name2": clip_name2, "type": "flux"},
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": clip_name, "type": "flux2"},
         },
         "3": {
             "class_type": "VAELoader",
@@ -180,7 +179,6 @@ def _build_img2img_workflow(
     gguf_path: str,
     vae_name: str,
     clip_name: str,
-    clip_name2: str,
     steps: int,
     width: int,
     height: int,
@@ -188,7 +186,7 @@ def _build_img2img_workflow(
     strength: float,
     uploaded_image_name: str,
 ) -> dict:
-    """ComfyUI API workflow for FLUX.2-klein-4B img2img (DualCLIPLoaderGGUF + Qwen-3-4B).
+    """ComfyUI API workflow for FLUX.2-klein-4B img2img (CLIPLoader flux2 + Qwen-3-4B).
 
     The reference image is assumed to already be smart-cropped to (width, height)
     by _preprocess_reference_image. ImageScale is kept as a safety net in case the
@@ -201,8 +199,8 @@ def _build_img2img_workflow(
             "inputs": {"unet_name": gguf_path},
         },
         "2": {
-            "class_type": "DualCLIPLoader",
-            "inputs": {"clip_name1": clip_name, "clip_name2": clip_name2, "type": "flux"},
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": clip_name, "type": "flux2"},
         },
         "3": {
             "class_type": "VAELoader",
@@ -276,7 +274,6 @@ def _run_generate(
     gguf_path = os.environ.get("COMFYUI_GGUF", "").strip()
     vae_name = os.environ.get("COMFYUI_VAE", "").strip()
     clip_name = os.environ.get("COMFYUI_CLIP", "").strip()
-    clip_name2 = os.environ.get("COMFYUI_CLIP2", "").strip() or clip_name
     steps = _get_int("COMFYUI_STEPS", DEFAULT_STEPS)
     width = _get_int("COMFYUI_WIDTH", DEFAULT_WIDTH)
     height = _get_int("COMFYUI_HEIGHT", DEFAULT_HEIGHT)
@@ -303,17 +300,17 @@ def _run_generate(
             if uploaded_name:
                 print(f"[ComfyUI] img2img mode — uploaded reference as '{uploaded_name}', strength={strength}")
                 workflow = _build_img2img_workflow(
-                    prompt, gguf_path, vae_name, clip_name, clip_name2,
+                    prompt, gguf_path, vae_name, clip_name,
                     steps, width, height, seed, strength, uploaded_name,
                 )
             else:
                 print("[ComfyUI] Image upload failed — falling back to txt2img.")
                 workflow = _build_txt2img_workflow(
-                    prompt, gguf_path, vae_name, clip_name, clip_name2, steps, width, height, seed
+                    prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
                 )
         else:
             workflow = _build_txt2img_workflow(
-                prompt, gguf_path, vae_name, clip_name, clip_name2, steps, width, height, seed
+                prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
             )
 
         mode = "img2img" if (reference_image is not None and "12" in workflow) else "txt2img"
