@@ -85,50 +85,99 @@ def _gguf_progress_thread(stop_event: threading.Event) -> None:
         _progress(f"LOAD:{frac:.2f}")
 
 
+def _preload_transformers_components(model_path: str, torch) -> dict:
+    """Read model_index.json and pre-load every transformers-library component
+    from the local model directory.
+
+    GGUF files only contain the UNet/transformer weights.  Any component
+    listed in model_index.json under the "transformers" library (text encoders,
+    tokenizers, processors) must be loaded from local disk and passed
+    explicitly to from_single_file — otherwise diffusers tries to fetch them
+    from HuggingFace Hub and fails.
+
+    Returns a dict ready to be splatted into from_single_file(**kwargs).
+    """
+    import importlib
+    import json
+
+    model_index_path = os.path.join(model_path, "model_index.json")
+    if not os.path.exists(model_index_path):
+        _log("model_index.json not found — skipping component pre-load.")
+        return {}
+
+    with open(model_index_path) as f:
+        model_index = json.load(f)
+
+    preloaded: dict = {}
+    for comp_name, spec in model_index.items():
+        if comp_name.startswith("_"):
+            continue
+        if not isinstance(spec, list) or len(spec) < 2:
+            continue
+        lib_name, class_name = spec[0], spec[1]
+        if lib_name != "transformers":
+            continue
+
+        comp_dir = os.path.join(model_path, comp_name)
+        if not os.path.isdir(comp_dir):
+            _log(f"Skipping {comp_name} ({class_name}) — no local subfolder at {comp_dir!r}")
+            continue
+
+        _log(f"Pre-loading {comp_name} ({class_name}) from {comp_dir!r} ...")
+        try:
+            transformers = importlib.import_module("transformers")
+            cls = getattr(transformers, class_name, None)
+            if cls is None:
+                _log(f"  {class_name} not in installed transformers — skipping.")
+                continue
+            is_tokenizer = any(t in class_name for t in ("Tokenizer", "Processor", "Feature"))
+            load_kwargs: dict = {"local_files_only": True}
+            if not is_tokenizer:
+                load_kwargs["torch_dtype"] = torch.bfloat16
+            component = cls.from_pretrained(comp_dir, **load_kwargs)
+            preloaded[comp_name] = component
+            _log(f"  {comp_name} pre-loaded OK.")
+        except Exception as exc:
+            _log(f"  Failed to pre-load {comp_name}: {type(exc).__name__}: {exc}")
+
+    return preloaded
+
+
 def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
     """Load a Flux pipeline from a GGUF transformer file using pipeline-level
     from_single_file — the method recommended by HuggingFace's own model pages.
 
-    The pipeline class handles all GGUF key mapping internally.
-    Text encoders, VAE and scheduler config come from `model_path` (the base
-    model directory), passed as the `config` argument.
-
-    Tries FluxPipeline first, then DiffusionPipeline as a generic fallback.
+    The GGUF file only contains the transformer weights.  All other components
+    (text encoders, tokenizers, VAE, scheduler) are pre-loaded from model_path
+    via model_index.json and passed explicitly so from_single_file never needs
+    to reach HuggingFace Hub.
     """
     _log(f"GGUF mode — pipeline from_single_file: {gguf_path!r}")
-    _log(f"GGUF mode — base model config (text encoders, VAE): {model_path!r}")
+    _log(f"GGUF mode — base model (text encoders, VAE): {model_path!r}")
+
+    preloaded = _preload_transformers_components(model_path, torch)
+    if preloaded:
+        _log(f"Pre-loaded components: {list(preloaded.keys())}")
 
     import diffusers as _df
+    FluxPipeline = getattr(_df, "FluxPipeline", None)
+    if FluxPipeline is None:
+        _fail("FluxPipeline not found in installed diffusers. "
+              "Run: pip install diffusers --upgrade")
 
-    pipeline_candidates = [
-        ("FluxPipeline",       getattr(_df, "FluxPipeline",       None)),
-        ("DiffusionPipeline",  getattr(_df, "DiffusionPipeline",  None)),
-    ]
-
-    errors = []
-    for cls_name, cls in pipeline_candidates:
-        if cls is None:
-            _log(f"{cls_name} not found in installed diffusers — skipping.")
-            continue
-        _log(f"Trying {cls_name}.from_single_file ...")
-        try:
-            pipe = cls.from_single_file(
-                gguf_path,
-                config=model_path,
-                torch_dtype=torch.bfloat16,
-                local_files_only=True,
-            )
-            _log(f"Pipeline loaded via {cls_name}.from_single_file.")
-            return pipe
-        except Exception as exc:
-            msg = f"{cls_name}.from_single_file failed: {type(exc).__name__}: {exc}"
-            _log(msg)
-            errors.append(msg)
-
-    _fail(
-        "Could not load GGUF pipeline — tried FluxPipeline and DiffusionPipeline "
-        "from_single_file. Errors:\n" + "\n".join(errors)
-    )
+    _log("Calling FluxPipeline.from_single_file ...")
+    try:
+        pipe = FluxPipeline.from_single_file(
+            gguf_path,
+            config=model_path,
+            torch_dtype=torch.bfloat16,
+            local_files_only=True,
+            **preloaded,
+        )
+        _log("Pipeline loaded via FluxPipeline.from_single_file.")
+        return pipe
+    except Exception as exc:
+        _fail(f"FluxPipeline.from_single_file failed: {type(exc).__name__}: {exc}")
 
 
 def _load_pipeline_safetensors(model_path: str, torch):
