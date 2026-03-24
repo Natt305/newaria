@@ -246,7 +246,31 @@ def _run_generate(
 
         payload = {"prompt": workflow, "client_id": str(uuid.uuid4())}
         resp = _requests.post(f"{base_url}/prompt", json=payload, timeout=15)
-        resp.raise_for_status()
+
+        if resp.status_code != 200:
+            print(f"[ComfyUI] /prompt returned HTTP {resp.status_code}.")
+            try:
+                err = resp.json()
+                top_error = err.get("error", {})
+                if top_error:
+                    print(f"[ComfyUI] Error type:    {top_error.get('type', '?')}")
+                    print(f"[ComfyUI] Error message: {top_error.get('message', '?')}")
+                    details = top_error.get("details", "")
+                    if details:
+                        print(f"[ComfyUI] Error details: {details}")
+                node_errors = err.get("node_errors", {})
+                for node_id, node_err in node_errors.items():
+                    class_type = workflow.get(node_id, {}).get("class_type", node_id)
+                    errs = node_err.get("errors", [])
+                    for e in errs:
+                        print(f"[ComfyUI]   Node {node_id} ({class_type}): "
+                              f"[{e.get('type', '?')}] {e.get('message', '')} — {e.get('details', '')}")
+                if not top_error and not node_errors:
+                    print(f"[ComfyUI] Raw response: {resp.text[:500]}")
+            except Exception:
+                print(f"[ComfyUI] Raw response: {resp.text[:500]}")
+            return None
+
         prompt_id = resp.json().get("prompt_id")
         if not prompt_id:
             print(f"[ComfyUI] Server did not return a prompt_id: {resp.text[:200]}")
