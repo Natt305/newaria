@@ -281,32 +281,55 @@ def _run_generate(
         while time.time() < deadline:
             time.sleep(1)
             hist_resp = _requests.get(f"{base_url}/history/{prompt_id}", timeout=10)
-            if hist_resp.status_code == 200:
-                history = hist_resp.json()
-                if prompt_id in history:
-                    job = history[prompt_id]
-                    outputs = job.get("outputs", {})
-                    for _node_id, node_out in outputs.items():
-                        images = node_out.get("images", [])
-                        if images:
-                            img_info = images[0]
-                            filename = img_info["filename"]
-                            subfolder = img_info.get("subfolder", "")
-                            img_type = img_info.get("type", "output")
-                            params = {"filename": filename, "type": img_type}
-                            if subfolder:
-                                params["subfolder"] = subfolder
-                            view_resp = _requests.get(
-                                f"{base_url}/view",
-                                params=params,
-                                timeout=30,
-                            )
-                            view_resp.raise_for_status()
-                            image_bytes = view_resp.content
-                            print(f"[ComfyUI] Done — {len(image_bytes)} bytes ('{filename}')")
-                            return image_bytes, "image/png"
-                    print(f"[ComfyUI] Job complete but no output images found.")
-                    return None
+            if hist_resp.status_code != 200:
+                continue
+            history = hist_resp.json()
+            if prompt_id not in history:
+                continue
+
+            job = history[prompt_id]
+            status = job.get("status", {})
+            completed = status.get("completed", False)
+            status_str = status.get("status_str", "")
+
+            if not completed:
+                continue
+
+            if status_str == "error":
+                messages = status.get("messages", [])
+                for msg in messages:
+                    if isinstance(msg, (list, tuple)) and len(msg) >= 2 and msg[0] == "execution_error":
+                        err = msg[1]
+                        print(f"[ComfyUI] Execution error in node {err.get('node_id')} "
+                              f"({err.get('node_type')}): {err.get('exception_message')}")
+                print(f"[ComfyUI] Job failed with status 'error'.")
+                return None
+
+            outputs = job.get("outputs", {})
+            for _node_id, node_out in outputs.items():
+                images = node_out.get("images", [])
+                if images:
+                    img_info = images[0]
+                    filename = img_info["filename"]
+                    subfolder = img_info.get("subfolder", "")
+                    img_type = img_info.get("type", "output")
+                    params = {"filename": filename, "type": img_type}
+                    if subfolder:
+                        params["subfolder"] = subfolder
+                    view_resp = _requests.get(
+                        f"{base_url}/view",
+                        params=params,
+                        timeout=30,
+                    )
+                    view_resp.raise_for_status()
+                    image_bytes = view_resp.content
+                    print(f"[ComfyUI] Done — {len(image_bytes)} bytes ('{filename}')")
+                    return image_bytes, "image/png"
+
+            print(f"[ComfyUI] Job completed but outputs contained no images.")
+            print(f"[ComfyUI] Raw outputs: {json.dumps(outputs)[:400]}")
+            return None
+
         print(f"[ComfyUI] Timed out after {timeout}s waiting for prompt_id={prompt_id}")
         return None
 
