@@ -181,9 +181,9 @@ COMFYUI_STEPS=4
 COMFYUI_WIDTH=512
 COMFYUI_HEIGHT=512
 
-# img2img 去雜訊強度，0.0–1.0（預設 0.65；越低越貼近參考圖）
-# img2img denoise strength, 0.0-1.0 (default: 0.65; lower = closer to reference)
-COMFYUI_STRENGTH=0.65
+# img2img 去雜訊強度，0.0–1.0（預設 0.75；越低越貼近參考圖）
+# img2img denoise strength, 0.0-1.0 (default: 0.75; lower = closer to reference)
+COMFYUI_STRENGTH=0.75
 
 # 最長等待時間（秒，預設 300）/ Max wait time in seconds (default: 300)
 # COMFYUI_TIMEOUT=300

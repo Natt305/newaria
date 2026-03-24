@@ -1014,17 +1014,7 @@ async def process_chat(
         if _spatial_prefix:
             enriched_prompt = _spatial_prefix + " — " + enriched_prompt
 
-        # Decide whether to run the LLM enhancement rewrite.
-        #
-        # PHOTO-BACKED IMG2IMG FAST PATH:
-        # When the primary subject is a KB entry with a reference photo AND that photo
-        # is being used as the img2img seed, a long text prompt actively fights the
-        # reference image (especially at cfg=1.0).  Skip enhancement entirely and use
-        # only the raw image_prompt (scene/action context, no appearance descriptors).
-        # The reference image is the authoritative visual ground truth.
-        _has_kb_photos = _ref_image_for_gen is not None and _has_kb_subject and not _is_self_ref
-        #
-        # For non-photo paths: run LLM enhancement whenever there are visual references:
+        # Run LLM enhancement whenever there are visual references:
         #   (a) prompt came from the fallback path (raw user text, possibly Chinese), OR
         #   (b) character appearance context exists (self-referential prompt), OR
         #   (c) KB subject references were found — even for marker prompts, the LLM
@@ -1041,12 +1031,7 @@ async def process_chat(
             if name not in _ref_labels  # this subject has no reference photo
         }
         has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs) or bool(_ref_images)
-        if _has_kb_photos:
-            # Use the raw image_prompt — no appearance descriptors, no LLM rewrite.
-            # The reference image carries all visual detail; only scene/action text is needed.
-            enriched_prompt = image_prompt
-            print(f"[Bot] Photo-backed img2img — skipping enhancement, using raw prompt. kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}")
-        elif not _prompt_from_marker or has_visual_refs:
+        if not _prompt_from_marker or has_visual_refs:
             enriched_prompt = await groq_ai.enhance_image_prompt(
                 enriched_prompt,
                 character_context=char_images_ctx,
