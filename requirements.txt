@@ -6,3 +6,8 @@ requests>=2.31.0
 gradio_client
 gguf>=0.10.0
 diffusers>=0.32.0
+aiohttp
+discord.py
+groq
+Pillow
+requests
