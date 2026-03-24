@@ -85,19 +85,49 @@ def _gguf_progress_thread(stop_event: threading.Event) -> None:
         _progress(f"LOAD:{frac:.2f}")
 
 
+def _import_gguf_quantization_config():
+    """Try every known export location for GGUFQuantizationConfig.
+
+    Returns the class if found in any of the known locations, or None when
+    the installed diffusers version does not expose it (in which case
+    from_single_file auto-detects the GGUF format from the file extension).
+    """
+    candidates = [
+        ("diffusers",                 "GGUFQuantizationConfig"),
+        ("diffusers.quantizers.gguf", "GGUFQuantizationConfig"),
+        ("diffusers.quantizers",      "GGUFQuantizationConfig"),
+    ]
+    for mod_name, attr in candidates:
+        try:
+            mod = __import__(mod_name, fromlist=[attr])
+            cls = getattr(mod, attr, None)
+            if cls is not None:
+                _log(f"GGUFQuantizationConfig found at {mod_name}.{attr}")
+                return cls
+        except Exception:
+            pass
+    _log("GGUFQuantizationConfig not found in any known location — "
+         "will use from_single_file auto-detect mode (no quantization_config kwarg).")
+    return None
+
+
 def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
     """Load Flux2KleinPipeline with a GGUF-quantised transformer.
 
-    The transformer is loaded from `gguf_path` using GGUFQuantizationConfig.
+    The transformer is loaded from `gguf_path`.  If GGUFQuantizationConfig is
+    available in the installed diffusers, it is passed as quantization_config;
+    otherwise from_single_file is called without it and diffusers auto-detects
+    the GGUF format from the .gguf file extension.
     Text encoders, VAE and scheduler come from `model_path` (the base
     model directory — same as the normal safetensors path).
     """
     try:
         from diffusers import Flux2KleinPipeline
-        from diffusers.quantizers import GGUFQuantizationConfig
     except ImportError as exc:
-        _fail(f"Missing dependency for GGUF loading: {exc}. "
-              f"Ensure diffusers>=0.32 and gguf>=0.10 are installed.")
+        _fail(f"Cannot import Flux2KleinPipeline from diffusers: {exc}. "
+              f"Run: pip install diffusers --upgrade")
+
+    GGUFQuantizationConfig = _import_gguf_quantization_config()
 
     _log(f"GGUF mode — transformer from: {gguf_path!r}")
     _log(f"GGUF mode — base model (text encoders, VAE): {model_path!r}")
@@ -112,11 +142,17 @@ def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
             if cls is None:
                 continue
             _log(f"Loading transformer from GGUF using {cls_name} ...")
-            transformer = cls.from_single_file(
-                gguf_path,
-                quantization_config=GGUFQuantizationConfig(compute_dtype=torch.bfloat16),
-                torch_dtype=torch.bfloat16,
-            )
+            if GGUFQuantizationConfig is not None:
+                transformer = cls.from_single_file(
+                    gguf_path,
+                    quantization_config=GGUFQuantizationConfig(compute_dtype=torch.bfloat16),
+                    torch_dtype=torch.bfloat16,
+                )
+            else:
+                transformer = cls.from_single_file(
+                    gguf_path,
+                    torch_dtype=torch.bfloat16,
+                )
             used_class = cls_name
             _log(f"Transformer loaded via {cls_name}.")
             break
@@ -124,8 +160,11 @@ def _load_pipeline_gguf(model_path: str, gguf_path: str, torch):
             _log(f"{cls_name}.from_single_file failed: {type(exc).__name__}: {exc}")
 
     if transformer is None:
-        _fail("Could not load GGUF transformer — tried Flux2KleinTransformer2DModel "
-              "and FluxTransformer2DModel. Check diffusers version and gguf file path.")
+        _fail(
+            "Could not load GGUF transformer — tried Flux2KleinTransformer2DModel "
+            "and FluxTransformer2DModel. Check the gguf file path and diffusers version. "
+            "To update diffusers run: pip install diffusers --upgrade"
+        )
 
     _log(f"Loading pipeline from base model directory {model_path!r} (transformer={used_class}) ...")
     try:
