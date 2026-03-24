@@ -60,15 +60,17 @@ def _build_txt2img_workflow(
     height: int,
     seed: int,
 ) -> dict:
-    """Return a ComfyUI API-format workflow dict for text-to-image."""
+    """Return a ComfyUI API-format workflow dict for text-to-image.
+    Designed for FLUX.2-klein-4B with DualCLIPLoaderGGUF + Qwen-3-4B text encoder.
+    """
     return {
         "1": {
             "class_type": "UnetLoaderGGUF",
             "inputs": {"unet_name": gguf_path},
         },
         "2": {
-            "class_type": "CLIPLoader",
-            "inputs": {"clip_name": clip_name, "type": "flux2"},
+            "class_type": "DualCLIPLoaderGGUF",
+            "inputs": {"clip_name1": clip_name, "type": "flux"},
         },
         "3": {
             "class_type": "VAELoader",
@@ -131,8 +133,8 @@ def _build_img2img_workflow(
             "inputs": {"unet_name": gguf_path},
         },
         "2": {
-            "class_type": "CLIPLoader",
-            "inputs": {"clip_name": clip_name, "type": "flux2"},
+            "class_type": "DualCLIPLoaderGGUF",
+            "inputs": {"clip_name1": clip_name, "type": "flux"},
         },
         "3": {
             "class_type": "VAELoader",

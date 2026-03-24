@@ -159,15 +159,18 @@ COMFYUI_GGUF=flux-2-klein-4b-Q5_K_M.gguf
 
 # VAE 模型檔名（ComfyUI models/vae 目錄中的檔名）
 # VAE model filename (as it appears in ComfyUI's models/vae directory)
+# FLUX.2-klein-4B 專用 VAE，下載自 https://huggingface.co/Comfy-Org/flux2-klein-4B
+# FLUX.2-klein-4B dedicated VAE — download from https://huggingface.co/Comfy-Org/flux2-klein-4B
 # 例 / Example:
-COMFYUI_VAE=diffusion_pytorch_model.safetensors
+COMFYUI_VAE=flux2-vae.safetensors
 
-# CLIP 模型檔名（ComfyUI models/clip 目錄中的檔名）
-# CLIP/text-encoder filename (as it appears in ComfyUI's models/clip directory)
-# 分片模型請填入第一片檔名，ComfyUI 會自動載入其餘分片。
-# For sharded models, use the first shard filename — ComfyUI loads the rest automatically.
+# CLIP/文字編碼器檔名（ComfyUI models/text_encoders 或 models/clip 目錄中的檔名）
+# CLIP/text-encoder filename (as it appears in ComfyUI's models/text_encoders or models/clip directory)
+# FLUX.2-klein-4B 使用 Qwen-3-4B 作為文字編碼器（非 T5-XXL）
+# FLUX.2-klein-4B uses Qwen-3-4B as its text encoder (NOT T5-XXL)
+# 下載自 / Download from: https://huggingface.co/Comfy-Org/flux2-klein-4B/tree/main/split_files/text_encoders
 # 例 / Example:
-COMFYUI_CLIP=model-00001-of-00002.safetensors
+COMFYUI_CLIP=qwen_3_4b.safetensors
 
 # 推理步數（預設 4）/ Inference steps (default: 4)
 COMFYUI_STEPS=4
