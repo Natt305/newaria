@@ -647,7 +647,7 @@ async def build_visual_kb_context(image_description: str) -> tuple:
     return "\n".join(parts), valid_matches
 
 
-async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
+async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -> tuple:
     """Enrich a generation prompt with KB image details ONLY when the image's
     title is explicitly mentioned in the prompt (e.g. saved photo of 'Alice',
     user asks to 'draw Alice').  Generic prompts (watermelon, landscape, etc.)
@@ -655,18 +655,26 @@ async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
     Returns (enriched_prompt, matched_entries, subject_references).
     subject_references is a dict {title: full_description} for all matched subjects,
     used downstream to ground the LLM enhancement with accurate visual traits.
+
+    hint_text: optional extra text (e.g. the user's original message) scanned
+    alongside image_prompt for KB title matches.  The LLM often replaces subject
+    names with physical descriptions in the [IMAGE:] marker, so combining both
+    strings ensures titles mentioned by the user are always found.  The enriched
+    prompt output still uses only image_prompt as its base.
     """
     all_image_entries = database.get_all_entries(limit=200)
     image_entries = [e for e in all_image_entries if e.get("entry_type") == "image"]
 
-    prompt_lower = image_prompt.lower()
+    # Combined scan text — includes hint_text so subjects named in the original
+    # user message are found even when the LLM dropped their names from the marker.
+    match_lower = (image_prompt + " " + hint_text).lower() if hint_text else image_prompt.lower()
     matched = []
     subject_references: dict = {}
     for entry in image_entries:
         title = (entry.get("title") or "").strip()
         if not title:
             continue
-        if title.lower() in prompt_lower and len(title) >= 2:
+        if title.lower() in match_lower and len(title) >= 2:
             desc = (entry.get("appearance_description") or "").strip()
             if desc:
                 matched.append((title, desc))
@@ -685,7 +693,7 @@ async def _enrich_image_prompt_with_kb(image_prompt: str) -> tuple:
     refs_text = "; ".join(ref_parts)
     enriched = f"{image_prompt}, appearance reference — {refs_text}"
     print(f"[Bot] KB image enrichment: {len(matched)} title match(es) applied to prompt")
-    return enriched, [e for e in image_entries if (e.get("title") or "").lower() in prompt_lower], subject_references
+    return enriched, [e for e in image_entries if (e.get("title") or "").lower() in match_lower], subject_references
 
 
 async def get_suggestion_topic(channel_id: str) -> str:
@@ -889,7 +897,7 @@ async def process_chat(
             await send_with_suggestions(response_text, channel_id, reply_target)
 
         # Enrich prompt with KB image references — now returns structured subject refs too
-        enriched_prompt, _kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(image_prompt)
+        enriched_prompt, _kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(image_prompt, hint_text=user_text)
         # Detect self-referential prompts — these need character appearance injected
         # even when the prompt already came from the marker.
         # We check user_text too because the model often expands "draw yourself"
