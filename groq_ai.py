@@ -435,18 +435,36 @@ async def enhance_image_prompt(
 
     ref_block = ""
     if character_context and character_context.strip():
-        ref_block += (
-            "\n[CHARACTER APPEARANCE — VERIFIED GROUND TRUTH]\n"
-            "The following contains confirmed, factual appearance details for the character.\n"
-            "Sections marked HIGHEST PRIORITY must be followed exactly above all else.\n"
-            "You MUST use ALL of these physical traits in your output. Do NOT invent, alter, or substitute any of them.\n"
-            "Eye color, hair color, hairstyle, skin tone, AND OUTFIT described here are FINAL — "
-            "they override anything conflicting in the raw prompt or your own assumptions. "
-            "If an outfit is described here, reproduce it in full detail in the output. "
-            "Do NOT summarize, omit, or replace any garment piece listed.\n"
-            "EXCEPTION: any ART STYLE line in this block is irrelevant — the art style is always fixed as 2D anime.\n"
-            f"{character_context.strip()}\n"
-        )
+        if has_images:
+            # Reference photos are attached — the vision model reads appearance
+            # directly from them.  The stored text is a secondary fallback only.
+            # Do NOT instruct the model to enumerate all traits; instead keep
+            # appearance brief and let scene/action dominate the output.
+            ref_block += (
+                "\n[CHARACTER APPEARANCE — SECONDARY REFERENCE (photos are primary)]\n"
+                "Reference photos are attached above. Read appearance from the photos, not this text.\n"
+                "Use the text below ONLY as a fallback for details not clearly visible in the photos.\n"
+                "Do NOT reproduce this block exhaustively — include just a brief identifying tag "
+                "(character name + one or two signature visual traits, e.g. hair colour + eye colour). "
+                "Spend the rest of the prompt on: scene, environment, lighting, mood, pose, "
+                "and what the character(s) are doing or feeling.\n"
+                "EXCEPTION: any ART STYLE line in this block is irrelevant — art style is always 2D anime.\n"
+                f"{character_context.strip()}\n"
+            )
+        else:
+            # No photos — text is the only appearance source.  Enumerate fully.
+            ref_block += (
+                "\n[CHARACTER APPEARANCE — VERIFIED GROUND TRUTH]\n"
+                "The following contains confirmed, factual appearance details for the character.\n"
+                "Sections marked HIGHEST PRIORITY must be followed exactly above all else.\n"
+                "You MUST use ALL of these physical traits in your output. Do NOT invent, alter, or substitute any of them.\n"
+                "Eye color, hair color, hairstyle, skin tone, AND OUTFIT described here are FINAL — "
+                "they override anything conflicting in the raw prompt or your own assumptions. "
+                "If an outfit is described here, reproduce it in full detail in the output. "
+                "Do NOT summarize, omit, or replace any garment piece listed.\n"
+                "EXCEPTION: any ART STYLE line in this block is irrelevant — the art style is always fixed as 2D anime.\n"
+                f"{character_context.strip()}\n"
+            )
     if subject_references:
         for name, desc in subject_references.items():
             ref_block += (
@@ -550,12 +568,23 @@ async def enhance_image_prompt(
                 "'side by side with intertwined arms'. "
                 "Be specific and vivid — do NOT write that they are simply 'standing together'.\n"
             )
-        multi_char_note += (
-            "\n"
-            f"RULE — DESCRIBE EACH CHARACTER SEPARATELY: There are {n_subjects_hint} characters. "
-            "Give each their own appearance block — hair, eyes, outfit — labelled clearly so the "
-            "image model knows which traits belong to which subject.\n"
-        )
+        if has_images:
+            multi_char_note += (
+                "\n"
+                f"RULE — IDENTIFY EACH CHARACTER BRIEFLY: There are {n_subjects_hint} characters. "
+                "For each, include only a short identifying tag (name + one or two visual identifiers "
+                "read from the reference photos — e.g. hair colour, hat, or signature outfit piece). "
+                "Do NOT exhaustively list every appearance detail. "
+                "Reserve the majority of the prompt for: scene setting, environment, "
+                "lighting, mood, pose, and what the characters are doing or feeling together.\n"
+            )
+        else:
+            multi_char_note += (
+                "\n"
+                f"RULE — DESCRIBE EACH CHARACTER SEPARATELY: There are {n_subjects_hint} characters. "
+                "Give each their own appearance block — hair, eyes, outfit — labelled clearly so the "
+                "image model knows which traits belong to which subject.\n"
+            )
     else:
         multi_char_note = ""
 

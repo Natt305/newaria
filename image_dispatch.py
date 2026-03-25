@@ -39,6 +39,8 @@ async def generate_image(
     reference_image: Optional[Tuple[bytes, str]] = None,
     reference_images: Optional[list] = None,
     on_progress: Optional[Callable[[str], Coroutine]] = None,
+    width_override: Optional[int] = None,
+    height_override: Optional[int] = None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the configured backend.
 
@@ -48,12 +50,13 @@ async def generate_image(
                           seed image. Passed to backends that support it
                           (local_diffusers, hf_spaces, comfyui). Ignored by Cloudflare.
         reference_images: Optional list of (bytes, mime_type) tuples. Forwarded to
-                          the comfyui backend for IP-Adapter multi-character conditioning
-                          when COMFYUI_IPADAPTER and COMFYUI_CLIP_VISION are set.
-                          Ignored by all other backends.
+                          the comfyui backend for ReferenceLatent multi-character
+                          conditioning. Ignored by all other backends.
         on_progress:      Optional async callable(tag: str) forwarded to
                           local_diffusers and comfyui backends for live progress
                           reporting. Silently ignored by cloudflare and hf_spaces.
+        width_override / height_override: Override the configured output dimensions.
+                          Forwarded to comfyui only; ignored by all other backends.
 
     Returns:
         (image_bytes, mime_type) on success, or None on failure.
@@ -73,6 +76,8 @@ async def generate_image(
             reference_image=reference_image,
             reference_images=reference_images,
             on_progress=on_progress,
+            width_override=width_override,
+            height_override=height_override,
         )
     import cloudflare_ai as _cloudflare_ai
     return await _cloudflare_ai.generate_image(prompt)
