@@ -314,7 +314,7 @@ def _build_ipadapter_workflow(
 ) -> dict:
     """ComfyUI API workflow using XLabs FLUX IP-Adapter for appearance conditioning.
 
-    Chains one XLabsApplyFluxIPAdapter node per reference image. Uses EmptyLatentImage
+    Chains one ApplyFluxIPAdapter node per reference image. Uses EmptyLatentImage
     (txt2img base) so no img2img latent competes with the IP-Adapter conditioning.
     Multi-character scenes pass N reference images, each injecting its own appearance
     features into separate FLUX attention layers via a chained adapter pass.
@@ -350,7 +350,7 @@ def _build_ipadapter_workflow(
             "inputs": {"clip_name": clip_vision_name},
         },
         "16": {
-            "class_type": "XLabsLoadIPAdapter",
+            "class_type": "LoadFluxIPAdapter",
             "inputs": {"ipadapter": ipadapter_name},
         },
     }
@@ -364,7 +364,7 @@ def _build_ipadapter_workflow(
             "inputs": {"image": img_name, "upload": "image"},
         }
         workflow[apply_node_id] = {
-            "class_type": "XLabsApplyFluxIPAdapter",
+            "class_type": "ApplyFluxIPAdapter",
             "inputs": {
                 "model": model_input,
                 "ipadapter": ["16", 0],
