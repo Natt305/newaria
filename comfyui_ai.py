@@ -345,16 +345,12 @@ def _build_ipadapter_workflow(
             "class_type": "EmptyLatentImage",
             "inputs": {"width": width, "height": height, "batch_size": 1},
         },
-        "14": {
-            "class_type": "CLIPVisionLoader",
-            "inputs": {"clip_name": clip_vision_name},
-        },
         "16": {
             "class_type": "LoadFluxIPAdapter",
             "inputs": {
                 "ipadatper": ipadapter_name,
-                "clip_vision": ["14", 0],
-                "provider": "cuda",
+                "clip_vision": clip_vision_name,
+                "provider": "GPU",
             },
         },
     }
