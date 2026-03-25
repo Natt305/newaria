@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+setlocal enabledelayedexpansion
 title AriaBot
 
 echo ================================================================
@@ -8,6 +9,30 @@ echo   Powered by Groq + Cloudflare Workers AI + SQLite
 echo ================================================================
 echo.
 
+rem --- Read COMFYUI_PATH from tokens.txt ---
+set "COMFYUI_PATH="
+for /f "usebackq tokens=1,* delims==" %%A in ("tokens.txt") do (
+    if /i "%%A"=="COMFYUI_PATH" set "COMFYUI_PATH=%%B"
+)
+
+rem --- Auto-launch ComfyUI if a path is configured ---
+if not defined COMFYUI_PATH goto skipcomfy
+if "!COMFYUI_PATH!"=="" goto skipcomfy
+
+echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
+start "ComfyUI" /d "!COMFYUI_PATH!" python main.py --listen 127.0.0.1 --port 8188
+
+echo [ComfyUI] Waiting for ComfyUI to be ready on port 8188...
+:waitloop
+python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8188/system_stats',timeout=2); sys.exit(0)" 2>nul
+if errorlevel 1 (
+    timeout /t 2 /nobreak >nul
+    goto waitloop
+)
+echo [ComfyUI] Ready!
+echo.
+
+:skipcomfy
 echo [Setup] Installing / updating dependencies...
 python -m pip install -r requirements.txt -q
 if errorlevel 1 goto trypy

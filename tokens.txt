@@ -148,6 +148,13 @@ LOCAL_DIFFUSER_STRENGTH=0.75
 #  extension (city96) installed. The bot queues jobs via ComfyUI's HTTP API.
 # ================================================================
 
+# ComfyUI 安裝目錄（填入後 start.bat 會自動啟動 ComfyUI，留空則需手動啟動）
+# Path to your ComfyUI installation folder. When set, start.bat launches ComfyUI
+# automatically before starting the bot. Leave blank to start ComfyUI manually.
+# 例 / Example:
+# COMFYUI_PATH=C:\ComfyUI
+COMFYUI_PATH=
+
 # ComfyUI 伺服器位址（預設 http://127.0.0.1:8188）
 # ComfyUI server address (default: http://127.0.0.1:8188)
 COMFYUI_URL=http://127.0.0.1:8188
