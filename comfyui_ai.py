@@ -351,7 +351,11 @@ def _build_ipadapter_workflow(
         },
         "16": {
             "class_type": "LoadFluxIPAdapter",
-            "inputs": {"ipadapter": ipadapter_name},
+            "inputs": {
+                "ipadatper": ipadapter_name,
+                "clip_vision": ["14", 0],
+                "provider": "cuda",
+            },
         },
     }
 
@@ -368,7 +372,6 @@ def _build_ipadapter_workflow(
             "inputs": {
                 "model": model_input,
                 "ip_adapter_flux": ["16", 0],
-                "clip_vision": ["14", 0],
                 "image": [load_node_id, 0],
                 "ip_scale": ipadapter_strength,
                 "true_gs": ipadapter_guidance,
