@@ -9,13 +9,16 @@ echo   Powered by Groq + Cloudflare Workers AI + SQLite
 echo ================================================================
 echo.
 
-rem --- Read COMFYUI_PATH from tokens.txt ---
+rem --- Read IMAGE_BACKEND and COMFYUI_PATH from tokens.txt ---
+set "IMAGE_BACKEND="
 set "COMFYUI_PATH="
 for /f "usebackq tokens=1,* delims==" %%A in ("tokens.txt") do (
+    if /i "%%A"=="IMAGE_BACKEND" set "IMAGE_BACKEND=%%B"
     if /i "%%A"=="COMFYUI_PATH" set "COMFYUI_PATH=%%B"
 )
 
-rem --- Auto-launch ComfyUI if a path is configured ---
+rem --- Auto-launch ComfyUI only when IMAGE_BACKEND=comfyui ---
+if /i not "!IMAGE_BACKEND!"=="comfyui" goto skipcomfy
 if not defined COMFYUI_PATH goto skipcomfy
 if "!COMFYUI_PATH!"=="" goto skipcomfy
 
