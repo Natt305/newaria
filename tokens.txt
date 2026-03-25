@@ -153,7 +153,7 @@ LOCAL_DIFFUSER_STRENGTH=0.75
 # automatically before starting the bot. Leave blank to start ComfyUI manually.
 # 例 / Example:
 # COMFYUI_PATH=C:\ComfyUI
-COMFYUI_PATH=
+COMFYUI_PATH=E:\comfyui\resources\ComfyUI
 
 # ComfyUI 伺服器位址（預設 http://127.0.0.1:8188）
 # ComfyUI server address (default: http://127.0.0.1:8188)
