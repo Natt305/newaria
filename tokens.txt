@@ -212,31 +212,24 @@ COMFYUI_STRENGTH=0.75
 # COMFYUI_WORKFLOW=
 
 # ================================================================
-#  XLabs FLUX IP-Adapter — 多角色外觀條件設定（選填）
-#  XLabs FLUX IP-Adapter — per-character appearance conditioning (optional)
+#  多角色參考圖 — 原生 FLUX.2 Klein ReferenceLatent（無需額外插件）
+#  Multi-reference — Native FLUX.2 Klein ReferenceLatent (no plugins needed)
 #
-#  啟用後，每個參考圖片都會透過獨立的 IP-Adapter 節點注入 FLUX 注意力層，
-#  讓多角色場景中每個角色都能保持正確外觀，無需 img2img 的潛空間競爭。
+#  傳送多張參考圖時，機器人會自動切換為原生多參考模式：
+#    1. 每張參考圖透過 VAE 編碼為 Latent
+#    2. 使用 ReferenceLatent 節點依序注入正向/負向條件
+#    3. 輸出尺寸自動依第一張參考圖決定（約 1 百萬像素，保留原比例）
+#  無需 IP-Adapter、CLIP Vision 或任何自訂節點。
+#  需 ComfyUI 版本 0.8.2 以上（含 ReferenceLatent、EmptyFlux2LatentImage、
+#  Flux2Scheduler、ImageScaleToTotalPixels 等核心節點）。
 #
-#  When enabled, each reference image is injected into FLUX attention layers
-#  via its own chained IP-Adapter node. Multi-character scenes get independent
-#  appearance conditioning per character — no img2img latent competition.
-#
-#  必要前提 / Prerequisites:
-#    1. ComfyUI Manager 安裝 x-flux-comfyui（XLabs-AI/x-flux-comfyui）
-#       Install x-flux-comfyui via ComfyUI Manager or git clone into custom_nodes + python setup.py
-#    2. ip_adapter.safetensors → ComfyUI/models/xlabs/ipadapters/
-#       Download from: https://huggingface.co/XLabs-AI/flux-ip-adapter
-#    3. clip_l.safetensors → ComfyUI/models/clip_vision/
-#       Download from: https://huggingface.co/openai/clip-vit-large-patch14
-#
-#  兩個欄位都必須填寫才會啟用；任一留空則使用現有的 img2img/txt2img 路徑。
-#  Both must be set to enable; either left blank falls back to img2img/txt2img.
+#  When multiple reference images are sent, the bot automatically uses
+#  FLUX.2 Klein's native multi-reference path:
+#    1. Each reference image is VAE-encoded to a latent
+#    2. ReferenceLatent nodes chain the latents into positive/negative conditioning
+#    3. Output size auto-matches the first reference image (~1 megapixel)
+#  No IP-Adapter, CLIP Vision, or custom nodes required.
+#  Requires ComfyUI 0.8.2+ (ReferenceLatent, EmptyFlux2LatentImage,
+#  Flux2Scheduler, ImageScaleToTotalPixels are all built-in core nodes).
 # ================================================================
-COMFYUI_IPADAPTER=ip_adapter.safetensors
-COMFYUI_CLIP_VISION=clip_l.safetensors
-# IP-Adapter 強度（預設 0.8）/ IP-Adapter injection strength (default: 0.8)
-# COMFYUI_IPADAPTER_STRENGTH=0.8
-# IP-Adapter 引導強度（預設 3.5）/ IP-Adapter guidance strength (default: 3.5)
-# COMFYUI_IPADAPTER_GUIDANCE=3.5
 

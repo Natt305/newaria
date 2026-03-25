@@ -21,6 +21,14 @@ Optional env vars:
     COMFYUI_WORKFLOW         Path to a custom workflow JSON file (overrides built-in template).
     COMFYUI_TIMEOUT          Max seconds to wait for job completion (default: 300).
 
+Multi-reference mode (FLUX.2 Klein native):
+    When reference_images are provided, the bot uses FLUX.2 Klein's native ReferenceLatent
+    conditioning — no IP-Adapter or CLIP Vision required. Each reference image is VAE-encoded
+    and injected into both positive and negative conditioning via chained ReferenceLatent nodes.
+    Output resolution auto-matches the first reference image (scaled to ~1 megapixel).
+    Uses the advanced sampler pipeline: EmptyFlux2LatentImage + Flux2Scheduler +
+    SamplerCustomAdvanced + CFGGuider + KSamplerSelect + RandomNoise.
+
 Progress reporting:
     generate_image() connects to ComfyUI's WebSocket API (ws://.../ws?clientId=…)
     and translates server-sent events to the same tag format used by the diffusers
@@ -49,8 +57,6 @@ DEFAULT_WIDTH = 512
 DEFAULT_HEIGHT = 512
 DEFAULT_STRENGTH = 0.75
 DEFAULT_TIMEOUT = 300
-DEFAULT_IPADAPTER_STRENGTH = 0.8
-DEFAULT_IPADAPTER_GUIDANCE = 3.5
 
 # Matches diffusers_worker.py — applied to every generation for anatomy quality.
 _ANATOMY_SUFFIX = (
@@ -115,6 +121,27 @@ def _preprocess_reference_image(
         return buf.getvalue()
     except Exception as exc:
         print(f"[ComfyUI] Reference image preprocessing failed ({exc}) — uploading as-is.")
+        return None
+
+
+def _to_png(img_bytes: bytes) -> Optional[bytes]:
+    """Convert image bytes to PNG format without resizing.
+
+    Used before uploading reference images to ComfyUI when the workflow
+    handles resizing internally (e.g. ImageScaleToTotalPixels).
+    Returns PNG bytes, or None if Pillow is unavailable or decoding fails.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as exc:
+        print(f"[ComfyUI] PNG conversion failed ({exc}) — uploading as-is.")
         return None
 
 
@@ -284,42 +311,37 @@ def _build_img2img_workflow(
     }
 
 
-def _ipadapter_dimensions(n_refs: int, width: int, height: int) -> tuple:
-    """Return (width, height) adjusted for the number of reference subjects.
-
-    1-2 subjects: use configured dimensions (default 512×512).
-    3-5 subjects: use 768×512 landscape — FLUX needs horizontal space to
-                  place multiple distinct characters side-by-side without
-                  stacking or overlapping.
-    """
-    if n_refs >= 3:
-        return 768, 512
-    return width, height
-
-
-def _build_ipadapter_workflow(
+def _build_reference_workflow(
     prompt: str,
     gguf_path: str,
     vae_name: str,
     clip_name: str,
-    clip_vision_name: str,
-    ipadapter_name: str,
     steps: int,
-    width: int,
-    height: int,
     seed: int,
     uploaded_image_names: list,
-    ipadapter_strength: float = DEFAULT_IPADAPTER_STRENGTH,
-    ipadapter_guidance: float = DEFAULT_IPADAPTER_GUIDANCE,
 ) -> dict:
-    """ComfyUI API workflow using XLabs FLUX IP-Adapter for appearance conditioning.
+    """ComfyUI API workflow using FLUX.2 Klein's native ReferenceLatent conditioning.
 
-    Chains one ApplyFluxIPAdapter node per reference image. Uses EmptyLatentImage
-    (txt2img base) so no img2img latent competes with the IP-Adapter conditioning.
-    Multi-character scenes pass N reference images, each injecting its own appearance
-    features into separate FLUX attention layers via a chained adapter pass.
+    Each reference image is VAE-encoded and injected into both positive and negative
+    conditioning via chained ReferenceLatent nodes — no IP-Adapter or CLIP Vision
+    required. This is the official multi-reference path for FLUX.2 Klein as documented
+    at docs.comfy.org/tutorials/flux/flux-2-klein.
+
+    Output resolution auto-matches the first reference image (ImageScaleToTotalPixels
+    scales each reference to ~1 megapixel; GetImageSize drives EmptyFlux2LatentImage
+    and Flux2Scheduler so the output is the same aspect ratio as the reference).
+
+    Node ID scheme:
+        Fixed nodes:   "1"–"5" (model loaders + text encode + zero-neg)
+        Per-reference: "20i" LoadImage, "21i" ImageScaleToTotalPixels,
+                       "22i" VAEEncode, "23i" ReferenceLatent (positive),
+                       "24i" ReferenceLatent (negative)  — i is 0-based index
+        Output chain:  "30" GetImageSize, "31" EmptyFlux2LatentImage,
+                       "32" Flux2Scheduler, "33" KSamplerSelect,
+                       "34" RandomNoise, "35" CFGGuider,
+                       "36" SamplerCustomAdvanced, "37" VAEDecode, "9" SaveImage
     """
-    enhanced_prompt = "character appearance conditioned by reference images, " + prompt + _ANATOMY_SUFFIX
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
     workflow: dict = {
         "1": {
             "class_type": "UnetLoaderGGUF",
@@ -337,76 +359,109 @@ def _build_ipadapter_workflow(
             "class_type": "CLIPTextEncode",
             "inputs": {"clip": ["2", 0], "text": enhanced_prompt},
         },
+        # Distilled FLUX2 models don't use a real negative prompt — zero it out.
         "5": {
-            "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": _ANATOMY_NEGATIVE},
-        },
-        "6": {
-            "class_type": "EmptyLatentImage",
-            "inputs": {"width": width, "height": height, "batch_size": 1},
-        },
-        "16": {
-            "class_type": "LoadFluxIPAdapter",
-            "inputs": {
-                "ipadatper": ipadapter_name,
-                "clip_vision": clip_vision_name,
-                "provider": "GPU",
-            },
+            "class_type": "ConditioningZeroOut",
+            "inputs": {"conditioning": ["4", 0]},
         },
     }
 
+    # Per-reference-image nodes: scale → encode → inject into conditioning
     for i, img_name in enumerate(uploaded_image_names):
-        load_node_id = f"20{i}"
-        apply_node_id = f"21{i}"
-        model_input = ["1", 0] if i == 0 else [f"21{i - 1}", 0]
-        workflow[load_node_id] = {
+        load_id   = f"20{i}"
+        scale_id  = f"21{i}"
+        encode_id = f"22{i}"
+        ref_pos_id = f"23{i}"
+        ref_neg_id = f"24{i}"
+
+        prev_pos = ["4", 0] if i == 0 else [f"23{i - 1}", 0]
+        prev_neg = ["5", 0] if i == 0 else [f"24{i - 1}", 0]
+
+        workflow[load_id] = {
             "class_type": "LoadImage",
             "inputs": {"image": img_name, "upload": "image"},
         }
-        workflow[apply_node_id] = {
-            "class_type": "ApplyFluxIPAdapter",
+        # Scale to ~1 megapixel; preserves aspect ratio; drives output size
+        workflow[scale_id] = {
+            "class_type": "ImageScaleToTotalPixels",
             "inputs": {
-                "model": model_input,
-                "ip_adapter_flux": ["16", 0],
-                "image": [load_node_id, 0],
-                "ip_scale": ipadapter_strength,
-                "true_gs": ipadapter_guidance,
+                "image": [load_id, 0],
+                "upscale_method": "nearest-exact",
+                "megapixels": 1.0,
             },
         }
+        workflow[encode_id] = {
+            "class_type": "VAEEncode",
+            "inputs": {"pixels": [scale_id, 0], "vae": ["3", 0]},
+        }
+        workflow[ref_pos_id] = {
+            "class_type": "ReferenceLatent",
+            "inputs": {"conditioning": prev_pos, "latent": [encode_id, 0]},
+        }
+        workflow[ref_neg_id] = {
+            "class_type": "ReferenceLatent",
+            "inputs": {"conditioning": prev_neg, "latent": [encode_id, 0]},
+        }
 
-    last_apply_id = f"21{len(uploaded_image_names) - 1}"
-    workflow["13"] = {
-        "class_type": "ModelSamplingFlux",
+    n = len(uploaded_image_names)
+    final_pos = [f"23{n - 1}", 0]
+    final_neg = [f"24{n - 1}", 0]
+
+    # Size of first reference image (after scaling) drives the output latent
+    workflow["30"] = {
+        "class_type": "GetImageSize",
+        "inputs": {"image": ["210", 0]},
+    }
+    workflow["31"] = {
+        "class_type": "EmptyFlux2LatentImage",
         "inputs": {
-            "model": [last_apply_id, 0],
-            "max_shift": 1.15,
-            "base_shift": 0.5,
-            "width": width,
-            "height": height,
+            "width": ["30", 0],
+            "height": ["30", 1],
+            "batch_size": 1,
         },
     }
-    workflow["7"] = {
-        "class_type": "KSampler",
+    workflow["32"] = {
+        "class_type": "Flux2Scheduler",
         "inputs": {
-            "model": ["13", 0],
-            "positive": ["4", 0],
-            "negative": ["5", 0],
-            "latent_image": ["6", 0],
-            "seed": seed,
             "steps": steps,
-            "cfg": 1.0,
-            "sampler_name": "euler",
-            "scheduler": "simple",
-            "denoise": 1.0,
+            "width": ["30", 0],
+            "height": ["30", 1],
         },
     }
-    workflow["8"] = {
+    workflow["33"] = {
+        "class_type": "KSamplerSelect",
+        "inputs": {"sampler_name": "euler"},
+    }
+    workflow["34"] = {
+        "class_type": "RandomNoise",
+        "inputs": {"noise_seed": seed},
+    }
+    workflow["35"] = {
+        "class_type": "CFGGuider",
+        "inputs": {
+            "model": ["1", 0],
+            "positive": final_pos,
+            "negative": final_neg,
+            "cfg": 1.0,
+        },
+    }
+    workflow["36"] = {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+            "noise": ["34", 0],
+            "guider": ["35", 0],
+            "sampler": ["33", 0],
+            "sigmas": ["32", 0],
+            "latent_image": ["31", 0],
+        },
+    }
+    workflow["37"] = {
         "class_type": "VAEDecode",
-        "inputs": {"samples": ["7", 0], "vae": ["3", 0]},
+        "inputs": {"samples": ["36", 0], "vae": ["3", 0]},
     }
     workflow["9"] = {
         "class_type": "SaveImage",
-        "inputs": {"images": ["8", 0], "filename_prefix": "ariabot_"},
+        "inputs": {"images": ["37", 0], "filename_prefix": "ariabot_"},
     }
     return workflow
 
@@ -436,52 +491,46 @@ def _run_generate(
     flux_base_shift = _get_float("COMFYUI_FLUX_BASE_SHIFT", 0.5)
     timeout = _get_int("COMFYUI_TIMEOUT", DEFAULT_TIMEOUT)
     custom_workflow_path = os.environ.get("COMFYUI_WORKFLOW", "").strip()
-    ipadapter_name = os.environ.get("COMFYUI_IPADAPTER", "").strip()
-    clip_vision_name = os.environ.get("COMFYUI_CLIP_VISION", "").strip()
-    ipadapter_strength = _get_float("COMFYUI_IPADAPTER_STRENGTH", DEFAULT_IPADAPTER_STRENGTH)
-    ipadapter_guidance = _get_float("COMFYUI_IPADAPTER_GUIDANCE", DEFAULT_IPADAPTER_GUIDANCE)
     seed = int(uuid.uuid4().int % (2**31))
 
     if not gguf_path or not vae_name or not clip_name:
         print("[ComfyUI] COMFYUI_GGUF, COMFYUI_VAE, and COMFYUI_CLIP must all be set.")
         return None
 
-    refs = reference_images or ([reference_image] if reference_image else [])
+    # reference_images (list) → native ReferenceLatent multi-ref path
+    # reference_image  (single tuple) → legacy img2img path
+    refs = reference_images or []
 
     try:
         if custom_workflow_path and os.path.exists(custom_workflow_path):
             with open(custom_workflow_path, "r", encoding="utf-8") as f:
                 workflow = json.load(f)
             print(f"[ComfyUI] Using custom workflow: {custom_workflow_path}")
-        elif ipadapter_name and clip_vision_name and refs:
-            # IP-Adapter path — dynamic canvas size based on subject count
-            ipa_width, ipa_height = _ipadapter_dimensions(len(refs), width, height)
+        elif refs:
+            # Native FLUX.2 Klein multi-reference path (ReferenceLatent)
+            # ImageScaleToTotalPixels in ComfyUI handles resizing — only convert
+            # to PNG here for upload compatibility (avoid JPEG/WebP issues).
             uploaded_names = []
             for ref_bytes, ref_mime in refs:
-                processed = _preprocess_reference_image(ref_bytes, ref_mime, ipa_width, ipa_height)
+                processed = _to_png(ref_bytes)
                 upload_bytes = processed if processed is not None else ref_bytes
                 uploaded_name = _upload_image(base_url, upload_bytes, _requests)
                 if uploaded_name:
                     uploaded_names.append(uploaded_name)
             if not uploaded_names:
-                print("[ComfyUI] IP-Adapter: all reference uploads failed — falling back to txt2img.")
+                print("[ComfyUI] Reference: all uploads failed — falling back to txt2img.")
                 workflow = _build_txt2img_workflow(
                     prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
                 )
-            elif len(uploaded_names) < len(refs):
-                print(f"[ComfyUI] IP-Adapter: partial upload ({len(uploaded_names)}/{len(refs)}) — falling back to txt2img.")
-                workflow = _build_txt2img_workflow(
-                    prompt, gguf_path, vae_name, clip_name, steps, ipa_width, ipa_height, seed
-                )
             else:
+                if len(uploaded_names) < len(refs):
+                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_names)}/{len(refs)}) — continuing with available images.")
                 print(
-                    f"[ComfyUI] IP-Adapter mode — {len(uploaded_names)} reference(s), "
-                    f"size={ipa_width}x{ipa_height}, strength={ipadapter_strength}, guidance={ipadapter_guidance}"
+                    f"[ComfyUI] Native reference mode — {len(uploaded_names)} reference image(s), "
+                    f"output size auto-matched to first reference (~1 MP)"
                 )
-                workflow = _build_ipadapter_workflow(
-                    prompt, gguf_path, vae_name, clip_name, clip_vision_name, ipadapter_name,
-                    steps, ipa_width, ipa_height, seed, uploaded_names,
-                    ipadapter_strength=ipadapter_strength, ipadapter_guidance=ipadapter_guidance,
+                workflow = _build_reference_workflow(
+                    prompt, gguf_path, vae_name, clip_name, steps, seed, uploaded_names
                 )
         elif reference_image is not None:
             img_bytes, mime = reference_image
@@ -506,8 +555,15 @@ def _run_generate(
                 prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
             )
 
-        mode = "img2img" if (reference_image is not None and "12" in workflow) else "txt2img"
-        print(f"[ComfyUI] Queuing {mode} job — size={width}x{height}, steps={steps}, strength={strength if mode == 'img2img' else 'n/a'}")
+        if "36" in workflow:
+            mode = "reference"
+        elif "12" in workflow:
+            mode = "img2img"
+        else:
+            mode = "txt2img"
+        size_info = f"{width}x{height}" if mode != "reference" else "auto (from reference)"
+        strength_info = strength if mode == "img2img" else "n/a"
+        print(f"[ComfyUI] Queuing {mode} job — size={size_info}, steps={steps}, strength={strength_info}")
         print(f"[ComfyUI] Prompt: {prompt[:120]!r}")
 
         payload = {"prompt": workflow, "client_id": client_id}
@@ -779,10 +835,10 @@ async def generate_image(
         reference_image:  Optional (bytes, mime_type) tuple — kept for backward
                           compatibility with the img2img fallback path.
         reference_images: Optional list of (bytes, mime_type) tuples. When
-                          COMFYUI_IPADAPTER and COMFYUI_CLIP_VISION are set, each
-                          image is uploaded and injected via a chained IP-Adapter
-                          node. Takes priority over reference_image when IP-Adapter
-                          tokens are configured.
+                          provided, the native FLUX.2 Klein ReferenceLatent
+                          workflow is used — each image is VAE-encoded and
+                          injected into conditioning via chained ReferenceLatent
+                          nodes. Takes priority over reference_image.
         on_progress:      Optional async callable(tag: str) called with live
                           progress tags (same format as diffusers backend):
                               "STAGE:loading"   — model is being loaded
