@@ -393,6 +393,7 @@ def _build_reference_workflow(
                 "image": [load_id, 0],
                 "upscale_method": "nearest-exact",
                 "megapixels": megapixels,
+                "resolution_steps": 1,
             },
         }
         workflow[encode_id] = {
