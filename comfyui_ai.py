@@ -367,10 +367,10 @@ def _build_ipadapter_workflow(
             "class_type": "ApplyFluxIPAdapter",
             "inputs": {
                 "model": model_input,
-                "ipadapter": ["16", 0],
+                "ip_adapter_flux": ["16", 0],
                 "clip_vision": ["14", 0],
                 "image": [load_node_id, 0],
-                "strength": ipadapter_strength,
+                "ip_scale": ipadapter_strength,
                 "true_gs": ipadapter_guidance,
             },
         }
