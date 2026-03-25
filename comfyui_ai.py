@@ -319,6 +319,8 @@ def _build_reference_workflow(
     steps: int,
     seed: int,
     uploaded_image_names: list,
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
 ) -> dict:
     """ComfyUI API workflow using FLUX.2 Klein's native ReferenceLatent conditioning.
 
@@ -327,18 +329,18 @@ def _build_reference_workflow(
     required. This is the official multi-reference path for FLUX.2 Klein as documented
     at docs.comfy.org/tutorials/flux/flux-2-klein.
 
-    Output resolution auto-matches the first reference image (ImageScaleToTotalPixels
-    scales each reference to ~1 megapixel; GetImageSize drives EmptyFlux2LatentImage
-    and Flux2Scheduler so the output is the same aspect ratio as the reference).
+    Output resolution is fixed to (width, height) — the same values used for txt2img
+    and img2img. ImageScaleToTotalPixels scales each reference image to the same
+    pixel count (width*height) so there is no upscaling of small thumbnails and the
+    generated image matches the configured size.
 
     Node ID scheme:
         Fixed nodes:   "1"–"5" (model loaders + text encode + zero-neg)
         Per-reference: "20i" LoadImage, "21i" ImageScaleToTotalPixels,
                        "22i" VAEEncode, "23i" ReferenceLatent (positive),
                        "24i" ReferenceLatent (negative)  — i is 0-based index
-        Output chain:  "30" GetImageSize, "31" EmptyFlux2LatentImage,
-                       "32" Flux2Scheduler, "33" KSamplerSelect,
-                       "34" RandomNoise, "35" CFGGuider,
+        Output chain:  "31" EmptyFlux2LatentImage, "32" Flux2Scheduler,
+                       "33" KSamplerSelect, "34" RandomNoise, "35" CFGGuider,
                        "36" SamplerCustomAdvanced, "37" VAEDecode, "9" SaveImage
     """
     enhanced_prompt = prompt + _ANATOMY_SUFFIX
@@ -366,11 +368,14 @@ def _build_reference_workflow(
         },
     }
 
+    # megapixels target = output resolution; prevents upscaling small thumbnails
+    megapixels = round((width * height) / 1_000_000, 4)
+
     # Per-reference-image nodes: scale → encode → inject into conditioning
     for i, img_name in enumerate(uploaded_image_names):
-        load_id   = f"20{i}"
-        scale_id  = f"21{i}"
-        encode_id = f"22{i}"
+        load_id    = f"20{i}"
+        scale_id   = f"21{i}"
+        encode_id  = f"22{i}"
         ref_pos_id = f"23{i}"
         ref_neg_id = f"24{i}"
 
@@ -381,13 +386,13 @@ def _build_reference_workflow(
             "class_type": "LoadImage",
             "inputs": {"image": img_name, "upload": "image"},
         }
-        # Scale to ~1 megapixel; preserves aspect ratio; drives output size
+        # Scale reference to match output pixel count — no upscaling of thumbnails
         workflow[scale_id] = {
             "class_type": "ImageScaleToTotalPixels",
             "inputs": {
                 "image": [load_id, 0],
                 "upscale_method": "nearest-exact",
-                "megapixels": 1.0,
+                "megapixels": megapixels,
             },
         }
         workflow[encode_id] = {
@@ -407,16 +412,12 @@ def _build_reference_workflow(
     final_pos = [f"23{n - 1}", 0]
     final_neg = [f"24{n - 1}", 0]
 
-    # Size of first reference image (after scaling) drives the output latent
-    workflow["30"] = {
-        "class_type": "GetImageSize",
-        "inputs": {"image": ["210", 0]},
-    }
+    # Output latent size fixed to configured width/height — no GetImageSize needed
     workflow["31"] = {
         "class_type": "EmptyFlux2LatentImage",
         "inputs": {
-            "width": ["30", 0],
-            "height": ["30", 1],
+            "width": width,
+            "height": height,
             "batch_size": 1,
         },
     }
@@ -424,8 +425,8 @@ def _build_reference_workflow(
         "class_type": "Flux2Scheduler",
         "inputs": {
             "steps": steps,
-            "width": ["30", 0],
-            "height": ["30", 1],
+            "width": width,
+            "height": height,
         },
     }
     workflow["33"] = {
@@ -527,10 +528,11 @@ def _run_generate(
                     print(f"[ComfyUI] Reference: partial upload ({len(uploaded_names)}/{len(refs)}) — continuing with available images.")
                 print(
                     f"[ComfyUI] Native reference mode — {len(uploaded_names)} reference image(s), "
-                    f"output size auto-matched to first reference (~1 MP)"
+                    f"output size={width}x{height}"
                 )
                 workflow = _build_reference_workflow(
-                    prompt, gguf_path, vae_name, clip_name, steps, seed, uploaded_names
+                    prompt, gguf_path, vae_name, clip_name, steps, seed, uploaded_names,
+                    width=width, height=height,
                 )
         elif reference_image is not None:
             img_bytes, mime = reference_image
