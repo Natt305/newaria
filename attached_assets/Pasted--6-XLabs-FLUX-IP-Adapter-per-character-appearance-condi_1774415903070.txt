@@ -1,0 +1,139 @@
+#6 - XLabs FLUX IP-Adapter: per-character appearance conditioning
+What & Why
+Current multi-character img2img uses a single reference image as the latent seed. At
+0.75 strength FLUX is so anchored to that one-character seed that a second character
+never appears. IP-Adapter solves this at the conditioning level: instead of encoding
+a reference into the latent, it extracts CLIP image features and injects them directly
+into the UNet attention layers — giving each character their own high-quality appearance
+stream independent of the latent.
+For multi-character scenes, XLabsApplyFluxIPAdapter nodes are chained — one per
+reference image. Each character's features flow through their own IP-Adapter pass. The
+base latent is a plain EmptyLatentImage (txt2img), so there is no img2img seed competing
+with or overriding the second character.
+
+Prerequisites (user must install on ComfyUI server)
+Custom node: x-flux-comfyui (XLabs-AI/x-flux-comfyui) via ComfyUI Manager orgit clone into custom_nodes + python setup.py
+Model weights:ip_adapter.safetensors from XLabs-AI/flux-ip-adapter → ComfyUI/models/xlabs/ipadapters/
+clip_l.safetensors from openai/clip-vit-large-patch14 → ComfyUI/models/clip_vision/
+Set new tokens in tokens.txt (see below)
+New tokens.txt entries
+COMFYUI_IPADAPTER=ip_adapter.safetensors
+COMFYUI_CLIP_VISION=clip_l.safetensors
+# COMFYUI_IPADAPTER_STRENGTH=0.8
+# COMFYUI_IPADAPTER_GUIDANCE=3.5
+
+COMFYUI_IPADAPTER and COMFYUI_CLIP_VISION gate the feature — if either is unset
+or empty, the existing img2img/txt2img path is used unchanged (no regression).
+
+Workflow — _build_ipadapter_workflow() in comfyui_ai.py
+Node graph (for N reference images, N ≥ 1)
+Node "1"  UnetLoaderGGUF         ← COMFYUI_GGUF
+Node "2"  CLIPLoader             ← COMFYUI_CLIP, type="flux2"
+Node "3"  VAELoader              ← COMFYUI_VAE
+Node "4"  CLIPTextEncode         ← positive prompt (node "2")
+Node "5"  CLIPTextEncode         ← negative prompt (node "2")
+Node "6"  EmptyLatentImage       ← width, height (txt2img base — no img2img latent)
+Node "14" CLIPVisionLoader       ← COMFYUI_CLIP_VISION
+Node "16" XLabsLoadIPAdapter     ← COMFYUI_IPADAPTER
+
+For each reference image i (0-indexed), add:
+  Node f"20{i}" LoadImage        ← uploaded reference image name
+  Node f"21{i}" XLabsApplyFluxIPAdapter
+        inputs:
+          model       ← "1" for i=0, else f"21{i-1}" (chain)
+          ipadapter   ← "16"
+          clip_vision ← "14"
+          image       ← f"20{i}"
+          strength    ← COMFYUI_IPADAPTER_STRENGTH (default 0.8)
+          true_gs     ← COMFYUI_IPADAPTER_GUIDANCE (default 3.5)
+
+Node "13" ModelSamplingFlux
+        inputs:
+          model       ← f"21{N-1}" (last IP-Adapter in chain)
+          width/height as before
+Node "7"  KSampler
+        inputs:
+          model       ← "13"
+          latent_image← "6"
+          denoise     ← 1.0 (full txt2img — no img2img)
+Node "8"  VAEDecode
+Node "9"  SaveImage
+
+Prompt prefix
+When using IP-Adapter, change the prompt prefix from"referencing the provided image, " to"character appearance conditioned by reference images, ".
+
+Fallback
+If any reference image upload fails, fall back to txt2img (not img2img), since
+IP-Adapter is the primary conditioning path and a partial upload would give
+asymmetric results.
+
+generate_image() signature change
+async def generate_image(
+    prompt: str,
+    reference_image: Optional[Tuple[bytes, str]] = None,   # kept for backward compat
+    reference_images: Optional[list] = None,               # NEW: list of (bytes, mime)
+    on_progress: Optional[Callable[[str], Coroutine]] = None,
+) -> Optional[Tuple[bytes, str]]:
+
+Selection logic in _run_generate():
+
+ipadapter_name = os.environ.get("COMFYUI_IPADAPTER", "").strip()
+clip_vision_name = os.environ.get("COMFYUI_CLIP_VISION", "").strip()
+refs = reference_images or ([reference_image] if reference_image else [])
+
+if ipadapter_name and clip_vision_name and refs:
+    → upload each ref, build _build_ipadapter_workflow()
+elif reference_image:
+    → existing img2img path (unchanged)
+else:
+    → existing txt2img path (unchanged)
+
+bot.py changes
+Chat-flow block (~line 1017)
+Pass the full _ref_images list to generate_image() for ComfyUI:
+
+result = await comfyui_ai.generate_image(
+    enriched_prompt,
+    reference_image=_ref_image_for_gen,
+    reference_images=_ref_images or None,   # NEW
+    on_progress=_comfyui_progress,
+)
+
+_ref_image_for_gen is still passed for the img2img fallback path (when IP-Adapter
+tokens are not set). When IP-Adapter IS active, reference_images takes priority andreference_image is ignored by the selection logic.
+
+!draw command block (~line 2280)
+Same — pass reference_images=_cmd_ref_images or None.
+
+Task #4 ComfyUI branching
+The Task #4 fix (using _ref_images[0] for ComfyUI instead of the composite) becomes
+moot when IP-Adapter is active, since no img2img latent is used at all. Keep the Task #4
+code path in place as the fallback for when IP-Adapter tokens are not configured.
+
+comfyui_ai.py env var reading additions
+DEFAULT_IPADAPTER_STRENGTH = 0.8
+DEFAULT_IPADAPTER_GUIDANCE = 3.5
+
+Read inside _run_generate() alongside existing reads:
+
+ipadapter_name = os.environ.get("COMFYUI_IPADAPTER", "").strip()
+clip_vision_name = os.environ.get("COMFYUI_CLIP_VISION", "").strip()
+ipadapter_strength = _get_float("COMFYUI_IPADAPTER_STRENGTH", DEFAULT_IPADAPTER_STRENGTH)
+ipadapter_guidance = _get_float("COMFYUI_IPADAPTER_GUIDANCE", DEFAULT_IPADAPTER_GUIDANCE)
+
+Done looks like
+Single-character scene: IP-Adapter active → reference photo's appearance is injected
+into the FLUX attention layers; output shows correct character appearance without needing
+img2img latent.
+Multi-character scene (e.g. Aria + Mortis): two chained IP-Adapter nodes → both
+characters appear in the output with independent appearance conditioning.
+When COMFYUI_IPADAPTER / COMFYUI_CLIP_VISION are not set: existing img2img / txt2img
+path is used unchanged — no regression.
+ComfyUI workflow JSON validates correctly (no node_errors on /prompt).
+Relevant files
+comfyui_ai.py — _build_ipadapter_workflow() (new), _run_generate(), generate_image()
+bot.py — chat-flow generate call (~line 1060), !draw generate call (~line 2280)
+tokens.txt — four new entries
+
+
+what do you think of this replit plan?
