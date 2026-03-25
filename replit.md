@@ -68,6 +68,10 @@ Set these in `tokens.txt` **or** as Replit Secrets (Secrets take priority):
 | `OLLAMA_VISION_MODEL` | If using Ollama | Vision model (default: `gemma3:12b`) |
 | `CLOUDFLARE_API_TOKEN` | Optional | Image generation |
 | `CLOUDFLARE_ACCOUNT_ID` | Optional | Image generation |
+| `COMFYUI_IPADAPTER` | Optional | XLabs IP-Adapter filename (e.g. `ip_adapter.safetensors`) — enables per-character appearance conditioning |
+| `COMFYUI_CLIP_VISION` | Optional | CLIP Vision model filename (e.g. `clip_l.safetensors`) — required alongside COMFYUI_IPADAPTER |
+| `COMFYUI_IPADAPTER_STRENGTH` | Optional | IP-Adapter injection strength (default: 0.8) |
+| `COMFYUI_IPADAPTER_GUIDANCE` | Optional | IP-Adapter guidance strength (default: 3.5) |
 
 ## Running
 

@@ -37,18 +37,23 @@ def img2img_capable() -> bool:
 async def generate_image(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]] = None,
+    reference_images: Optional[list] = None,
     on_progress: Optional[Callable[[str], Coroutine]] = None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the configured backend.
 
     Args:
-        prompt:          Text prompt for image generation.
-        reference_image: Optional (bytes, mime_type) tuple used as the img2img
-                         seed image. Passed to backends that support it
-                         (local_diffusers, hf_spaces). Ignored by Cloudflare.
-        on_progress:     Optional async callable(tag: str) forwarded to
-                         local_diffusers backend for live progress reporting.
-                         Silently ignored by cloudflare and hf_spaces backends.
+        prompt:           Text prompt for image generation.
+        reference_image:  Optional (bytes, mime_type) tuple used as the img2img
+                          seed image. Passed to backends that support it
+                          (local_diffusers, hf_spaces, comfyui). Ignored by Cloudflare.
+        reference_images: Optional list of (bytes, mime_type) tuples. Forwarded to
+                          the comfyui backend for IP-Adapter multi-character conditioning
+                          when COMFYUI_IPADAPTER and COMFYUI_CLIP_VISION are set.
+                          Ignored by all other backends.
+        on_progress:      Optional async callable(tag: str) forwarded to
+                          local_diffusers and comfyui backends for live progress
+                          reporting. Silently ignored by cloudflare and hf_spaces.
 
     Returns:
         (image_bytes, mime_type) on success, or None on failure.
@@ -63,6 +68,11 @@ async def generate_image(
         return await _hf_spaces_ai.generate_image(prompt, reference_image=reference_image)
     if _IMAGE_BACKEND == "comfyui":
         import comfyui_ai as _comfyui_ai
-        return await _comfyui_ai.generate_image(prompt, reference_image=reference_image, on_progress=on_progress)
+        return await _comfyui_ai.generate_image(
+            prompt,
+            reference_image=reference_image,
+            reference_images=reference_images,
+            on_progress=on_progress,
+        )
     import cloudflare_ai as _cloudflare_ai
     return await _cloudflare_ai.generate_image(prompt)

@@ -146,6 +146,7 @@ def _image_ready() -> bool:
 async def _generate_image(
     prompt: str,
     reference_image=None,
+    reference_images=None,
     on_progress=None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the active backend.
@@ -155,12 +156,17 @@ async def _generate_image(
         reference_image: Optional (bytes, mime) tuple passed to backends
                          that support img2img (local_diffusers, hf_spaces, comfyui).
                          Ignored by the Cloudflare backend.
+        reference_images: Optional list of (bytes, mime) tuples forwarded to the
+                          comfyui backend for IP-Adapter multi-character conditioning.
         on_progress: Optional async callable(tag: str) for live progress
                      updates. Only used by the local_diffusers and comfyui backends.
     """
     import image_dispatch as _dispatch
     return await _dispatch.generate_image(
-        prompt, reference_image=reference_image, on_progress=on_progress
+        prompt,
+        reference_image=reference_image,
+        reference_images=reference_images,
+        on_progress=on_progress,
     )
 
 
@@ -1099,6 +1105,7 @@ async def process_chat(
                     _generate_image(
                         enriched_prompt,
                         _ref_image_for_gen,
+                        reference_images=_ref_images or None,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
                     ),
                     groq_ai.generate_image_comment(
@@ -2303,6 +2310,7 @@ async def generate_cmd(ctx, *, prompt: str):
         result = await _generate_image(
             enriched_prompt,
             reference_image=_cmd_ref_image,
+            reference_images=_cmd_ref_images or None,
             on_progress=_cmd_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
         )
     finally:

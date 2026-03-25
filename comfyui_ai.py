@@ -49,6 +49,8 @@ DEFAULT_WIDTH = 512
 DEFAULT_HEIGHT = 512
 DEFAULT_STRENGTH = 0.75
 DEFAULT_TIMEOUT = 300
+DEFAULT_IPADAPTER_STRENGTH = 0.8
+DEFAULT_IPADAPTER_GUIDANCE = 3.5
 
 # Matches diffusers_worker.py — applied to every generation for anatomy quality.
 _ANATOMY_SUFFIX = (
@@ -282,10 +284,139 @@ def _build_img2img_workflow(
     }
 
 
+def _ipadapter_dimensions(n_refs: int, width: int, height: int) -> tuple:
+    """Return (width, height) adjusted for the number of reference subjects.
+
+    1-2 subjects: use configured dimensions (default 512×512).
+    3-5 subjects: use 768×512 landscape — FLUX needs horizontal space to
+                  place multiple distinct characters side-by-side without
+                  stacking or overlapping.
+    """
+    if n_refs >= 3:
+        return 768, 512
+    return width, height
+
+
+def _build_ipadapter_workflow(
+    prompt: str,
+    gguf_path: str,
+    vae_name: str,
+    clip_name: str,
+    clip_vision_name: str,
+    ipadapter_name: str,
+    steps: int,
+    width: int,
+    height: int,
+    seed: int,
+    uploaded_image_names: list,
+    ipadapter_strength: float = DEFAULT_IPADAPTER_STRENGTH,
+    ipadapter_guidance: float = DEFAULT_IPADAPTER_GUIDANCE,
+) -> dict:
+    """ComfyUI API workflow using XLabs FLUX IP-Adapter for appearance conditioning.
+
+    Chains one XLabsApplyFluxIPAdapter node per reference image. Uses EmptyLatentImage
+    (txt2img base) so no img2img latent competes with the IP-Adapter conditioning.
+    Multi-character scenes pass N reference images, each injecting its own appearance
+    features into separate FLUX attention layers via a chained adapter pass.
+    """
+    enhanced_prompt = "character appearance conditioned by reference images, " + prompt + _ANATOMY_SUFFIX
+    workflow: dict = {
+        "1": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": gguf_path},
+        },
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": clip_name, "type": "flux2"},
+        },
+        "3": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": vae_name},
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": enhanced_prompt},
+        },
+        "5": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": _ANATOMY_NEGATIVE},
+        },
+        "6": {
+            "class_type": "EmptyLatentImage",
+            "inputs": {"width": width, "height": height, "batch_size": 1},
+        },
+        "14": {
+            "class_type": "CLIPVisionLoader",
+            "inputs": {"clip_name": clip_vision_name},
+        },
+        "16": {
+            "class_type": "XLabsLoadIPAdapter",
+            "inputs": {"ipadapter": ipadapter_name},
+        },
+    }
+
+    for i, img_name in enumerate(uploaded_image_names):
+        load_node_id = f"20{i}"
+        apply_node_id = f"21{i}"
+        model_input = ["1", 0] if i == 0 else [f"21{i - 1}", 0]
+        workflow[load_node_id] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": img_name, "upload": "image"},
+        }
+        workflow[apply_node_id] = {
+            "class_type": "XLabsApplyFluxIPAdapter",
+            "inputs": {
+                "model": model_input,
+                "ipadapter": ["16", 0],
+                "clip_vision": ["14", 0],
+                "image": [load_node_id, 0],
+                "strength": ipadapter_strength,
+                "true_gs": ipadapter_guidance,
+            },
+        }
+
+    last_apply_id = f"21{len(uploaded_image_names) - 1}"
+    workflow["13"] = {
+        "class_type": "ModelSamplingFlux",
+        "inputs": {
+            "model": [last_apply_id, 0],
+            "max_shift": 1.15,
+            "base_shift": 0.5,
+            "width": width,
+            "height": height,
+        },
+    }
+    workflow["7"] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": ["13", 0],
+            "positive": ["4", 0],
+            "negative": ["5", 0],
+            "latent_image": ["6", 0],
+            "seed": seed,
+            "steps": steps,
+            "cfg": 1.0,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1.0,
+        },
+    }
+    workflow["8"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["7", 0], "vae": ["3", 0]},
+    }
+    workflow["9"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["8", 0], "filename_prefix": "ariabot_"},
+    }
+    return workflow
+
+
 def _run_generate(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]],
     client_id: str,
+    reference_images: Optional[list] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Blocking: submit a job to ComfyUI and return (png_bytes, mime) or None."""
     try:
@@ -306,17 +437,53 @@ def _run_generate(
     flux_base_shift = _get_float("COMFYUI_FLUX_BASE_SHIFT", 0.5)
     timeout = _get_int("COMFYUI_TIMEOUT", DEFAULT_TIMEOUT)
     custom_workflow_path = os.environ.get("COMFYUI_WORKFLOW", "").strip()
+    ipadapter_name = os.environ.get("COMFYUI_IPADAPTER", "").strip()
+    clip_vision_name = os.environ.get("COMFYUI_CLIP_VISION", "").strip()
+    ipadapter_strength = _get_float("COMFYUI_IPADAPTER_STRENGTH", DEFAULT_IPADAPTER_STRENGTH)
+    ipadapter_guidance = _get_float("COMFYUI_IPADAPTER_GUIDANCE", DEFAULT_IPADAPTER_GUIDANCE)
     seed = int(uuid.uuid4().int % (2**31))
 
     if not gguf_path or not vae_name or not clip_name:
         print("[ComfyUI] COMFYUI_GGUF, COMFYUI_VAE, and COMFYUI_CLIP must all be set.")
         return None
 
+    refs = reference_images or ([reference_image] if reference_image else [])
+
     try:
         if custom_workflow_path and os.path.exists(custom_workflow_path):
             with open(custom_workflow_path, "r", encoding="utf-8") as f:
                 workflow = json.load(f)
             print(f"[ComfyUI] Using custom workflow: {custom_workflow_path}")
+        elif ipadapter_name and clip_vision_name and refs:
+            # IP-Adapter path — dynamic canvas size based on subject count
+            ipa_width, ipa_height = _ipadapter_dimensions(len(refs), width, height)
+            uploaded_names = []
+            for ref_bytes, ref_mime in refs:
+                processed = _preprocess_reference_image(ref_bytes, ref_mime, ipa_width, ipa_height)
+                upload_bytes = processed if processed is not None else ref_bytes
+                uploaded_name = _upload_image(base_url, upload_bytes, _requests)
+                if uploaded_name:
+                    uploaded_names.append(uploaded_name)
+            if not uploaded_names:
+                print("[ComfyUI] IP-Adapter: all reference uploads failed — falling back to txt2img.")
+                workflow = _build_txt2img_workflow(
+                    prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
+                )
+            elif len(uploaded_names) < len(refs):
+                print(f"[ComfyUI] IP-Adapter: partial upload ({len(uploaded_names)}/{len(refs)}) — falling back to txt2img.")
+                workflow = _build_txt2img_workflow(
+                    prompt, gguf_path, vae_name, clip_name, steps, ipa_width, ipa_height, seed
+                )
+            else:
+                print(
+                    f"[ComfyUI] IP-Adapter mode — {len(uploaded_names)} reference(s), "
+                    f"size={ipa_width}x{ipa_height}, strength={ipadapter_strength}, guidance={ipadapter_guidance}"
+                )
+                workflow = _build_ipadapter_workflow(
+                    prompt, gguf_path, vae_name, clip_name, clip_vision_name, ipadapter_name,
+                    steps, ipa_width, ipa_height, seed, uploaded_names,
+                    ipadapter_strength=ipadapter_strength, ipadapter_guidance=ipadapter_guidance,
+                )
         elif reference_image is not None:
             img_bytes, mime = reference_image
             # Pre-process: smart-crop + convert to PNG (matches diffusers_worker.py)
@@ -602,25 +769,30 @@ async def _ws_progress(
 async def generate_image(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]] = None,
+    reference_images: Optional[list] = None,
     on_progress: Optional[Callable[[str], Coroutine]] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Generate an image via a locally-running ComfyUI instance.
 
     Args:
-        prompt:          Text prompt for image generation. An anatomy quality
-                         suffix is appended automatically (matches diffusers backend).
-        reference_image: Optional (bytes, mime_type) tuple used as the img2img
-                         reference image. Pre-processed with smart portrait-aware
-                         cropping (matches diffusers_worker.py) before upload.
-        on_progress:     Optional async callable(tag: str) called with live
-                         progress tags (same format as diffusers backend):
-                             "STAGE:loading"   — model is being loaded
-                             "LOAD:<frac>"     — fractional loading 0.0–1.0
-                             "STAGE:ready"     — inference starting
-                             "STEP:<n>/<t>"    — inference step n of t
-                             "STAGE:encoding"  — encoding final image
-                         Requires the 'websockets' package. Silently skipped
-                         if websockets is not installed or the connection fails.
+        prompt:           Text prompt for image generation. An anatomy quality
+                          suffix is appended automatically (matches diffusers backend).
+        reference_image:  Optional (bytes, mime_type) tuple — kept for backward
+                          compatibility with the img2img fallback path.
+        reference_images: Optional list of (bytes, mime_type) tuples. When
+                          COMFYUI_IPADAPTER and COMFYUI_CLIP_VISION are set, each
+                          image is uploaded and injected via a chained IP-Adapter
+                          node. Takes priority over reference_image when IP-Adapter
+                          tokens are configured.
+        on_progress:      Optional async callable(tag: str) called with live
+                          progress tags (same format as diffusers backend):
+                              "STAGE:loading"   — model is being loaded
+                              "LOAD:<frac>"     — fractional loading 0.0–1.0
+                              "STAGE:ready"     — inference starting
+                              "STEP:<n>/<t>"    — inference step n of t
+                              "STAGE:encoding"  — encoding final image
+                          Requires the 'websockets' package. Silently skipped
+                          if websockets is not installed or the connection fails.
 
     Returns:
         (image_bytes, "image/png") on success, or None on failure.
@@ -628,7 +800,7 @@ async def generate_image(
     client_id = str(uuid.uuid4())
     base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
 
-    gen_coro = asyncio.to_thread(_run_generate, prompt, reference_image, client_id)
+    gen_coro = asyncio.to_thread(_run_generate, prompt, reference_image, client_id, reference_images)
 
     if on_progress is None:
         return await gen_coro

@@ -204,3 +204,32 @@ COMFYUI_STRENGTH=0.75
 # Path to a custom ComfyUI workflow JSON file (leave blank for built-in Flux GGUF workflow)
 # COMFYUI_WORKFLOW=
 
+# ================================================================
+#  XLabs FLUX IP-Adapter — 多角色外觀條件設定（選填）
+#  XLabs FLUX IP-Adapter — per-character appearance conditioning (optional)
+#
+#  啟用後，每個參考圖片都會透過獨立的 IP-Adapter 節點注入 FLUX 注意力層，
+#  讓多角色場景中每個角色都能保持正確外觀，無需 img2img 的潛空間競爭。
+#
+#  When enabled, each reference image is injected into FLUX attention layers
+#  via its own chained IP-Adapter node. Multi-character scenes get independent
+#  appearance conditioning per character — no img2img latent competition.
+#
+#  必要前提 / Prerequisites:
+#    1. ComfyUI Manager 安裝 x-flux-comfyui（XLabs-AI/x-flux-comfyui）
+#       Install x-flux-comfyui via ComfyUI Manager or git clone into custom_nodes + python setup.py
+#    2. ip_adapter.safetensors → ComfyUI/models/xlabs/ipadapters/
+#       Download from: https://huggingface.co/XLabs-AI/flux-ip-adapter
+#    3. clip_l.safetensors → ComfyUI/models/clip_vision/
+#       Download from: https://huggingface.co/openai/clip-vit-large-patch14
+#
+#  兩個欄位都必須填寫才會啟用；任一留空則使用現有的 img2img/txt2img 路徑。
+#  Both must be set to enable; either left blank falls back to img2img/txt2img.
+# ================================================================
+COMFYUI_IPADAPTER=ip_adapter.safetensors
+COMFYUI_CLIP_VISION=clip_l.safetensors
+# IP-Adapter 強度（預設 0.8）/ IP-Adapter injection strength (default: 0.8)
+# COMFYUI_IPADAPTER_STRENGTH=0.8
+# IP-Adapter 引導強度（預設 3.5）/ IP-Adapter guidance strength (default: 3.5)
+# COMFYUI_IPADAPTER_GUIDANCE=3.5
+
