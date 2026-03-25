@@ -1015,35 +1015,15 @@ async def process_chat(
                         _ref_labels.append(bot_name)
                     if len(_ref_images) >= _MAX_REF_IMAGES:
                         break
-        # Build composite reference image and compute spatial layout prefix.
+        # Build spatial prefix and reference image(s) for generation.
         # Done before enhance_image_prompt so the LLM rewriter sees the
         # left/right subject ordering in the prompt it is expanding.
         #
         _ref_image_for_gen = None
         _spatial_prefix = ""
-        _ref_images_for_gen = None   # passed to image generation (may differ from _ref_images for vision)
-        _width_override: Optional[int] = None
-        _height_override: Optional[int] = None
         if _IMAGE_BACKEND == "comfyui" and _ref_images:
             if len(_ref_images) > 1:
-                # Composite up to 2 refs side-by-side into one wide image.
-                # A single ReferenceLatent with spatial layout encoded in the latent
-                # avoids feature bleeding between separate conditioning streams.
-                # Capped at 2 columns (1024×512) to stay within VRAM budget.
-                _refs_for_comp = _ref_images[:2]
-                _labels_for_comp = _ref_labels[:2]
-                _comp = _composite_reference_images(_refs_for_comp, _labels_for_comp)
-                if isinstance(_comp, dict):
-                    _ref_images_for_gen = [_comp["image"]]
-                    _spatial_prefix = _build_spatial_prefix(_comp["layout"])
-                    _width_override = len(_refs_for_comp) * 512
-                    _height_override = 512
-                else:
-                    # Composite failed — fall back to all individual refs
-                    _ref_images_for_gen = _ref_images
-                    _spatial_prefix = _build_spatial_prefix(_ref_labels)
-            else:
-                _ref_images_for_gen = _ref_images
+                _spatial_prefix = _build_spatial_prefix(_ref_labels)
         elif _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images:
             _comp = _composite_reference_images(_ref_images, _ref_labels)
             if isinstance(_comp, dict):
@@ -1126,10 +1106,8 @@ async def process_chat(
                     _generate_image(
                         enriched_prompt,
                         _ref_image_for_gen,
-                        reference_images=_ref_images_for_gen,
+                        reference_images=_ref_images or None,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
-                        width_override=_width_override,
-                        height_override=_height_override,
                     ),
                     groq_ai.generate_image_comment(
                         image_prompt, bot_name, background, user_text, history=history
@@ -2281,24 +2259,9 @@ async def generate_cmd(ctx, *, prompt: str):
                     break  # one character reference is enough
     _cmd_ref_image = None
     _cmd_spatial = ""
-    _cmd_ref_images_for_gen = None
-    _cmd_width_override: Optional[int] = None
-    _cmd_height_override: Optional[int] = None
     if _IMAGE_BACKEND == "comfyui" and _cmd_ref_images:
         if len(_cmd_ref_images) > 1:
-            _cmd_refs_for_comp = _cmd_ref_images[:2]
-            _cmd_labels_for_comp = _cmd_ref_labels[:2]
-            _cmd_comp = _composite_reference_images(_cmd_refs_for_comp, _cmd_labels_for_comp)
-            if isinstance(_cmd_comp, dict):
-                _cmd_ref_images_for_gen = [_cmd_comp["image"]]
-                _cmd_spatial = _build_spatial_prefix(_cmd_comp["layout"])
-                _cmd_width_override = len(_cmd_refs_for_comp) * 512
-                _cmd_height_override = 512
-            else:
-                _cmd_ref_images_for_gen = _cmd_ref_images
-                _cmd_spatial = _build_spatial_prefix(_cmd_ref_labels)
-        else:
-            _cmd_ref_images_for_gen = _cmd_ref_images
+            _cmd_spatial = _build_spatial_prefix(_cmd_ref_labels)
     elif _cmd_ref_images:
         _cmd_comp = _composite_reference_images(_cmd_ref_images, _cmd_ref_labels)
         if isinstance(_cmd_comp, dict):
@@ -2344,10 +2307,8 @@ async def generate_cmd(ctx, *, prompt: str):
         result = await _generate_image(
             enriched_prompt,
             reference_image=_cmd_ref_image,
-            reference_images=_cmd_ref_images_for_gen,
+            reference_images=_cmd_ref_images or None,
             on_progress=_cmd_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
-            width_override=_cmd_width_override,
-            height_override=_cmd_height_override,
         )
     finally:
         if _cmd_poller_task is not None:
