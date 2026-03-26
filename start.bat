@@ -17,10 +17,18 @@ for /f "usebackq tokens=1,* delims==" %%A in ("tokens.txt") do (
     if /i "%%A"=="COMFYUI_PATH" set "COMFYUI_PATH=%%B"
 )
 
-rem --- Auto-launch ComfyUI only when IMAGE_BACKEND=comfyui ---
+rem --- Auto-launch ComfyUI only when IMAGE_BACKEND=comfyui and it is not already running ---
 if /i not "!IMAGE_BACKEND!"=="comfyui" goto skipcomfy
 if not defined COMFYUI_PATH goto skipcomfy
 if "!COMFYUI_PATH!"=="" goto skipcomfy
+
+rem Check if ComfyUI is already listening on port 8188
+python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8188/system_stats',timeout=2); sys.exit(0)" 2>nul
+if not errorlevel 1 (
+    echo [ComfyUI] Already running on port 8188 — skipping launch.
+    echo.
+    goto skipcomfy
+)
 
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
 start "ComfyUI" /d "!COMFYUI_PATH!" python main.py --listen 127.0.0.1 --port 8188
