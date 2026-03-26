@@ -512,7 +512,7 @@ async def enhance_image_prompt(
             "Reference photos are attached. Priority order (highest first):\n"
             "  1. [SUBJECT REFERENCE] text blocks — absolute authority, override everything\n"
             "  2. Reference photos — primary source for appearance traits\n"
-            "  3. [CHARACTER APPEARANCE — SUPPLEMENTAL TEXT] blocks — fill in details NOT clearly "
+            "  3. [CHARACTER APPEARANCE — AUTHORITATIVE TEXT — OVERRIDES PHOTOS] blocks — fill in details NOT clearly "
             "visible in the photos; do NOT use to override anything already visible in the photos\n"
             "  4. [SUBJECT APPEARANCE SUPPLEMENT] blocks — gap-filler only; use ONLY for details "
             "not clearly visible in the reference photos; do NOT use to override photo-visible traits\n"
