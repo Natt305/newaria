@@ -1040,11 +1040,16 @@ async def process_chat(
         # Done before enhance_image_prompt so the LLM rewriter sees the
         # left/right subject ordering in the prompt it is expanding.
         #
+        # _unique_ref_labels: deduplicated subject list (one entry per subject,
+        # preserving order).  Used both for the spatial prefix and as the
+        # authoritative unique-subject count passed to enhance_image_prompt so
+        # that multiple photos of the same subject don't inflate n_subjects_hint.
+        _unique_ref_labels = list(dict.fromkeys(_ref_labels))
+        _n_unique_subjects = len(_unique_ref_labels)
         _ref_image_for_gen = None
         _spatial_prefix = ""
         if _IMAGE_BACKEND == "comfyui" and _ref_images:
-            _unique_ref_labels = list(dict.fromkeys(_ref_labels))
-            if len(_unique_ref_labels) > 1:
+            if _n_unique_subjects > 1:
                 _spatial_prefix = _build_spatial_prefix(_unique_ref_labels)
         elif _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images:
             _comp = _composite_reference_images(_ref_images, _ref_labels)
@@ -1079,8 +1084,9 @@ async def process_chat(
                 character_context=char_images_ctx,
                 subject_references=_kb_refs_no_photo if _kb_refs_no_photo else None,
                 reference_images=_ref_images if _ref_images else None,
+                n_subjects_override=_n_unique_subjects if _ref_images else None,
             )
-            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, text_overrides={list(_kb_refs_no_photo.keys())}, spatial={_spatial_prefix!r})")
+            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, unique_subjects={_n_unique_subjects}, text_overrides={list(_kb_refs_no_photo.keys())}, spatial={_spatial_prefix!r})")
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 

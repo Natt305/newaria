@@ -397,6 +397,7 @@ async def enhance_image_prompt(
     character_context: str = "",
     subject_references: dict = None,
     reference_images: Optional[list] = None,
+    n_subjects_override: Optional[int] = None,
 ) -> str:
     """Translate and expand a raw (possibly Chinese) prompt into a rich English
     image-generation prompt suitable for Cloudflare Workers AI.
@@ -524,8 +525,16 @@ async def enhance_image_prompt(
     _spatial_terms = ("(left)", "(right)", "(center)", "(far-left)", "(far-right)",
                       "(center-left)", "(center-right)")
     _has_spatial_terms = any(t in raw_prompt for t in _spatial_terms)
+    # n_subjects_override is the authoritative unique-subject count passed from the
+    # caller.  Without it, len(reference_images) would over-count when a single
+    # subject contributes multiple photos (one ReferenceLatent node per photo).
+    _ref_img_subject_count = (
+        n_subjects_override
+        if n_subjects_override is not None
+        else (len(reference_images) if reference_images else 0)
+    )
     n_subjects_hint = max(
-        len(reference_images) if reference_images else 0,
+        _ref_img_subject_count,
         len(subject_references) if subject_references else 0,
         2 if _has_spatial_terms else 0,
     )
