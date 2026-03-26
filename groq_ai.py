@@ -396,6 +396,7 @@ async def enhance_image_prompt(
     raw_prompt: str,
     character_context: str = "",
     subject_references: dict = None,
+    subject_supplements: dict = None,
     reference_images: Optional[list] = None,
     n_subjects_override: Optional[int] = None,
 ) -> str:
@@ -403,7 +404,13 @@ async def enhance_image_prompt(
     image-generation prompt suitable for Cloudflare Workers AI.
 
     character_context: text description of the character's appearance (written + photo-derived).
-    subject_references: {name: description} for named KB subjects — used as ground truth.
+    subject_references: {name: description} for KB subjects WITHOUT reference photos.
+        Treated as ABSOLUTE AUTHORITY — every trait listed overrides photos and raw prompt.
+    subject_supplements: {name: description} for KB subjects WITH reference photos.
+        Treated as a GAP-FILLER only — the vision model reads appearance from the photos;
+        these descriptions only add details that are NOT clearly visible in the photos
+        (e.g. a mask, a specific accessory colour).  Photos take precedence for all
+        traits that are visually readable from the thumbnails.
     reference_images: list of (bytes, mime_type) thumbnail tuples. When provided, the
         rewrite call uses a vision model that can literally see the reference photos,
         which significantly improves accuracy for traits like eye color and hair tone.
@@ -480,6 +487,19 @@ async def enhance_image_prompt(
                 f"Photos may only be used to understand pose, setting, or details NOT covered by this text. "
                 f"Every color, garment piece, and physical trait named above supersedes what any photo appears to show.\n"
             )
+    if subject_supplements:
+        for name, desc in subject_supplements.items():
+            ref_block += (
+                f"\n[SUBJECT APPEARANCE SUPPLEMENT — {name.upper()} — GAP-FILLER ONLY — LOWER PRIORITY]\n"
+                f"Reference photos are attached for '{name}'. "
+                f"The following stored text may contain details that are hard to read from the compressed thumbnails "
+                f"(e.g. a mask, a specific accessory, a subtle colour). "
+                f"Use it ONLY to fill in gaps — details NOT clearly visible in the photos.\n"
+                f"IMPORTANT: do NOT use this text to override what the photos clearly show. "
+                f"Hair colour, skin tone, and major garment pieces that are visible in the photos "
+                f"take precedence over this text. This block only supplements; it does not supersede.\n"
+                f"{desc.strip()}\n"
+            )
 
     # When photos are present, priority order is:
     # [SUBJECT REFERENCE] text > [CHARACTER APPEARANCE] text > photos > raw prompt words.
@@ -490,8 +510,10 @@ async def enhance_image_prompt(
             "Reference photos are attached. Priority order (highest first):\n"
             "  1. [SUBJECT REFERENCE] text blocks — absolute authority, override everything\n"
             "  2. [CHARACTER APPEARANCE] text blocks — authoritative, override photos\n"
-            "  3. Reference photos — used only for details NOT covered by the text blocks above\n"
-            "  4. Raw prompt appearance words — DISCARD (written without photos, unreliable)\n"
+            "  3. Reference photos — primary source for all traits not covered by items 1-2 above\n"
+            "  4. [SUBJECT APPEARANCE SUPPLEMENT] blocks — gap-filler only; use ONLY for details "
+            "not clearly visible in the reference photos; do NOT use to override photo-visible traits\n"
+            "  5. Raw prompt appearance words — DISCARD (written without photos, unreliable)\n"
             "\n"
             "OVERRIDE 1 — COLORS: discard raw prompt colors, but trust [SUBJECT REFERENCE] text.\n"
             "The raw image request was written WITHOUT access to reference photos or verified data. "
@@ -499,6 +521,8 @@ async def enhance_image_prompt(
             "HOWEVER: any color stated in a [SUBJECT REFERENCE] or [CHARACTER APPEARANCE] block above "
             "is verified and correct — use it exactly as written. "
             "Only fall back to reading colors from the reference photos for traits NOT covered by those text blocks.\n"
+            "[SUBJECT APPEARANCE SUPPLEMENT] colour mentions are lower-priority hints — prefer the photo reading "
+            "if the photo clearly shows that trait.\n"
             "\n"
             "OVERRIDE 2 — OUTFIT: if a [SUBJECT REFERENCE] block lists the outfit, reproduce it exactly. "
             "Only reconstruct outfit from photos when no text description is present.\n"
@@ -535,7 +559,8 @@ async def enhance_image_prompt(
     )
     n_subjects_hint = max(
         _ref_img_subject_count,
-        len(subject_references) if subject_references else 0,
+        (len(subject_references) if subject_references else 0)
+        + (len(subject_supplements) if subject_supplements else 0),
         2 if _has_spatial_terms else 0,
     )
     if n_subjects_hint >= 2:
@@ -837,13 +862,16 @@ async def enhance_image_prompt(
                 "      doing together, how they interact, their poses, expressions, and emotional tone.\n"
                 "      If props or instruments are mentioned in the text (guitar, sword, etc.), they MUST appear.\n"
                 "      DISCARD appearance words from the raw text — those were written without photos or verified data.\n\n"
-                "  (2) CHARACTER APPEARANCE — two rules depending on whether a [SUBJECT REFERENCE] block exists:\n\n"
-                "      (A) Character HAS a [SUBJECT REFERENCE] block in the system prompt:\n"
+                "  (2) CHARACTER APPEARANCE — three rules based on what reference data exists:\n\n"
+                "      (A) Character has a [SUBJECT REFERENCE] block (ABSOLUTE AUTHORITY — no photos for this person):\n"
                 "          Include the COMPLETE appearance from that block — hair colour, hairstyle, eye colour,\n"
-                "          skin tone, AND every garment piece listed.  The [SUBJECT REFERENCE] text is ABSOLUTE\n"
-                "          AUTHORITY and supersedes everything the reference photos appear to show.\n"
-                "          Do NOT truncate to 'three things'. Output the full appearance.\n\n"
-                "      (B) Character has NO [SUBJECT REFERENCE] block (only reference photos):\n"
+                "          skin tone, AND every garment piece listed.  Reproduce it in full; do NOT truncate.\n\n"
+                "      (B) Character has a [SUBJECT APPEARANCE SUPPLEMENT] block (has reference photos):\n"
+                "          Read hair colour, skin tone, and major outfit pieces from the reference photos.\n"
+                "          Add details from the SUPPLEMENT block ONLY for items not clearly visible in the photos\n"
+                "          (e.g. a mask, a specific brooch, a subtle collar detail).  Do NOT let the supplement\n"
+                "          text override what the photos clearly show — photos are primary for visible traits.\n\n"
+                "      (C) Character has neither block (reference photos only):\n"
                 "          Include ONLY three things: name, hair colour (from photo), one most distinctive\n"
                 "          outfit piece (from photo).  The image model will match the rest from the photos.\n\n"
                 "  (3) ART STYLE — always include: 'clean 2D anime illustration, flat cel-shaded,\n"
@@ -942,6 +970,12 @@ async def enhance_image_prompt(
     # full vision-model fallback chain — the same way it does for conversational calls.
     if has_images:
         print(f"[Groq] enhance_image_prompt: using vision model with {len(reference_images)} reference image(s)")
+    if subject_references:
+        for _sname, _sdesc in subject_references.items():
+            print(f"[Groq] subject_reference (AUTHORITY) — {_sname}: {_sdesc[:100]!r}")
+    if subject_supplements:
+        for _sname, _sdesc in subject_supplements.items():
+            print(f"[Groq] subject_supplement (gap-filler) — {_sname}: {_sdesc[:100]!r}")
 
     try:
         enhanced, *_ = await chat(
