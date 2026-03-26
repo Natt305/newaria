@@ -386,14 +386,17 @@ def _build_reference_workflow(
             "class_type": "LoadImage",
             "inputs": {"image": img_name, "upload": "image"},
         }
-        # Scale reference to match output pixel count — no upscaling of thumbnails
+        # Scale reference to match output pixel count.
+        # resolution_steps=64 ensures output dimensions are multiples of 64 —
+        # required for VAE encoding (non-aligned dims produce garbage latents).
+        # lanczos gives better quality than nearest-exact when upscaling thumbnails.
         workflow[scale_id] = {
             "class_type": "ImageScaleToTotalPixels",
             "inputs": {
                 "image": [load_id, 0],
-                "upscale_method": "nearest-exact",
+                "upscale_method": "lanczos",
                 "megapixels": megapixels,
-                "resolution_steps": 1,
+                "resolution_steps": 64,
             },
         }
         workflow[encode_id] = {
