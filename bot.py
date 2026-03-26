@@ -681,43 +681,52 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
     strings ensures titles mentioned by the user are always found.  The enriched
     prompt output still uses only image_prompt as its base.
     """
-    all_image_entries = database.get_all_entries(limit=200)
-    image_entries = [e for e in all_image_entries if e.get("entry_type") == "image"]
+    # Use get_image_entries() — no arbitrary limit, image-type entries only.
+    # get_all_entries(limit=200) mixed all types and could silently drop image
+    # entries beyond position 200 in the combined list.
+    image_entries = database.get_image_entries()
 
     # Combined scan text — includes hint_text so subjects named in the original
     # user message are found even when the LLM dropped their names from the marker.
     match_lower = (image_prompt + " " + hint_text).lower() if hint_text else image_prompt.lower()
     matched_with_desc = []   # (title, desc) for entries that have a text description
     title_matched = []       # all entries matched by title — used for thumbnail loading
+    seen_titles: set = set() # dedup: one entry per title in title_matched
     subject_references: dict = {}
     for entry in image_entries:
         title = (entry.get("title") or "").strip()
-        if not title:
+        if not title or len(title) < 2:
             continue
-        if title.lower() in match_lower and len(title) >= 2:
+        if title.lower() not in match_lower:
+            continue
+        # Deduplicate by title — keep the entry with the longest description when
+        # there are multiple entries sharing the same title.
+        desc = (entry.get("appearance_description") or "").strip()
+        if title not in seen_titles:
+            seen_titles.add(title)
             title_matched.append(entry)
-            desc = (entry.get("appearance_description") or "").strip()
-            if desc:
+        if desc:
+            existing = subject_references.get(title, "")
+            if len(desc) > len(existing):
+                subject_references[title] = desc
+                # Update matched_with_desc: replace existing or append new
+                matched_with_desc = [(t, d) for t, d in matched_with_desc if t != title]
                 matched_with_desc.append((title, desc))
-                # Keep the LONGEST (most detailed) description when multiple entries
-                # share the same title. A manually curated description is typically
-                # much longer than a brief auto-generated one and should win.
-                existing = subject_references.get(title, "")
-                if len(desc) > len(existing):
-                    subject_references[title] = desc
+
+    print(f"[Bot] KB title scan: {len(title_matched)} unique subject(s) matched — {[e.get('title') for e in title_matched]}")
 
     if not title_matched:
         return image_prompt, [], {}
 
     if matched_with_desc:
         # Include up to 2000 chars of each description so physical traits aren't cut off
-        ref_parts = [f"{title}: {desc[:2000]}" for title, desc in matched_with_desc[:2]]
+        ref_parts = [f"{title}: {desc[:2000]}" for title, desc in matched_with_desc]
         refs_text = "; ".join(ref_parts)
         enriched = f"{image_prompt}, appearance reference — {refs_text}"
         print(f"[Bot] KB image enrichment: {len(matched_with_desc)} text description(s) applied to prompt")
     else:
-        # Photo-only entry — no text description to inject into the base prompt.
-        # The thumbnail will drive img2img; vision model will read traits from the photo.
+        # Photo-only entries — no text description to inject into the base prompt.
+        # The thumbnails will drive img2img; vision model will read traits from the photos.
         enriched = image_prompt
         print(f"[Bot] KB image enrichment: {len(title_matched)} title match(es) — photo-only, no text descriptions")
     return enriched, title_matched, subject_references
@@ -977,14 +986,20 @@ async def process_chat(
                         _ref_images.append(thumb)
                         _ref_labels.append(bot_name)
                         _bot_loaded += 1
+                print(f"[Bot] Ref images: {_bot_loaded}/{char_count} character photo(s) loaded for {bot_name!r}")
             if _has_kb_subject:
                 for _kb_entry in _kb_matches:
                     _kb_entry_id = _kb_entry.get("id")
                     _kb_label = _kb_entry.get("title", "")
-                    if not _kb_entry_id or _kb_label in _ref_labels:
+                    if not _kb_entry_id:
+                        print(f"[Bot] Ref images: KB entry {_kb_label!r} has no id — skipping")
+                        continue
+                    if _kb_label in _ref_labels:
+                        print(f"[Bot] Ref images: {_kb_label!r} already loaded — skipping duplicate")
                         continue
                     _kb_img_count = database.get_entry_image_count(_kb_entry_id)
                     if _kb_img_count == 0:
+                        print(f"[Bot] Ref images: {_kb_label!r} (id={_kb_entry_id}) has no stored photos — skipping")
                         continue
                     _kb_indices = list(range(1, _kb_img_count + 1))
                     random.shuffle(_kb_indices)
@@ -997,6 +1012,7 @@ async def process_chat(
                             _ref_images.append(_kb_thumb)
                             _ref_labels.append(_kb_label)
                             _kb_loaded += 1
+                    print(f"[Bot] Ref images: {_kb_loaded}/{_kb_img_count} photo(s) loaded for KB entry {_kb_label!r} (id={_kb_entry_id})")
         else:
             # KB subject is the primary subject (or no subject at all)
             if _has_kb_subject:
