@@ -617,27 +617,13 @@ async def enhance_image_prompt(
         if has_images:
             multi_char_note += (
                 "\n"
-                f"RULE — POSITION-ANCHORED CHARACTER BLOCKS (MANDATORY): There are {n_subjects_hint} characters. "
-                "Your output MUST begin with one labelled appearance block PER character, using this exact format:\n"
-                "  (left) [Name]: [hair colour+length] + [eye colour] + [outfit piece 1] + [outfit piece 2]\n"
-                "  (right) [Name]: [hair colour+length] + [eye colour] + [outfit piece 1] + [outfit piece 2]\n"
-                "(Adjust left/right/center labels to match the spatial prefix in the input if present.)\n"
-                "\n"
-                "MANDATORY fields per block — ALL four must be present:\n"
-                "  • Hair: exact colour AND length (e.g. 'long mint-green hair', 'short dark-brown bob') — "
-                "BOTH are required\n"
-                "  • Eyes: colour\n"
-                "  • Outfit: 2 key pieces that make this character visually distinct from the other(s)\n"
-                "\n"
-                "ANTI-BLEED RULE — CRITICAL: If the two characters appear to have similar or identical hair "
-                "colors from the reference photos, you MUST emphasize any differences in LENGTH, "
-                "shade, style, or texture. Use contrastive language: "
-                "'(right) [Name]: SHORT dark-brown hair (shorter than [other name])'. "
-                "NEVER write the same hair description for two different characters. "
-                "If you cannot find any hair difference, differentiate by eye color and outfit even more strongly, "
-                "and note 'same hair shade as [other name]' so the image model at least knows it is intentional.\n"
-                "\n"
-                "These character blocks appear FIRST in your output, BEFORE any scene description.\n"
+                f"RULE — POSITION LABELS (mandatory) + NO APPEARANCE TEXT for photo characters:\n"
+                "The reference photos are the SOLE source of character appearance for characters "
+                "that have reference photos. Writing appearance in text OVERRIDES the photos and causes errors.\n"
+                "For each character, write ONLY their spatial position label and name: "
+                "'(left) [Name]' and '(right) [Name]'. Nothing else about their appearance.\n"
+                "EXCEPTION: if a character has a [SUBJECT REFERENCE] block (no photos), "
+                "reproduce their full appearance from that block as usual.\n"
             )
         else:
             multi_char_note += (
@@ -657,17 +643,16 @@ async def enhance_image_prompt(
     # checklist in that case; preserve the full detail checklist for single-character.
     if n_subjects_hint >= 2 and has_images:
         _checklist = (
-            "MANDATORY PRE-SUBMISSION CHECKLIST — multi-character scene. "
+            "MANDATORY PRE-SUBMISSION CHECKLIST — multi-character scene with reference photos. "
             "Verify ALL of these are present before finalizing:\n"
-            "  ✓ CHARACTER ANCHORS FIRST — the paragraph must START with a position-labelled "
-            "appearance block for each character: '(left) [Name]: hair+eyes+2 outfit pieces, "
-            "(right) [Name]: hair+eyes+2 outfit pieces'. These come BEFORE any scene description.\n"
-            "  ✓ HAIR CONTRAST — if both characters could have similar hair, the descriptions must "
-            "explicitly differ in length, shade, or style. Same hair description for two characters = WRONG.\n"
-            "  ✓ SCENE — rich setting, lighting, mood, pose, and character interaction after the anchors.\n"
+            "  ✓ POSITION LABELS — '(left) [Name]' and '(right) [Name]' are present; "
+            "no other appearance text for photo-based characters (photos carry appearance)\n"
+            "  ✓ SCENE — rich setting, lighting, mood, pose, and character interaction\n"
             "  ✓ ART STYLE — 'clean 2D anime illustration, flat cel-shaded, anime digital art'\n"
             "  ✓ PROPS/INSTRUMENTS — any object mentioned in the request text\n"
-            "If any item is missing from your output, add it before finalizing.\n"
+            "  ✓ NO APPEARANCE TEXT for photo characters — hair/eyes/outfit descriptions "
+            "for photo-based characters are ABSENT (they override the reference photos)\n"
+            "If any item is missing or if you wrote appearance text for a photo-based character, fix it.\n"
         )
     else:
         _checklist = (
@@ -879,36 +864,34 @@ async def enhance_image_prompt(
     if has_images:
         if n_subjects_hint >= 2:
             # Multi-character scene with reference photos.
-            # Strategy: character-anchors-FIRST (position-labelled appearance blocks),
-            # then scene description, then art style.
-            # Anchors come first so FLUX reads the per-character hair/eye/outfit before
-            # the scene prose, giving each spatial position a strong identity anchor.
-            # Anti-bleed rule forces contrastive hair descriptions when subjects could
-            # look similar (e.g. same-person reference photos with the same hair colour).
+            # Strategy: scene-first with position labels only for photo-characters.
+            # The reference photos carry ALL appearance via ReferenceLatent — writing
+            # appearance text for photo-characters overrides the photos and causes errors
+            # (LLM mis-reads of compressed thumbnails appear directly in the output image).
+            # Only characters with [SUBJECT REFERENCE] blocks (no photos) get appearance text.
             user_content = (
                 "Image request (reference photos attached above).\n\n"
-                "Your output is a single continuous paragraph (no headers, no bullet points, no labels).\n\n"
-                "THIS IS A MULTI-CHARACTER SCENE. Build your paragraph in this order:\n\n"
-                "  (1) CHARACTER ANCHORS — REQUIRED FIRST: Begin your paragraph with one compact appearance\n"
-                "      block per character, in order left-to-right matching the spatial prefix in the text.\n"
-                "      Format: '(left) [Name]: [hair color+length] + [eye color] + [2 distinctive outfit pieces],'\n"
-                "      then immediately the next character on the same or next line.\n"
-                "      These anchors are the FIRST thing the image model reads — they MUST come before any\n"
-                "      scene description. Do not merge them into the scene prose.\n\n"
-                "      Rules for appearance blocks:\n"
-                "      (A) Character has a [SUBJECT REFERENCE] block → copy their full appearance from it;\n"
-                "          include hair, eyes, skin tone, and every garment listed.\n"
-                "      (B) Character has reference photos (no [SUBJECT REFERENCE]) → read from photo:\n"
-                "          write hair color+length, eye color, 2 most distinctive outfit pieces. That's it.\n"
-                "          ANTI-BLEED: if this character's hair looks similar to the other character's hair,\n"
-                "          explicitly note the difference in length, shade, or texture:\n"
-                "          e.g. '(right) Mustimi: shorter dark-brown hair (darker and shorter than Mortis)'\n"
-                "          NEVER use the same hair description for two different characters.\n\n"
-                "  (2) SCENE — after the character anchors, richly expand:\n"
-                "      setting, background, environment, lighting, atmosphere, mood, poses, expressions,\n"
-                "      and how the characters interact. Props and instruments from the text MUST appear here.\n"
-                "      DISCARD appearance words from the raw text — those came without photos and are unreliable.\n\n"
-                "  (3) ART STYLE — end with: 'clean 2D anime illustration, flat cel-shaded,\n"
+                "Your output is a single continuous paragraph (no headers, no bullet points).\n\n"
+                "THIS IS A MULTI-CHARACTER SCENE WITH REFERENCE PHOTOS.\n\n"
+                "CRITICAL — REFERENCE PHOTOS CARRY APPEARANCE:\n"
+                "The image model reads character appearance (hair, eyes, skin, outfit) DIRECTLY from the "
+                "attached reference photos via its own mechanism. Any appearance text you write for a "
+                "photo-based character OVERRIDES the photos, causing wrong colors and wrong outfits in the "
+                "output. You MUST NOT describe appearance for photo-based characters.\n\n"
+                "Build your paragraph with:\n\n"
+                "  (1) POSITION LABELS — write '(left) [Name]' and '(right) [Name]' (matching the spatial "
+                "prefix in the text if present). That is the ONLY text about photo-based characters' identity. "
+                "Do NOT add hair color, eye color, skin tone, or outfit for photo-based characters.\n\n"
+                "      EXCEPTION: If a character has a [SUBJECT REFERENCE] block in the system prompt "
+                "(they have NO reference photos), reproduce their FULL appearance from that block — "
+                "hair, eyes, skin tone, and every garment listed. This text IS the image model's only "
+                "source for that character.\n\n"
+                "  (2) SCENE — the majority of your output. Richly expand from the text below:\n"
+                "      setting, background, environment, lighting, atmosphere, mood, what the characters\n"
+                "      are doing, how they interact, poses, expressions, emotional tone.\n"
+                "      Props and instruments mentioned in the text MUST appear.\n"
+                "      DISCARD any appearance words from the raw text — they were written without photos.\n\n"
+                "  (3) ART STYLE — always end with: 'clean 2D anime illustration, flat cel-shaded,\n"
                 "      anime digital art, vivid saturated color palette'\n\n"
                 f"Text: {raw_prompt}"
             )
