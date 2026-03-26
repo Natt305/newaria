@@ -1225,32 +1225,90 @@ async def process_chat(
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
-        # For ComfyUI multi-character scenes: inject compact hair-colour anchors
-        # directly from the stored supplement text.  This is LLM-independent —
-        # even if the LLM rewriter omits the supplement hair phrase the anchor is
-        # always present, preventing FLUX from defaulting to dark hair.
-        # Only applies when: ComfyUI backend, 2+ unique subjects, supplements exist.
-        if _IMAGE_BACKEND == "comfyui" and _n_unique_subjects >= 2 and _kb_supplements:
-            _hair_anchors: list = []
-            for _ha_name, _ha_text in _kb_supplements.items():
-                if _ha_name not in _ref_labels:
-                    continue  # only photo-based characters
-                for _ha_line in _ha_text.splitlines():
-                    _ha_line = _ha_line.strip()
-                    if _ha_line.upper().startswith("HAIR:"):
-                        _ha_val = _ha_line[5:].strip()
-                        # Truncate at first sentence boundary or double-comma to stay concise.
-                        _ha_val = _re.split(r"[.;]|,\s*,", _ha_val)[0].strip()
-                        # Hard cap.
-                        if len(_ha_val) > 80:
-                            _ha_val = _ha_val[:80].rsplit(" ", 1)[0]
-                        if _ha_val:
-                            _hair_anchors.append(f"[{_ha_name}: {_ha_val}]")
+        # For ComfyUI multi-character scenes: inject compact identity anchors
+        # directly from stored supplement/character-context text.
+        # This is LLM-independent — even if the LLM rewriter omits supplement
+        # data the anchors are always present.
+        #
+        # Base anchor:  "[Name: hair colour]"
+        # Collision tier: when two or more characters share the same hair
+        #   colour family (e.g. both mint-green), eye colour is added so FLUX
+        #   has a second differentiator: "[Name: hair colour, eye colour eyes]"
+        #
+        # Sources parsed (both use the same HAIR:/EYES: section labels):
+        #   _kb_supplements  — KB entries with photos (e.g. Mortis, Nina)
+        #   char_images_ctx  — bot's own character images (Aria etc.)
+        if _IMAGE_BACKEND == "comfyui" and _n_unique_subjects >= 2:
+            # ── Step 1: collect HAIR + EYES for every photo-based participant ──
+            _id_data: dict = {}  # {label: {"hair": str, "eyes": str}}
+
+            def _parse_hair_eyes(text: str) -> tuple:
+                """Return (hair_phrase, eyes_phrase) from a supplement/ctx block."""
+                _hair = _eyes = ""
+                for _ln in text.splitlines():
+                    _s = _ln.strip()
+                    if _s.upper().startswith("HAIR:") and not _hair:
+                        _raw = _s[5:].strip()
+                        _raw = _re.split(r"[.;]|,\s*,", _raw)[0].strip()
+                        if len(_raw) > 80:
+                            _raw = _raw[:80].rsplit(" ", 1)[0]
+                        _hair = _raw
+                    elif _s.upper().startswith("EYES:") and not _eyes:
+                        _raw = _s[5:].strip()
+                        # First comma-delimited token is enough (e.g. "warm amber")
+                        _raw = _raw.split(",")[0].strip()
+                        if len(_raw) > 60:
+                            _raw = _raw[:60].rsplit(" ", 1)[0]
+                        _eyes = _raw
+                    if _hair and _eyes:
                         break
-            if _hair_anchors:
+                return _hair, _eyes
+
+            # KB supplements (Mortis, Nina, etc.)
+            for _ha_name, _ha_text in (_kb_supplements or {}).items():
+                if _ha_name in _ref_labels:
+                    _h, _e = _parse_hair_eyes(_ha_text)
+                    if _h:
+                        _id_data[_ha_name] = {"hair": _h, "eyes": _e}
+
+            # Bot's own character context (Aria etc.)
+            if _needs_char_ctx and char_images_ctx and bot_name not in _id_data:
+                _h, _e = _parse_hair_eyes(char_images_ctx)
+                if _h:
+                    _id_data[bot_name] = {"hair": _h, "eyes": _e}
+
+            if _id_data:
+                # ── Step 2: detect hair-colour family collision ──
+                _COLOUR_FAMILIES = (
+                    "mint", "seafoam", "teal", "aqua", "cyan",
+                    "green", "blue", "red", "crimson", "brown", "auburn",
+                    "black", "white", "blonde", "platinum", "silver", "gray",
+                    "grey", "purple", "violet", "lavender", "pink", "orange",
+                    "yellow", "golden",
+                )
+                def _hair_family(phrase: str) -> str:
+                    pl = phrase.lower()
+                    for _f in _COLOUR_FAMILIES:
+                        if _f in pl:
+                            return _f
+                    return pl[:12]
+
+                _families = [_hair_family(d["hair"]) for d in _id_data.values()]
+                _has_collision = len(_families) != len(set(_families))
+
+                # ── Step 3: build anchor tags ──
+                _hair_anchors = []
+                for _ha_name, _data in _id_data.items():
+                    _tag = f"[{_ha_name}: {_data['hair']}"
+                    if _has_collision and _data["eyes"]:
+                        _tag += f", {_data['eyes']} eyes"
+                    _tag += "]"
+                    _hair_anchors.append(_tag)
+
                 _ha_prefix = " ".join(_hair_anchors)
                 enriched_prompt = _ha_prefix + ", " + enriched_prompt.lstrip(" ,")
-                print(f"[Bot] Hair anchors injected: {_hair_anchors}")
+                _col_note = " (collision — eyes added)" if _has_collision else ""
+                print(f"[Bot] ID anchors injected{_col_note}: {_hair_anchors}")
 
         # Prepend a compact Flux-friendly style prefix so Flux anchors on style
         # early (left-to-right token weighting).  Keep it short — the enriched
