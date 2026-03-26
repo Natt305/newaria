@@ -447,6 +447,18 @@ async def enhance_image_prompt(
             # Reference photos are attached — the vision model reads appearance
             # directly from them.  The stored text is a secondary supplement only;
             # it fills in details not clearly visible in the photos.
+            # Neutralise any "HIGHEST PRIORITY" or "Authoritative" inner labels that
+            # bot.py embeds inside the character_context string — those labels are
+            # correct when no photos exist, but contradict photo-primary priority here.
+            _ctx_for_photos = character_context.strip()
+            _ctx_for_photos = _ctx_for_photos.replace(
+                "[Authoritative written appearance description — HIGHEST PRIORITY]",
+                "[Character description — supplemental, photos are primary]",
+            )
+            _ctx_for_photos = _ctx_for_photos.replace(
+                "[Reference photo descriptions — use to fill in any gaps not covered above]",
+                "[Additional photo description notes]",
+            )
             ref_block += (
                 "\n[CHARACTER APPEARANCE — SUPPLEMENTAL TEXT (photos are primary)]\n"
                 "Reference photos are attached. Read appearance from the photos first.\n"
@@ -456,7 +468,7 @@ async def enhance_image_prompt(
                 "Spend the rest of the prompt on: scene, environment, lighting, mood, pose, "
                 "and what the character(s) are doing or feeling.\n"
                 "EXCEPTION: any ART STYLE line in this block is irrelevant — art style is always 2D anime.\n"
-                f"{character_context.strip()}\n"
+                f"{_ctx_for_photos}\n"
             )
         else:
             # No photos — text is the only appearance source.  Enumerate fully.
