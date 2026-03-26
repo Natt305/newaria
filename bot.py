@@ -1143,9 +1143,28 @@ async def process_chat(
             if _et and _et not in _all_subject_titles:
                 _all_subject_titles.append(_et)
         _n_unique_subjects = len(_all_subject_titles)
+        # _comfyui_ref_images — reference images passed to ComfyUI's ReferenceLatent
+        # chain.  For single-subject scenes this is identical to _ref_images.
+        # For multi-subject scenes the photos are interleaved round-robin per
+        # subject so that no single character monopolises the end of the chain:
+        #   Grouped (bad):     [A1, A2, A3, B1, B2, B3]  → B3 always last, B dominates
+        #   Interleaved (good):[A1, B1, A2, B2, A3, B3]  → each subject shares the tail
+        if _n_unique_subjects > 1 and _ref_images:
+            _per_subj: dict = {}
+            for _img, _lbl in zip(_ref_images, _ref_labels):
+                _per_subj.setdefault(_lbl, []).append(_img)
+            _comfyui_ref_images: list = []
+            _max_len = max(len(v) for v in _per_subj.values())
+            for _slot in range(_max_len):
+                for _lbl in _unique_ref_labels:
+                    if _slot < len(_per_subj.get(_lbl, [])):
+                        _comfyui_ref_images.append(_per_subj[_lbl][_slot])
+            print(f"[Bot] ComfyUI ref images interleaved: {_comfyui_ref_images and len(_comfyui_ref_images)} across {_n_unique_subjects} subjects")
+        else:
+            _comfyui_ref_images = list(_ref_images)
         _ref_image_for_gen = None
         _spatial_prefix = ""
-        if _IMAGE_BACKEND == "comfyui" and _ref_images:
+        if _IMAGE_BACKEND == "comfyui" and _comfyui_ref_images:
             if _n_unique_subjects > 1:
                 _spatial_prefix = _build_spatial_prefix(_all_subject_titles)
         elif _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images:
@@ -1179,7 +1198,7 @@ async def process_chat(
             for name, desc in _kb_subject_refs.items()
             if name not in _ref_labels
         }
-        has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs) or bool(_ref_images)
+        has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs) or bool(_comfyui_ref_images)
         if not _prompt_from_marker or has_visual_refs:
             enriched_prompt = await groq_ai.enhance_image_prompt(
                 enriched_prompt,
@@ -1238,7 +1257,7 @@ async def process_chat(
                     _generate_image(
                         enriched_prompt,
                         _ref_image_for_gen,
-                        reference_images=_ref_images or None,
+                        reference_images=_comfyui_ref_images or None,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
                     ),
                     groq_ai.generate_image_comment(
