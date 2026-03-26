@@ -1,0 +1,21 @@
+[Groq] Image prompt from marker (already enhanced): 'Mortis and 井芹仁菜 performing on stage together, Mortis playing a 7-string guitar, '
+[Bot] KB title scan: 2 unique subject(s) matched — ['Mortis', '井芹仁菜']
+[Bot] KB image enrichment: 2 text description(s) applied to prompt
+[Bot] Ref images: 3/3 photo(s) loaded for 'Mortis' (id=14)
+[Bot] Ref images: 3/3 photo(s) loaded for '井芹仁菜' (id=13)
+[Bot] Ref images interleaved: 6 total across 2 subject(s): ['Mortis', '井芹仁菜']
+[Bot] LLM ref images: 2 (1 per subject) — ComfyUI ref images: 6 — subjects: ['Mortis', '井芹仁菜']
+[Groq] enhance_image_prompt: using vision model with 2 reference image(s)
+[Groq] subject_supplement (gap-filler) — Mortis: '圖片1: HAIR: very pale seafoam mint-green hair, extremely desaturated, almost achromatic, unmistakably'
+[Groq] subject_supplement (gap-filler) — 井芹仁菜: 'HAIR: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey, NOT pure white;'
+[Groq] Prompt enhanced: (left) Mortis, very pale seafoam mint-green hair; (right) 井芹仁菜, dark brown hair. Centered composition with both characters fully visible in frame, Mortis and 井芹仁菜 performing on stage together, Mortis playing a 7-string guitar. The stage is set against a vibrant red backdrop with dynamic lighting that accentuates their energetic performance. Mortis, exuding a calm demeanor, stands poised with the guitar, while 井芹仁菜 appears lively, gesturing expressively. The atmosphere is electric, capturing the intensity of their musical collaboration. The scene exudes a lively and engaging mood. clean 2D anime illustration, flat cel-shaded, anime digital art, vivid saturated color palette.
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=False, kb_refs=['Mortis', '井芹仁菜'], ref_images=6, unique_subjects=2, authority_refs=[], supplements=['Mortis', '井芹仁菜'], photo_only=['Mortis', '井芹仁菜'], spatial='(left) Mortis, (right) 井芹仁菜, centered composition, all characters fully visible in frame')
+[Bot] ID anchors injected: ['[井芹仁菜: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey,]']
+[ComfyUI] Per-subject reference mode — 2 subject(s): ['Mortis', '井芹仁菜'], 6 image(s) total, output size=512x512
+[ComfyUI] Queuing reference job — size=auto (from reference), steps=8, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, [井芹仁菜: dark brown hair, low saturation, extr'
+[Groq] llama-3.3-70b-versatile hit daily token limit — skipping until midnight UTC.
+[ComfyUI] Job queued — prompt_id=244bc795-1eec-4772-b96c-fd1ef75d6880
+[ComfyUI] Still generating… (16s elapsed, job is running)
+[ComfyUI] Still generating… (32s elapsed, job is running)
+[ComfyUI] Done — 364659 bytes ('ariabot__00076_.png')

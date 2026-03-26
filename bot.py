@@ -1230,10 +1230,12 @@ async def process_chat(
         # This is LLM-independent — even if the LLM rewriter omits supplement
         # data the anchors are always present.
         #
-        # Base anchor:  "[Name: hair colour]"
-        # Collision tier: when two or more characters share the same hair
-        #   colour family (e.g. both mint-green), a key outfit piece is added
-        #   as a second differentiator: "[Name: hair colour, wearing beret]"
+        # Anchor format: "[Name: hair colour, wearing outfit_piece]"
+        #               "[Name: hair colour]"  — if no outfit data available
+        # Outfit is ALWAYS included when known — ReferenceLatent alone is not
+        # reliable enough to reproduce garment details; text is a needed backup.
+        # Hair-collision detection still runs to log the note, but no longer
+        # gates whether outfit is added (it always is when available).
         #
         # Sources parsed (both use the same HAIR:/OUTFIT: section labels):
         #   _kb_supplements  — KB entries with photos (e.g. Mortis, Nina)
@@ -1252,6 +1254,11 @@ async def process_chat(
                 _hair = _outfit = ""
                 for _ln in text.splitlines():
                     _s = _ln.strip()
+                    # Strip "圖片N: " image-counter prefix that the KB stores
+                    # when a character has multiple uploaded photos, e.g.:
+                    #   "圖片1: HAIR: pale mint-green hair ..."
+                    # Without this, HAIR: and OUTFIT: labels are never found.
+                    _s = _re.sub(r"^圖片\d+:\s*", "", _s)
                     if _s.upper().startswith("HAIR:") and not _hair:
                         _raw = _s[5:].strip()
                         _raw = _re.split(r"[.;]|,\s*,", _raw)[0].strip()
@@ -1310,22 +1317,24 @@ async def process_chat(
                 _has_collision = len(_families) != len(set(_families))
 
                 # ── Step 3: build anchor tags ──
-                # Base:      "[Name: hair colour]"
-                # Collision: "[Name: hair colour, outfit piece]"
-                #   outfit_piece = first item in OUTFIT: line (e.g. "deep crimson beret")
-                #   — chosen because iconic accessories are the strongest visual anchor
-                #   for FLUX when two characters share the same hair colour family.
+                # Format:  "[Name: hair colour, wearing outfit_piece]"
+                #          "[Name: hair colour]"  (if no outfit available)
+                #
+                # Outfit piece is ALWAYS included when available — ReferenceLatent
+                # alone is not strong enough to reliably reproduce complex garment
+                # details; the text anchor ensures FLUX gets a second signal.
+                # The hair-collision flag no longer gates outfit inclusion.
                 _id_anchors = []
                 for _ha_name, _data in _id_data.items():
                     _tag = f"[{_ha_name}: {_data['hair']}"
-                    if _has_collision and _data["outfit"]:
+                    if _data["outfit"]:
                         _tag += f", wearing {_data['outfit']}"
                     _tag += "]"
                     _id_anchors.append(_tag)
 
                 _ha_prefix = " ".join(_id_anchors)
                 enriched_prompt = _ha_prefix + ", " + enriched_prompt.lstrip(" ,")
-                _col_note = " (collision — outfit added)" if _has_collision else ""
+                _col_note = " (hair collision detected)" if _has_collision else ""
                 print(f"[Bot] ID anchors injected{_col_note}: {_id_anchors}")
 
         # Prepend a compact Flux-friendly style prefix so Flux anchors on style
