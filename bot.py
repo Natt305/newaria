@@ -707,7 +707,7 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
     """
     # Scan both image and text entries so that subjects stored as text-only KB
     # entries (no photo) are still recognised as named subjects — they count
-    # toward spatial prefix, n_subjects, and _kb_refs_no_photo text grounding.
+    # toward spatial prefix, n_subjects, and subject_references text grounding.
     image_entries = database.get_image_entries()
     text_entries = database.get_text_entries()
 
@@ -1139,25 +1139,25 @@ async def process_chat(
         #       that wrote the [IMAGE:] tag may have hallucinated wrong colors/styles,
         #       so we rewrite using the verified database descriptions as ground truth.
         #
-        # Photo priority: when a KB subject has a reference photo, the vision model
-        # reads traits directly from the image — the stored text description is NOT
-        # passed as "ABSOLUTE AUTHORITY" because the photo itself is the ground truth.
-        # Text descriptions are injected only for subjects without a photo.
-        _kb_refs_no_photo = {
-            name: desc
-            for name, desc in _kb_subject_refs.items()
-            if name not in _ref_labels  # this subject has no reference photo
-        }
+        # Pass ALL KB subject descriptions as "ABSOLUTE AUTHORITY" text regardless of
+        # whether the subject also has reference photos.  Reference photos provide
+        # pose/composition grounding in ComfyUI; the stored text description provides
+        # canonical appearance detail (mask, full outfit, eye colour, etc.) that the
+        # vision model may miss from compressed thumbnails.  Both sources complement
+        # each other — the system-prompt priority order puts [SUBJECT REFERENCE] text
+        # above photos, so the stored description always wins for physical traits.
         has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs) or bool(_ref_images)
         if not _prompt_from_marker or has_visual_refs:
             enriched_prompt = await groq_ai.enhance_image_prompt(
                 enriched_prompt,
                 character_context=char_images_ctx,
-                subject_references=_kb_refs_no_photo if _kb_refs_no_photo else None,
+                subject_references=_kb_subject_refs if _kb_subject_refs else None,
                 reference_images=_ref_images if _ref_images else None,
                 n_subjects_override=_n_unique_subjects if _ref_images else None,
             )
-            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, unique_subjects={_n_unique_subjects}, text_overrides={list(_kb_refs_no_photo.keys())}, spatial={_spatial_prefix!r})")
+            _refs_with_photo = [n for n in _kb_subject_refs if n in _ref_labels]
+            _refs_text_only = [n for n in _kb_subject_refs if n not in _ref_labels]
+            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, unique_subjects={_n_unique_subjects}, refs_with_photo={_refs_with_photo}, text_only_refs={_refs_text_only}, spatial={_spatial_prefix!r})")
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
