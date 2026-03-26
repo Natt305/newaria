@@ -1027,153 +1027,143 @@ async def process_chat(
             char_images_ctx = "\n\n".join(_ctx_parts)
         else:
             char_images_ctx = ""
-        # Collect reference thumbnails for img2img and the vision-assisted prompt
-        # rewriter.  All collected images are later composited into a single
-        # side-by-side tile that serves as the img2img seed, so every referenced
-        # subject is visible to the model simultaneously.
-        #   • Self-referential prompt  → KB photos first, bot photos LAST
-        #                                (ReferenceLatent chain: last node has
-        #                                 strongest influence — bot is primary)
-        #   • KB subject only          → KB thumbnails first, char after
-        _ref_images: list = []
-        _ref_labels: list = []   # parallel subject names for composite labels
+        # Collect reference thumbnails into per-subject buckets first, then
+        # interleave round-robin so every subject has equal representation in
+        # the ReferenceLatent chain — no single character monopolises the tail.
+        #
+        # Ordering within the interleaved list is controlled by _primary_label:
+        #   • self-ref  → bot is primary (placed LAST in each round so its
+        #                  photos occupy the chain tail — strongest influence)
+        #   • KB-only   → subjects are ordered as they appear in _kb_matches
+        #                  (first matched = primary anchor at the chain tail)
+        #
+        # Photos are loaded into _per_subj_buckets {label: [thumb, ...]} and
+        # the interleaving happens below, after all subjects are collected.
         _MAX_REFS_PER_SUBJECT = 3  # up to 3 reference photos per subject
+        _per_subj_buckets: dict = {}   # {label: [(bytes, mime), ...]}
+        _bucket_order: list = []       # insertion order for interleaving
+
+        def _load_kb_photos(kb_entry, label_override=None):
+            """Load up to _MAX_REFS_PER_SUBJECT thumbnails for a KB entry."""
+            entry_id = kb_entry.get("id")
+            label = label_override or kb_entry.get("title", "?")
+            if not entry_id:
+                print(f"[Bot] Ref images: KB entry {label!r} has no id — skipping")
+                return
+            if label in _per_subj_buckets:
+                print(f"[Bot] Ref images: {label!r} already in buckets — skipping duplicate")
+                return
+            img_count = database.get_entry_image_count(entry_id)
+            if img_count == 0:
+                print(f"[Bot] Ref images: {label!r} (id={entry_id}) has no stored photos — skipping")
+                return
+            indices = list(range(1, img_count + 1))
+            random.shuffle(indices)
+            loaded = []
+            for idx in indices:
+                if len(loaded) >= _MAX_REFS_PER_SUBJECT:
+                    break
+                thumb = database.get_kb_image_thumb(entry_id, idx)
+                if thumb:
+                    loaded.append(thumb)
+            if loaded:
+                _per_subj_buckets[label] = loaded
+                _bucket_order.append(label)
+                print(f"[Bot] Ref images: {len(loaded)}/{img_count} photo(s) loaded for {label!r} (id={entry_id})")
+            else:
+                print(f"[Bot] Ref images: {label!r} (id={entry_id}) thumbnails unreadable — skipping")
+
+        def _load_bot_photos(label):
+            """Load up to _MAX_REFS_PER_SUBJECT bot character thumbnails."""
+            if label in _per_subj_buckets:
+                return
+            char_count = database.get_character_image_count()
+            loaded = []
+            for i in range(1, char_count + 1):
+                if len(loaded) >= _MAX_REFS_PER_SUBJECT:
+                    break
+                thumb = database.get_character_image_thumb(i)
+                if thumb:
+                    loaded.append(thumb)
+            if loaded:
+                _per_subj_buckets[label] = loaded
+                _bucket_order.append(label)
+                print(f"[Bot] Ref images: {len(loaded)}/{char_count} bot photo(s) loaded for {label!r}")
+            else:
+                print(f"[Bot] Ref images: no bot photos found for {label!r}")
+
         if _is_self_ref:
-            # Bot is the primary subject.  Load KB photos FIRST so the bot's
-            # photos are the final links in the ReferenceLatent chain and
-            # therefore have the strongest conditioning influence.  If KB
-            # photos came last, the KB character's look would bleed onto the
-            # bot (and vice-versa) — which is the "both look like Nina" bug.
+            # KB subjects loaded first (will occupy early, weaker chain slots).
+            # Bot loaded last (occupies chain tail = strongest anchor).
             if _has_kb_subject:
                 for _kb_entry in _kb_matches:
-                    _kb_entry_id = _kb_entry.get("id")
-                    _kb_label = _kb_entry.get("title", "")
-                    if not _kb_entry_id:
-                        print(f"[Bot] Ref images: KB entry {_kb_label!r} has no id — skipping")
-                        continue
-                    if _kb_label in _ref_labels:
-                        print(f"[Bot] Ref images: {_kb_label!r} already loaded — skipping duplicate")
-                        continue
-                    _kb_img_count = database.get_entry_image_count(_kb_entry_id)
-                    if _kb_img_count == 0:
-                        print(f"[Bot] Ref images: {_kb_label!r} (id={_kb_entry_id}) has no stored photos — skipping")
-                        continue
-                    _kb_indices = list(range(1, _kb_img_count + 1))
-                    random.shuffle(_kb_indices)
-                    _kb_loaded = 0
-                    for _kb_idx in _kb_indices:
-                        if _kb_loaded >= _MAX_REFS_PER_SUBJECT:
-                            break
-                        _kb_thumb = database.get_kb_image_thumb(_kb_entry_id, _kb_idx)
-                        if _kb_thumb:
-                            _ref_images.append(_kb_thumb)
-                            _ref_labels.append(_kb_label)
-                            _kb_loaded += 1
-                    print(f"[Bot] Ref images: {_kb_loaded}/{_kb_img_count} photo(s) loaded for KB entry {_kb_label!r} (id={_kb_entry_id})")
+                    _load_kb_photos(_kb_entry)
             if _needs_char_ctx:
-                char_count = database.get_character_image_count()
-                _bot_loaded = 0
-                for i in range(1, char_count + 1):
-                    if _bot_loaded >= _MAX_REFS_PER_SUBJECT:
-                        break
-                    thumb = database.get_character_image_thumb(i)
-                    if thumb:
-                        _ref_images.append(thumb)
-                        _ref_labels.append(bot_name)
-                        _bot_loaded += 1
-                print(f"[Bot] Ref images: {_bot_loaded}/{char_count} character photo(s) loaded for {bot_name!r} (LAST = primary anchor)")
+                _load_bot_photos(bot_name)
         else:
-            # KB subject is the primary subject (or no subject at all)
+            # KB-only or generic scene.
             if _has_kb_subject:
                 for _kb_entry in _kb_matches:
-                    _kb_entry_id = _kb_entry.get("id")
-                    _kb_title = _kb_entry.get("title", "?")
-                    if not _kb_entry_id:
-                        print(f"[Bot] KB entry {_kb_title!r} has no id — skipping")
-                        continue
-                    if _kb_title in _ref_labels:
-                        print(f"[Bot] KB entry {_kb_title!r} already in composite — skipping duplicate")
-                        continue
-                    _kb_img_count = database.get_entry_image_count(_kb_entry_id)
-                    if _kb_img_count == 0:
-                        print(f"[Bot] KB entry {_kb_title!r} (id={_kb_entry_id}) has no stored thumbnail — img2img unavailable for this subject")
-                        continue
-                    _kb_indices = list(range(1, _kb_img_count + 1))
-                    random.shuffle(_kb_indices)
-                    _kb_loaded = 0
-                    for _kb_idx in _kb_indices:
-                        if _kb_loaded >= _MAX_REFS_PER_SUBJECT:
-                            break
-                        _kb_thumb = database.get_kb_image_thumb(_kb_entry_id, _kb_idx)
-                        if _kb_thumb:
-                            _ref_images.append(_kb_thumb)
-                            _ref_labels.append(_kb_title)
-                            _kb_loaded += 1
-                            print(f"[Bot] KB thumbnail [{_kb_idx}/{_kb_img_count}] loaded for {_kb_title!r} (id={_kb_entry_id})")
-                    if _kb_loaded == 0:
-                        print(f"[Bot] KB entry {_kb_title!r} (id={_kb_entry_id}) thumbnails unreadable — img2img unavailable")
+                    _load_kb_photos(_kb_entry)
             if _needs_char_ctx:
-                char_count = database.get_character_image_count()
-                _bot_loaded = 0
-                for i in range(1, char_count + 1):
-                    if _bot_loaded >= _MAX_REFS_PER_SUBJECT:
-                        break
-                    thumb = database.get_character_image_thumb(i)
-                    if thumb:
-                        _ref_images.append(thumb)
-                        _ref_labels.append(bot_name)
-                        _bot_loaded += 1
+                _load_bot_photos(bot_name)
+
+        # Build flat _ref_images / _ref_labels via round-robin interleaving
+        # across all subjects.  This ensures every character appears at both
+        # early AND late positions in the chain, not just one end.
+        #
+        # For self-ref scenes the bot's bucket was appended LAST to _bucket_order,
+        # so within each round the bot's photo falls at the end of that round —
+        # it still occupies the final slot overall (strongest position).
+        _ref_images: list = []
+        _ref_labels: list = []
+        if _per_subj_buckets:
+            _max_bucket = max(len(v) for v in _per_subj_buckets.values())
+            for _slot in range(_max_bucket):
+                for _lbl in _bucket_order:
+                    _bucket = _per_subj_buckets[_lbl]
+                    if _slot < len(_bucket):
+                        _ref_images.append(_bucket[_slot])
+                        _ref_labels.append(_lbl)
+            print(f"[Bot] Ref images interleaved: {len(_ref_images)} total across {len(_bucket_order)} subject(s): {_bucket_order}")
         # Build spatial prefix and reference image(s) for generation.
         # Done before enhance_image_prompt so the LLM rewriter sees the
         # left/right subject ordering in the prompt it is expanding.
         #
-        # _unique_ref_labels  — photo-loaded subjects only, in load order.
-        #                        Used to order ComfyUI reference latents.
+        # _unique_ref_labels  — photo-loaded subjects only, in load order
+        #                        (preserves bucket insertion order from above).
         # _all_subject_titles — ALL recognised subjects (photo + text-only),
-        #                        used for spatial prefix and n_subjects so that
-        #                        text-only KB entries still trigger multi-char
-        #                        mode and receive a left/right slot.
+        #                        used for spatial prefix, n_subjects, and
+        #                        ComfyUI ReferenceLatent chain ordering.
         _unique_ref_labels = list(dict.fromkeys(_ref_labels))
-        # _llm_ref_images — one photo per subject, used exclusively by the LLM
-        # rewriter.  Sending multiple photos per subject causes the rewriter to
-        # infer extra characters (it sees N photos and guesses N subjects even
-        # when n_subjects_override is passed).  One photo per subject is enough
-        # for the LLM to read hair colour and style; ComfyUI gets all photos for
-        # full ReferenceLatent quality.
+
+        # _llm_ref_images — one photo per subject for the LLM rewriter only.
+        # Sending multiple photos per subject causes the rewriter to infer
+        # extra characters.  One photo per subject is enough for the LLM to
+        # read hair colour and style; ComfyUI gets all photos via _comfyui_ref_images.
         _llm_seen: set = set()
         _llm_ref_images: list = []
         for _img, _lbl in zip(_ref_images, _ref_labels):
             if _lbl not in _llm_seen:
                 _llm_ref_images.append(_img)
                 _llm_seen.add(_lbl)
-        print(f"[Bot] LLM ref images: {len(_llm_ref_images)} (1 per subject) — ComfyUI ref images: {len(_ref_images)}")
+
+        # _all_subject_titles — ALL recognised subjects (photo + text-only).
+        # Order: KB subjects first (as matched), then bot (if self-ref).
+        # This drives the spatial prefix (left/right assignment) and n_subjects.
         _all_subject_titles: list = []
-        if _needs_char_ctx and bot_name not in _all_subject_titles:
-            _all_subject_titles.append(bot_name)
         for _e in _kb_matches:
             _et = _e.get("title", "")
             if _et and _et not in _all_subject_titles:
                 _all_subject_titles.append(_et)
+        if _needs_char_ctx and bot_name not in _all_subject_titles:
+            _all_subject_titles.append(bot_name)
         _n_unique_subjects = len(_all_subject_titles)
-        # _comfyui_ref_images — reference images passed to ComfyUI's ReferenceLatent
-        # chain.  For single-subject scenes this is identical to _ref_images.
-        # For multi-subject scenes the photos are interleaved round-robin per
-        # subject so that no single character monopolises the end of the chain:
-        #   Grouped (bad):     [A1, A2, A3, B1, B2, B3]  → B3 always last, B dominates
-        #   Interleaved (good):[A1, B1, A2, B2, A3, B3]  → each subject shares the tail
-        if _n_unique_subjects > 1 and _ref_images:
-            _per_subj: dict = {}
-            for _img, _lbl in zip(_ref_images, _ref_labels):
-                _per_subj.setdefault(_lbl, []).append(_img)
-            _comfyui_ref_images: list = []
-            _max_len = max(len(v) for v in _per_subj.values())
-            for _slot in range(_max_len):
-                for _lbl in _unique_ref_labels:
-                    if _slot < len(_per_subj.get(_lbl, [])):
-                        _comfyui_ref_images.append(_per_subj[_lbl][_slot])
-            print(f"[Bot] ComfyUI ref images interleaved: {_comfyui_ref_images and len(_comfyui_ref_images)} across {_n_unique_subjects} subjects")
-        else:
-            _comfyui_ref_images = list(_ref_images)
+
+        # _comfyui_ref_images — _ref_images is already interleaved round-robin,
+        # so pass it directly to ComfyUI's ReferenceLatent chain.
+        _comfyui_ref_images: list = list(_ref_images)
+        print(f"[Bot] LLM ref images: {len(_llm_ref_images)} (1 per subject) — ComfyUI ref images: {len(_comfyui_ref_images)} — subjects: {_all_subject_titles}")
         _ref_image_for_gen = None
         _spatial_prefix = ""
         if _IMAGE_BACKEND == "comfyui" and _comfyui_ref_images:
@@ -1205,10 +1195,20 @@ async def process_chat(
         #   latch onto text that may have been auto-generated from poor-quality thumbnails,
         #   overriding what the photos clearly show.  Reference latents in ComfyUI carry
         #   the visual identity — the text prompt only needs a minimal anchor per character.
+        # Subjects WITHOUT photos → [SUBJECT REFERENCE] (absolute authority text).
+        # Subjects WITH photos → [SUBJECT APPEARANCE SUPPLEMENT] (soft gap-filler).
+        #   The supplement is sent as a low-priority hint so the LLM knows the
+        #   character's name and signature traits even when the compressed thumbnail
+        #   is hard to read; photos still take precedence for anything visible in them.
         _kb_text_only = {
             name: desc
             for name, desc in _kb_subject_refs.items()
             if name not in _ref_labels
+        }
+        _kb_supplements = {
+            name: desc
+            for name, desc in _kb_subject_refs.items()
+            if name in _ref_labels and desc
         }
         has_visual_refs = bool(char_images_ctx) or bool(_kb_subject_refs) or bool(_comfyui_ref_images)
         if not _prompt_from_marker or has_visual_refs:
@@ -1216,12 +1216,12 @@ async def process_chat(
                 enriched_prompt,
                 character_context=char_images_ctx,
                 subject_references=_kb_text_only if _kb_text_only else None,
-                subject_supplements=None,
+                subject_supplements=_kb_supplements if _kb_supplements else None,
                 reference_images=_llm_ref_images if _llm_ref_images else None,
                 n_subjects_override=_n_unique_subjects if _llm_ref_images else None,
             )
             _refs_with_photo = [n for n in _kb_subject_refs if n in _ref_labels]
-            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, unique_subjects={_n_unique_subjects}, authority_refs={list(_kb_text_only.keys())}, photo_only={_refs_with_photo}, spatial={_spatial_prefix!r})")
+            print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, unique_subjects={_n_unique_subjects}, authority_refs={list(_kb_text_only.keys())}, supplements={list(_kb_supplements.keys())}, photo_only={_refs_with_photo}, spatial={_spatial_prefix!r})")
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
@@ -2410,16 +2410,16 @@ async def generate_cmd(ctx, *, prompt: str):
 
     enriched_prompt, kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(prompt)
     _cmd_bot_name, *_ = load_character()
-    _cmd_ref_images: list = []
-    _cmd_ref_labels: list = []
     _CMD_MAX_REFS_PER_SUBJECT = 3  # up to 3 reference photos per subject
+    _cmd_buckets: dict = {}   # {label: [(bytes, mime), ...]}
+    _cmd_bucket_order: list = []
     if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces", "comfyui"):
-        # Collect up to _CMD_MAX_REFS_PER_SUBJECT random thumbnails per matched KB entry
+        # Collect thumbnails per matched KB entry into buckets (no duplicates).
         for _cmd_entry in kb_matches:
             _cmd_entry_title = _cmd_entry.get("title", "")
             _cmd_entry_id = _cmd_entry.get("id") or 0
-            if _cmd_entry_title in _cmd_ref_labels:
-                continue  # skip duplicate subject
+            if not _cmd_entry_title or _cmd_entry_title in _cmd_buckets:
+                continue
             if not _cmd_entry_id:
                 continue
             _cmd_img_count = database.get_entry_image_count(_cmd_entry_id)
@@ -2427,29 +2427,42 @@ async def generate_cmd(ctx, *, prompt: str):
                 continue
             _cmd_indices = list(range(1, _cmd_img_count + 1))
             random.shuffle(_cmd_indices)
-            _cmd_entry_loaded = 0
+            _cmd_bucket: list = []
             for _cmd_idx in _cmd_indices:
-                if _cmd_entry_loaded >= _CMD_MAX_REFS_PER_SUBJECT:
+                if len(_cmd_bucket) >= _CMD_MAX_REFS_PER_SUBJECT:
                     break
                 _cmd_thumb = database.get_kb_image_thumb(_cmd_entry_id, _cmd_idx)
                 if _cmd_thumb:
-                    _cmd_ref_images.append(_cmd_thumb)
-                    _cmd_ref_labels.append(_cmd_entry_title)
-                    _cmd_entry_loaded += 1
+                    _cmd_bucket.append(_cmd_thumb)
+            if _cmd_bucket:
+                _cmd_buckets[_cmd_entry_title] = _cmd_bucket
+                _cmd_bucket_order.append(_cmd_entry_title)
         # If the prompt mentions the bot itself (self-referential), also include
-        # up to _CMD_MAX_REFS_PER_SUBJECT character thumbnails.
+        # up to _CMD_MAX_REFS_PER_SUBJECT character thumbnails (appended last).
         _cmd_is_self_ref = await groq_ai.is_self_referential_image(prompt)
-        if _cmd_is_self_ref and _cmd_bot_name not in _cmd_ref_labels:
+        if _cmd_is_self_ref and _cmd_bot_name not in _cmd_buckets:
             _cmd_char_count = database.get_character_image_count()
-            _cmd_bot_loaded = 0
+            _cmd_bot_bucket: list = []
             for _i in range(1, _cmd_char_count + 1):
-                if _cmd_bot_loaded >= _CMD_MAX_REFS_PER_SUBJECT:
+                if len(_cmd_bot_bucket) >= _CMD_MAX_REFS_PER_SUBJECT:
                     break
                 _cmd_char_thumb = database.get_character_image_thumb(_i)
                 if _cmd_char_thumb:
-                    _cmd_ref_images.append(_cmd_char_thumb)
-                    _cmd_ref_labels.append(_cmd_bot_name)
-                    _cmd_bot_loaded += 1
+                    _cmd_bot_bucket.append(_cmd_char_thumb)
+            if _cmd_bot_bucket:
+                _cmd_buckets[_cmd_bot_name] = _cmd_bot_bucket
+                _cmd_bucket_order.append(_cmd_bot_name)
+    # Interleave round-robin so each subject appears equally in the chain.
+    _cmd_ref_images: list = []
+    _cmd_ref_labels: list = []
+    if _cmd_buckets:
+        _cmd_max_len = max(len(v) for v in _cmd_buckets.values())
+        for _slot in range(_cmd_max_len):
+            for _lbl in _cmd_bucket_order:
+                _b = _cmd_buckets[_lbl]
+                if _slot < len(_b):
+                    _cmd_ref_images.append(_b[_slot])
+                    _cmd_ref_labels.append(_lbl)
     _cmd_ref_image = None
     _cmd_spatial = ""
     if _IMAGE_BACKEND == "comfyui" and _cmd_ref_images:
