@@ -427,7 +427,7 @@ async def enhance_image_prompt(
     # fallback will refuse (it cannot see the photos).  When there is also no stored text
     # context to work from, skip the API call entirely and return the raw prompt unchanged
     # rather than risk sending an apology sentence to the image generator.
-    if has_images and not character_context and not subject_references:
+    if has_images and not character_context and not subject_references and not subject_supplements:
         configured_vision = _default_vision_model()
         all_vision = [configured_vision] + [m for m in VISION_MODELS if m != configured_vision]
         if all(_is_daily_exhausted(m) for m in all_vision):
