@@ -6,6 +6,7 @@ import asyncio
 import aiohttp
 import io
 import time
+import random
 from typing import Optional, Union
 
 import database
@@ -978,13 +979,22 @@ async def process_chat(
                 for _kb_entry in _kb_matches:
                     _kb_entry_id = _kb_entry.get("id")
                     _kb_label = _kb_entry.get("title", "")
-                    if _kb_entry_id and _kb_label not in _ref_labels:
-                        _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
+                    if not _kb_entry_id or _kb_label in _ref_labels:
+                        continue
+                    _kb_img_count = database.get_entry_image_count(_kb_entry_id)
+                    if _kb_img_count == 0:
+                        continue
+                    _kb_indices = list(range(1, _kb_img_count + 1))
+                    random.shuffle(_kb_indices)
+                    for _kb_idx in _kb_indices[:3]:
+                        _kb_thumb = database.get_kb_image_thumb(_kb_entry_id, _kb_idx)
                         if _kb_thumb:
                             _ref_images.append(_kb_thumb)
                             _ref_labels.append(_kb_label)
-                            if len(_ref_images) >= _MAX_REF_IMAGES:
-                                break
+                        if len(_ref_images) >= _MAX_REF_IMAGES:
+                            break
+                    if len(_ref_images) >= _MAX_REF_IMAGES:
+                        break
         else:
             # KB subject is the primary subject (or no subject at all)
             if _has_kb_subject:
@@ -997,15 +1007,26 @@ async def process_chat(
                     if _kb_title in _ref_labels:
                         print(f"[Bot] KB entry {_kb_title!r} already in composite — skipping duplicate")
                         continue
-                    _kb_thumb = database.get_kb_image_thumb(_kb_entry_id)
-                    if _kb_thumb:
-                        _ref_images.append(_kb_thumb)
-                        _ref_labels.append(_kb_title)
-                        print(f"[Bot] KB thumbnail loaded for {_kb_title!r} (id={_kb_entry_id})")
+                    _kb_img_count = database.get_entry_image_count(_kb_entry_id)
+                    if _kb_img_count == 0:
+                        print(f"[Bot] KB entry {_kb_title!r} (id={_kb_entry_id}) has no stored thumbnail — img2img unavailable for this subject")
+                        continue
+                    _kb_indices = list(range(1, _kb_img_count + 1))
+                    random.shuffle(_kb_indices)
+                    _kb_loaded = 0
+                    for _kb_idx in _kb_indices[:3]:
+                        _kb_thumb = database.get_kb_image_thumb(_kb_entry_id, _kb_idx)
+                        if _kb_thumb:
+                            _ref_images.append(_kb_thumb)
+                            _ref_labels.append(_kb_title)
+                            _kb_loaded += 1
+                            print(f"[Bot] KB thumbnail [{_kb_idx}/{_kb_img_count}] loaded for {_kb_title!r} (id={_kb_entry_id})")
                         if len(_ref_images) >= _MAX_REF_IMAGES:
                             break
-                    else:
-                        print(f"[Bot] KB entry {_kb_title!r} (id={_kb_entry_id}) has no stored thumbnail — img2img unavailable for this subject")
+                    if _kb_loaded == 0:
+                        print(f"[Bot] KB entry {_kb_title!r} (id={_kb_entry_id}) thumbnails unreadable — img2img unavailable")
+                    if len(_ref_images) >= _MAX_REF_IMAGES:
+                        break
             if _needs_char_ctx and len(_ref_images) < _MAX_REF_IMAGES:
                 char_count = database.get_character_image_count()
                 for i in range(1, char_count + 1):
@@ -1022,8 +1043,9 @@ async def process_chat(
         _ref_image_for_gen = None
         _spatial_prefix = ""
         if _IMAGE_BACKEND == "comfyui" and _ref_images:
-            if len(_ref_images) > 1:
-                _spatial_prefix = _build_spatial_prefix(_ref_labels)
+            _unique_ref_labels = list(dict.fromkeys(_ref_labels))
+            if len(_unique_ref_labels) > 1:
+                _spatial_prefix = _build_spatial_prefix(_unique_ref_labels)
         elif _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images:
             _comp = _composite_reference_images(_ref_images, _ref_labels)
             if isinstance(_comp, dict):
@@ -2235,15 +2257,26 @@ async def generate_cmd(ctx, *, prompt: str):
     _cmd_ref_images: list = []
     _cmd_ref_labels: list = []
     if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces", "comfyui"):
-        # Collect one thumbnail per matched KB entry (ordered by match priority)
+        # Collect up to 3 random thumbnails per matched KB entry
         for _cmd_entry in kb_matches:
             _cmd_entry_title = _cmd_entry.get("title", "")
+            _cmd_entry_id = _cmd_entry.get("id") or 0
             if _cmd_entry_title in _cmd_ref_labels:
                 continue  # skip duplicate subject
-            _cmd_thumb = database.get_kb_image_thumb(_cmd_entry.get("id") or 0)
-            if _cmd_thumb:
-                _cmd_ref_images.append(_cmd_thumb)
-                _cmd_ref_labels.append(_cmd_entry_title)
+            if not _cmd_entry_id:
+                continue
+            _cmd_img_count = database.get_entry_image_count(_cmd_entry_id)
+            if _cmd_img_count == 0:
+                continue
+            _cmd_indices = list(range(1, _cmd_img_count + 1))
+            random.shuffle(_cmd_indices)
+            for _cmd_idx in _cmd_indices[:3]:
+                _cmd_thumb = database.get_kb_image_thumb(_cmd_entry_id, _cmd_idx)
+                if _cmd_thumb:
+                    _cmd_ref_images.append(_cmd_thumb)
+                    _cmd_ref_labels.append(_cmd_entry_title)
+                if len(_cmd_ref_images) >= 5:
+                    break
             if len(_cmd_ref_images) >= 5:
                 break
         # If the prompt mentions the bot itself (self-referential), also include
@@ -2260,8 +2293,9 @@ async def generate_cmd(ctx, *, prompt: str):
     _cmd_ref_image = None
     _cmd_spatial = ""
     if _IMAGE_BACKEND == "comfyui" and _cmd_ref_images:
-        if len(_cmd_ref_images) > 1:
-            _cmd_spatial = _build_spatial_prefix(_cmd_ref_labels)
+        _cmd_unique_labels = list(dict.fromkeys(_cmd_ref_labels))
+        if len(_cmd_unique_labels) > 1:
+            _cmd_spatial = _build_spatial_prefix(_cmd_unique_labels)
     elif _cmd_ref_images:
         _cmd_comp = _composite_reference_images(_cmd_ref_images, _cmd_ref_labels)
         if isinstance(_cmd_comp, dict):
