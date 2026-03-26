@@ -1280,9 +1280,13 @@ async def process_chat(
                     if _h:
                         _id_data[_ha_name] = {"hair": _h, "outfit": _o}
 
-            # Bot's own character context (Aria etc.)
-            if _needs_char_ctx and char_images_ctx and bot_name not in _id_data:
-                _h, _o = _parse_id_traits(char_images_ctx)
+            # Bot's own character context (Mutsumi / bot name)
+            # Primary source: stored character image descriptions (char_images_ctx).
+            # Fallback:       the `looks` profile field (set via /setcharacter),
+            #                 which is available even when no photos are stored.
+            if _needs_char_ctx and bot_name not in _id_data:
+                _src = char_images_ctx or looks  # prefer image descriptions
+                _h, _o = _parse_id_traits(_src) if _src else ("", "")
                 if _h:
                     _id_data[bot_name] = {"hair": _h, "outfit": _o}
 
