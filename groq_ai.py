@@ -588,6 +588,54 @@ async def enhance_image_prompt(
     else:
         multi_char_note = ""
 
+    # Pre-submission checklist injected into the system prompt.
+    # For multi-character scenes with photos the exhaustive per-trait checklist
+    # is counter-productive — it pushes the LLM to enumerate appearance for each
+    # character, leaving no room for scene description.  Use a shorter scene-first
+    # checklist in that case; preserve the full detail checklist for single-character.
+    if n_subjects_hint >= 2 and has_images:
+        _checklist = (
+            "MANDATORY PRE-SUBMISSION CHECKLIST — multi-character scene. "
+            "Verify ALL of these are present before finalizing:\n"
+            "  ✓ SCENE — rich setting, lighting, mood, pose, and character interaction "
+            "(this must be the majority of your output, not character appearance)\n"
+            "  ✓ CHARACTER TAGS — for each character: name + hair colour + one or two "
+            "distinctive outfit pieces. Nothing more per character.\n"
+            "  ✓ ART STYLE — 'clean 2D anime illustration, flat cel-shaded, anime digital art'\n"
+            "  ✓ PROPS/INSTRUMENTS — any object mentioned in the request text\n"
+            "If any item is missing from your output, add it before finalizing.\n"
+        )
+    else:
+        _checklist = (
+            "MANDATORY PRE-SUBMISSION CHECKLIST — before writing your final output, "
+            "verify ALL of these are present:\n"
+            "  ✓ HAIR COLOR — exact hue name FIRST (not 'near-white', not 'silver'), "
+            "then saturation level, then 'NOT silver, NOT grey' negation if tinted. "
+            "ANTI-SILVER CHECK: scan your output — if 'silver', 'grey hair', 'near-white', or 'almost white' "
+            "appears BEFORE the actual color name, rewrite it. Color hue always leads.\n"
+            "  ✓ EYE COLOR — hue family + saturation + brightness (three axes). NEVER write 'amber', 'gold', "
+            "'honey', or 'warm amber' as bare single words — always pair with explicit saturation. "
+            "Use 'vivid / high saturation' if eyes are bright; 'muted / very low-saturation' if dull. "
+            "Example (vivid amber): 'vivid warm amber-yellow eyes, high saturation, medium brightness'. "
+            "Example (muted amber): 'low-saturation warm amber-yellow eyes, muted and soft, medium brightness'. "
+            "Example (muted olive): 'very low-saturation muted olive-brown eyes with yellowish-green undertone, soft'.\n"
+            "  ✓ EYELASHES — hue (cool or warm) + darkness override (state explicitly if NOT near-black) + weight. "
+            "This field is MANDATORY. An output that does not contain eyelash description is INCOMPLETE.\n"
+            "  ✓ SKIN TONE — precise shade\n"
+            "  ✓ OUTFIT — every piece has exact color, garment type, and specific key details. "
+            "If the reference shows a white ruffled chest piece with a gemstone brooch, "
+            "it MUST appear as 'off-white ruffled jabot; sternum-level, palm-sized, NOT below chest, green-gemstone brooch'. "
+            "If the reference shows a wide flared fabric from the shoulders (no sleeves), "
+            "it MUST appear as 'open-front [color] shoulder cape; [details]'. "
+            "Red shorts with gold buttons MUST appear as a separate lower-body entry visible below the jabot. "
+            "These cannot be omitted or merged into other garments.\n"
+            "  ✓ ART STYLE — must be 'clean 2D anime illustration, flat cel-shaded, anime digital art' "
+            "(fixed, never from photos)\n"
+            "  ✓ SCENE/POSE/SETTING — extracted from the request text\n"
+            "  ✓ PROPS/INSTRUMENTS — any object mentioned in the request (guitar, microphone, etc.) must be present\n"
+            "If any item from this checklist is missing from your output, add it before finalizing.\n"
+        )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
@@ -761,88 +809,93 @@ async def enhance_image_prompt(
         "EVERY garment and accessory must be its own entry joined by ' + '. "
         "If any piece is missing color precision or key details, your output is WRONG. "
         "If you collapse the entire outfit into fewer than 4 separate entries, your output is WRONG.\n"
-        "MANDATORY PRE-SUBMISSION CHECKLIST — before writing your final output, verify ALL of these are present:\n"
-        "  ✓ HAIR COLOR — exact hue name FIRST (not 'near-white', not 'silver'), "
-        "then saturation level, then 'NOT silver, NOT grey' negation if tinted. "
-        "ANTI-SILVER CHECK: scan your output — if 'silver', 'grey hair', 'near-white', or 'almost white' "
-        "appears BEFORE the actual color name, rewrite it. Color hue always leads.\n"
-        "  ✓ EYE COLOR — hue family + saturation + brightness (three axes). NEVER write 'amber', 'gold', "
-        "'honey', or 'warm amber' as bare single words — always pair with explicit saturation. "
-        "Use 'vivid / high saturation' if eyes are bright; 'muted / very low-saturation' if dull. "
-        "Example (vivid amber): 'vivid warm amber-yellow eyes, high saturation, medium brightness'. "
-        "Example (muted amber): 'low-saturation warm amber-yellow eyes, muted and soft, medium brightness'. "
-        "Example (muted olive): 'very low-saturation muted olive-brown eyes with yellowish-green undertone, soft'.\n"
-        "  ✓ EYELASHES — hue (cool or warm) + darkness override (state explicitly if NOT near-black) + weight. "
-        "This field is MANDATORY. An output that does not contain eyelash description is INCOMPLETE.\n"
-        "  ✓ SKIN TONE — precise shade\n"
-        "  ✓ OUTFIT — every piece has exact color, garment type, and specific key details. "
-        "If the reference shows a white ruffled chest piece with a gemstone brooch, "
-        "it MUST appear as 'off-white ruffled jabot; sternum-level, palm-sized, NOT below chest, green-gemstone brooch'. "
-        "If the reference shows a wide flared fabric from the shoulders (no sleeves), "
-        "it MUST appear as 'open-front [color] shoulder cape; [details]'. "
-        "Red shorts with gold buttons MUST appear as a separate lower-body entry visible below the jabot. "
-        "These cannot be omitted or merged into other garments.\n"
-        "  ✓ ART STYLE — must be 'clean 2D anime illustration, flat cel-shaded, anime digital art' (fixed, never from photos)\n"
-        "  ✓ SCENE/POSE/SETTING — extracted from the request text\n"
-        "  ✓ PROPS/INSTRUMENTS — any object mentioned in the request (guitar, microphone, etc.) must be present\n"
-        "If any item from this checklist is missing from your output, add it before finalizing.\n"
+        f"{_checklist}"
     )
 
     if has_images:
-        # Split the instruction into two explicit source directives:
-        # 1. From the text → scene/pose/setting only (appearance words are fabrications)
-        # 2. From the reference photos → ALL appearance (must be present in the output)
-        # This prevents the model from interpreting "don't copy appearance from text"
-        # as "omit appearance entirely" — a common failure mode.
-        user_content = (
-            "Image request (reference photos attached above).\n\n"
-            "Your final output must be a single unified paragraph — no section headers, no labels, no bullet points.\n\n"
-            "Instructions for building the output:\n"
-            "  (1) SCENE/POSE/SETTING/PROPS — read from the text below. "
-            "Extract everything that is NOT physical appearance: scene, pose, action, setting, mood, "
-            "background, lighting, AND any objects, props, or instruments being held or used "
-            "(e.g. guitar, microphone, book, cup, sword, flower — whatever the character is holding or interacting with). "
-            "Props and instruments are SCENE elements, not appearance. "
-            "They come from the text and MUST appear in your output — never omit them. "
-            "DISCARD ONLY: hair color, eye color, skin tone, and clothing/outfit descriptions — "
-            "those were written without photos and are fabrications. "
-            "Everything else (action, props, instruments, location) must be preserved.\n"
-            "  (2) APPEARANCE — read from the reference photos. "
-            "Your output MUST include ALL of the following — any omission makes the output wrong:\n"
-            "    • HAIR: exact shade (e.g. 'pale seafoam mint-green, low saturation'), hairstyle, length\n"
-            "    • EYES: write ONLY the three-axis form: '[saturation] [hue] eyes, [saturation], [brightness]'. "
-            "Read saturation from the photo — use 'vivid / high saturation' if eyes are bright, "
-            "'muted / very low saturation' if dull. NEVER assume muted. "
-            "FORBIDDEN as bare words without saturation: 'amber', 'golden', 'honey' alone — "
-            "always pair hue with explicit saturation. "
-            "Examples: 'vivid warm amber-yellow eyes, high saturation' OR 'low-saturation warm amber-yellow eyes, muted and soft'.\n"
-            "    • EYELASHES: this field is MANDATORY and must be present. "
-            "Write: '[hue], [darkness statement — state NOT black/dark brown if that is the case], [weight]'. "
-            "Example: 'cool greenish-grey lashes, NOT black or dark brown, moderate contrast, fine and delicate'.\n"
-            "    • SKIN TONE: exact shade\n"
-            "    • OUTFIT: every garment piece as '[exact-color] [type]; [detail, detail, ...]', joined by ' + '. "
-            "When reading the photo, actively LOOK FOR and name these elements if present:\n"
-            "      — Wide flared/circle-cut fabric hanging from the shoulders WITHOUT sleeves "
-            "(not a coat — no sleeves, drapes freely) → this is a SHOULDER CAPE. "
-            "Describe as: 'open-front [color] shoulder cape; wide circle-cut, [trim details], draping to [length]'.\n"
-            "      — Structured padded black shoulder caps at the shoulder attachment point of the cape "
-            "→ these are SHOULDER EPAULETTES. List as a separate entry.\n"
-            "      — White ruffled V-shaped or waterfall fabric at the chest/sternum level "
-            "(NOT at the neck) with a gemstone pin at its center → this is a JABOT. "
-            "Describe as: 'off-white ruffled jabot; sternum-level, V-shaped, green-gemstone brooch'.\n"
-            "      — Black outer garment with BOTH a shoulder-cape section AND a wide A-line flared skirt below the waist "
-            "→ the SKIRT is a SEPARATE entry 'black circle-cut overskirt; cream-dotted hem trim, draping to mid-thigh'. "
-            "Do NOT omit the skirt or fold it into the cape entry.\n"
-            "      — Deep red/crimson rigid V-shaped or wing-like panels at the neckline inside the black cape opening "
-            "→ RED COLLAR-CAPE or STRUCTURED COLLAR. List as a SEPARATE entry: "
-            "'deep-crimson structured collar-cape; V-shaped rigid panels, neckline framing'.\n"
-            "      — Red/crimson garment at the torso with a defined waistband AND short leg visible below waist "
-            "→ HIGH-WAIST SHORTS, NOT a vest. Describe as: 'deep-crimson high-waist shorts; double-row gold buttons'.\n"
-            "      — Form-fitting leg layer from thigh to ankle with no visible waistband or crotch seam "
-            "→ TIGHTS or OPAQUE TIGHTS, NOT trousers. E.g. 'dark grey opaque tights'.\n"
-            "      List garments from outermost to innermost.\n\n"
-            f"Text: {raw_prompt}"
-        )
+        if n_subjects_hint >= 2:
+            # Multi-character scene with reference photos.
+            # The vision model can read appearance directly from the photos.
+            # The user message must be scene-first — exhaustive per-character
+            # appearance lists in the user message dominate over any system-prompt
+            # softening, so the template itself must switch to scene-first mode.
+            user_content = (
+                "Image request (reference photos attached above).\n\n"
+                "Your final output must be a single unified paragraph — no section headers, no labels, no bullet points.\n\n"
+                "THIS IS A MULTI-CHARACTER SCENE. Follow this strict priority order:\n\n"
+                "  (1) SCENE — make this 60-70% of your total output. From the text below, extract and richly expand:\n"
+                "      setting, background, environment, lighting, atmosphere, mood, what the characters are\n"
+                "      doing together, how they interact, their poses, expressions, and emotional tone.\n"
+                "      If props or instruments are mentioned in the text (guitar, sword, etc.), they MUST appear.\n"
+                "      DISCARD appearance words from the text — those were written without photos.\n\n"
+                "  (2) CHARACTER TAGS — for EACH character, include ONLY three things:\n"
+                "      • Name (from the text or the reference photo)\n"
+                "      • Hair colour (one brief phrase from the photo, e.g. 'pale mint-green hair')\n"
+                "      • One or two most distinctive outfit pieces (e.g. 'navy sailor uniform' or\n"
+                "        'dark open-front cape with crimson shorts')\n"
+                "      STOP there. Do NOT describe eyes, eyelashes, skin tone, hairstyle detail, or\n"
+                "      enumerate every garment for any character. The reference photos carry the visual\n"
+                "      identity — the image model matches characters to references automatically.\n\n"
+                "  (3) ART STYLE — always include: 'clean 2D anime illustration, flat cel-shaded,\n"
+                "      anime digital art, vivid saturated color palette'\n\n"
+                f"Text: {raw_prompt}"
+            )
+        else:
+            # Single-character: original exhaustive appearance extraction.
+            # Split the instruction into two explicit source directives:
+            # 1. From the text → scene/pose/setting only (appearance words are fabrications)
+            # 2. From the reference photos → ALL appearance (must be present in the output)
+            # This prevents the model from interpreting "don't copy appearance from text"
+            # as "omit appearance entirely" — a common failure mode.
+            user_content = (
+                "Image request (reference photos attached above).\n\n"
+                "Your final output must be a single unified paragraph — no section headers, no labels, no bullet points.\n\n"
+                "Instructions for building the output:\n"
+                "  (1) SCENE/POSE/SETTING/PROPS — read from the text below. "
+                "Extract everything that is NOT physical appearance: scene, pose, action, setting, mood, "
+                "background, lighting, AND any objects, props, or instruments being held or used "
+                "(e.g. guitar, microphone, book, cup, sword, flower — whatever the character is holding or interacting with). "
+                "Props and instruments are SCENE elements, not appearance. "
+                "They come from the text and MUST appear in your output — never omit them. "
+                "DISCARD ONLY: hair color, eye color, skin tone, and clothing/outfit descriptions — "
+                "those were written without photos and are fabrications. "
+                "Everything else (action, props, instruments, location) must be preserved.\n"
+                "  (2) APPEARANCE — read from the reference photos. "
+                "Your output MUST include ALL of the following — any omission makes the output wrong:\n"
+                "    • HAIR: exact shade (e.g. 'pale seafoam mint-green, low saturation'), hairstyle, length\n"
+                "    • EYES: write ONLY the three-axis form: '[saturation] [hue] eyes, [saturation], [brightness]'. "
+                "Read saturation from the photo — use 'vivid / high saturation' if eyes are bright, "
+                "'muted / very low saturation' if dull. NEVER assume muted. "
+                "FORBIDDEN as bare words without saturation: 'amber', 'golden', 'honey' alone — "
+                "always pair hue with explicit saturation. "
+                "Examples: 'vivid warm amber-yellow eyes, high saturation' OR 'low-saturation warm amber-yellow eyes, muted and soft'.\n"
+                "    • EYELASHES: this field is MANDATORY and must be present. "
+                "Write: '[hue], [darkness statement — state NOT black/dark brown if that is the case], [weight]'. "
+                "Example: 'cool greenish-grey lashes, NOT black or dark brown, moderate contrast, fine and delicate'.\n"
+                "    • SKIN TONE: exact shade\n"
+                "    • OUTFIT: every garment piece as '[exact-color] [type]; [detail, detail, ...]', joined by ' + '. "
+                "When reading the photo, actively LOOK FOR and name these elements if present:\n"
+                "      — Wide flared/circle-cut fabric hanging from the shoulders WITHOUT sleeves "
+                "(not a coat — no sleeves, drapes freely) → this is a SHOULDER CAPE. "
+                "Describe as: 'open-front [color] shoulder cape; wide circle-cut, [trim details], draping to [length]'.\n"
+                "      — Structured padded black shoulder caps at the shoulder attachment point of the cape "
+                "→ these are SHOULDER EPAULETTES. List as a separate entry.\n"
+                "      — White ruffled V-shaped or waterfall fabric at the chest/sternum level "
+                "(NOT at the neck) with a gemstone pin at its center → this is a JABOT. "
+                "Describe as: 'off-white ruffled jabot; sternum-level, V-shaped, green-gemstone brooch'.\n"
+                "      — Black outer garment with BOTH a shoulder-cape section AND a wide A-line flared skirt below the waist "
+                "→ the SKIRT is a SEPARATE entry 'black circle-cut overskirt; cream-dotted hem trim, draping to mid-thigh'. "
+                "Do NOT omit the skirt or fold it into the cape entry.\n"
+                "      — Deep red/crimson rigid V-shaped or wing-like panels at the neckline inside the black cape opening "
+                "→ RED COLLAR-CAPE or STRUCTURED COLLAR. List as a SEPARATE entry: "
+                "'deep-crimson structured collar-cape; V-shaped rigid panels, neckline framing'.\n"
+                "      — Red/crimson garment at the torso with a defined waistband AND short leg visible below waist "
+                "→ HIGH-WAIST SHORTS, NOT a vest. Describe as: 'deep-crimson high-waist shorts; double-row gold buttons'.\n"
+                "      — Form-fitting leg layer from thigh to ankle with no visible waistband or crotch seam "
+                "→ TIGHTS or OPAQUE TIGHTS, NOT trousers. E.g. 'dark grey opaque tights'.\n"
+                "      List garments from outermost to innermost.\n\n"
+                f"Text: {raw_prompt}"
+            )
     else:
         # No reference photos — text-only path.
         # LLMs attend much more reliably to user-message content than deep system-prompt
