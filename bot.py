@@ -152,23 +152,22 @@ async def _generate_image(
     width_override: Optional[int] = None,
     height_override: Optional[int] = None,
     steps_override: Optional[int] = None,
+    reference_subjects=None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the active backend.
 
     Args:
-        prompt: The enriched Flux prompt string.
-        reference_image: Optional (bytes, mime) tuple passed to backends
-                         that support img2img (local_diffusers, hf_spaces, comfyui).
-                         Ignored by the Cloudflare backend.
-        reference_images: Optional list of (bytes, mime) tuples forwarded to the
-                          comfyui backend for ReferenceLatent multi-character conditioning.
-        on_progress: Optional async callable(tag: str) for live progress
-                     updates. Only used by the local_diffusers and comfyui backends.
-        width_override / height_override: Override the configured output resolution.
-                          Used for multi-character composite references where the output
-                          canvas must match the composite aspect ratio.
-        steps_override: Override inference step count. Forwarded to comfyui only.
-                          Used to scale up steps for multi-subject scenes.
+        prompt:              The enriched Flux prompt string.
+        reference_image:     Optional (bytes, mime) tuple for img2img backends.
+        reference_images:    Optional list of (bytes, mime) tuples for ComfyUI
+                             ReferenceLatent multi-character conditioning.
+        reference_subjects:  Optional list of subject labels parallel to
+                             reference_images. When 2+ unique labels are present,
+                             each subject gets an isolated ReferenceLatent chain
+                             (per-subject workflow) — no cross-character bleed.
+        on_progress:         Optional async callable(tag: str) for live progress.
+        width_override / height_override: Override output resolution.
+        steps_override:      Override inference step count (comfyui only).
     """
     import image_dispatch as _dispatch
     return await _dispatch.generate_image(
@@ -179,6 +178,7 @@ async def _generate_image(
         width_override=width_override,
         height_override=height_override,
         steps_override=steps_override,
+        reference_subjects=reference_subjects,
     )
 
 
@@ -1270,6 +1270,7 @@ async def process_chat(
                         enriched_prompt,
                         _ref_image_for_gen,
                         reference_images=_comfyui_ref_images or None,
+                        reference_subjects=_ref_labels if _comfyui_ref_images else None,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
                         steps_override=(
                             min(
@@ -2515,6 +2516,7 @@ async def generate_cmd(ctx, *, prompt: str):
             enriched_prompt,
             reference_image=_cmd_ref_image,
             reference_images=_cmd_ref_images or None,
+            reference_subjects=_cmd_ref_labels if _cmd_ref_images else None,
             on_progress=_cmd_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
         )
     finally:

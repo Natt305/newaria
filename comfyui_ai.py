@@ -471,6 +471,197 @@ def _build_reference_workflow(
     return workflow
 
 
+def _build_per_subject_ref_workflow(
+    prompt: str,
+    gguf_path: str,
+    vae_name: str,
+    clip_name: str,
+    steps: int,
+    seed: int,
+    uploaded_image_groups: list,
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
+) -> dict:
+    """Per-subject isolated ReferenceLatent workflow for multi-character scenes.
+
+    Each subject gets its own independent ReferenceLatent chain that starts
+    from the shared base text conditioning.  Subject chains are NEVER joined
+    mid-chain — each subject's photos only condition that subject's identity.
+    At the end, all subjects' final conditioning tensors are merged with
+    ConditioningCombine before the sampler.
+
+    This prevents the cross-subject appearance bleeding that occurs in the
+    single chained workflow, where all photos feed one accumulating stream and
+    later photos overwrite earlier ones regardless of which character they show.
+
+    Args:
+        uploaded_image_groups: list of lists — [[subj0_img0, subj0_img1, ...],
+                                                 [subj1_img0, subj1_img1, ...], ...]
+                               Each inner list contains the ComfyUI server filenames
+                               for one subject's reference images.
+
+    Node ID scheme:
+        Fixed:      "1"–"5"   (loaders + text encode + zero-neg)
+        Per photo:  "L{s}_{p}"  LoadImage
+                    "S{s}_{p}"  ImageScaleToTotalPixels
+                    "E{s}_{p}"  VAEEncode
+                    "RP{s}_{p}" ReferenceLatent (positive chain)
+                    "RN{s}_{p}" ReferenceLatent (negative chain)
+                    s = 0-based subject index, p = 0-based photo index
+        Combine:    "CP{k}"   ConditioningCombine (positive), k = 0-based step
+                    "CN{k}"   ConditioningCombine (negative)
+        Output:     "31"–"37", "9"  (identical to single-chain workflow)
+    """
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
+    workflow: dict = {
+        "1": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": gguf_path},
+        },
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": clip_name, "type": "flux2"},
+        },
+        "3": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": vae_name},
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": enhanced_prompt},
+        },
+        "5": {
+            "class_type": "ConditioningZeroOut",
+            "inputs": {"conditioning": ["4", 0]},
+        },
+    }
+
+    megapixels = round((width * height) / 1_000_000, 4)
+    subject_final_pos: list = []  # final ReferenceLatent node ID per subject
+    subject_final_neg: list = []
+
+    for s, img_names in enumerate(uploaded_image_groups):
+        for p, img_name in enumerate(img_names):
+            load_id    = f"L{s}_{p}"
+            scale_id   = f"S{s}_{p}"
+            encode_id  = f"E{s}_{p}"
+            ref_pos_id = f"RP{s}_{p}"
+            ref_neg_id = f"RN{s}_{p}"
+
+            # Each subject's chain starts independently from the base text
+            # conditioning — photos from other subjects never influence this chain.
+            prev_pos = ["4", 0] if p == 0 else [f"RP{s}_{p - 1}", 0]
+            prev_neg = ["5", 0] if p == 0 else [f"RN{s}_{p - 1}", 0]
+
+            workflow[load_id] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": img_name, "upload": "image"},
+            }
+            workflow[scale_id] = {
+                "class_type": "ImageScaleToTotalPixels",
+                "inputs": {
+                    "image": [load_id, 0],
+                    "upscale_method": "lanczos",
+                    "megapixels": megapixels,
+                    "resolution_steps": 64,
+                },
+            }
+            workflow[encode_id] = {
+                "class_type": "VAEEncode",
+                "inputs": {"pixels": [scale_id, 0], "vae": ["3", 0]},
+            }
+            workflow[ref_pos_id] = {
+                "class_type": "ReferenceLatent",
+                "inputs": {"conditioning": prev_pos, "latent": [encode_id, 0]},
+            }
+            workflow[ref_neg_id] = {
+                "class_type": "ReferenceLatent",
+                "inputs": {"conditioning": prev_neg, "latent": [encode_id, 0]},
+            }
+
+        # Record the final conditioning node for this subject
+        last_p = len(img_names) - 1
+        subject_final_pos.append(f"RP{s}_{last_p}")
+        subject_final_neg.append(f"RN{s}_{last_p}")
+
+    # Merge all subject conditioning chains with ConditioningCombine.
+    # Single subject: no combine needed — use the chain directly.
+    # Multiple subjects: chain combines left-to-right:
+    #   combine(s0, s1) → CP0 ; combine(CP0, s2) → CP1 ; …
+    if len(subject_final_pos) == 1:
+        final_pos: list = [subject_final_pos[0], 0]
+        final_neg: list = [subject_final_neg[0], 0]
+    else:
+        cur_pos_id = subject_final_pos[0]
+        cur_neg_id = subject_final_neg[0]
+        for k in range(1, len(subject_final_pos)):
+            cp_id = f"CP{k - 1}"
+            cn_id = f"CN{k - 1}"
+            workflow[cp_id] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {
+                    "conditioning_1": [cur_pos_id, 0],
+                    "conditioning_2": [subject_final_pos[k], 0],
+                },
+            }
+            workflow[cn_id] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {
+                    "conditioning_1": [cur_neg_id, 0],
+                    "conditioning_2": [subject_final_neg[k], 0],
+                },
+            }
+            cur_pos_id = cp_id
+            cur_neg_id = cn_id
+        final_pos = [cur_pos_id, 0]
+        final_neg = [cur_neg_id, 0]
+
+    workflow["31"] = {
+        "class_type": "EmptyFlux2LatentImage",
+        "inputs": {"width": width, "height": height, "batch_size": 1},
+    }
+    workflow["32"] = {
+        "class_type": "Flux2Scheduler",
+        "inputs": {"steps": steps, "width": width, "height": height},
+    }
+    workflow["33"] = {
+        "class_type": "KSamplerSelect",
+        "inputs": {"sampler_name": "euler"},
+    }
+    workflow["34"] = {
+        "class_type": "RandomNoise",
+        "inputs": {"noise_seed": seed},
+    }
+    workflow["35"] = {
+        "class_type": "CFGGuider",
+        "inputs": {
+            "model": ["1", 0],
+            "positive": final_pos,
+            "negative": final_neg,
+            "cfg": 1.0,
+        },
+    }
+    workflow["36"] = {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+            "noise": ["34", 0],
+            "guider": ["35", 0],
+            "sampler": ["33", 0],
+            "sigmas": ["32", 0],
+            "latent_image": ["31", 0],
+        },
+    }
+    workflow["37"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["36", 0], "vae": ["3", 0]},
+    }
+    workflow["9"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["37", 0], "filename_prefix": "ariabot_"},
+    }
+    return workflow
+
+
 def _run_generate(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]],
@@ -479,6 +670,7 @@ def _run_generate(
     width_override: Optional[int] = None,
     height_override: Optional[int] = None,
     steps_override: Optional[int] = None,
+    reference_subjects: Optional[list] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Blocking: submit a job to ComfyUI and return (png_bytes, mime) or None."""
     try:
@@ -515,26 +707,60 @@ def _run_generate(
                 workflow = json.load(f)
             print(f"[ComfyUI] Using custom workflow: {custom_workflow_path}")
         elif refs:
-            # Native FLUX.2 Klein multi-reference path (ReferenceLatent)
-            # ImageScaleToTotalPixels in ComfyUI handles resizing — only convert
-            # to PNG here for upload compatibility (avoid JPEG/WebP issues).
-            uploaded_names = []
-            for ref_bytes, ref_mime in refs:
+            # Native FLUX.2 Klein ReferenceLatent path.
+            # Convert all reference images to PNG before upload (avoids JPEG/WebP
+            # decode issues inside ComfyUI's LoadImage node).
+            #
+            # When reference_subjects labels are provided and there are 2+ unique
+            # subjects, use the per-subject isolated workflow (_build_per_subject_ref_workflow)
+            # which gives each character their own ReferenceLatent chain — no cross-
+            # subject conditioning bleed.  Single-subject scenes use the original
+            # flat chain (_build_reference_workflow).
+            labels = reference_subjects or []
+            unique_subjects = list(dict.fromkeys(labels)) if labels else []
+            use_per_subject = len(unique_subjects) >= 2
+
+            # Upload all reference images, tracking which subject each belongs to.
+            # uploaded_pairs: [(uploaded_name, subject_label), ...]
+            uploaded_pairs: list = []
+            for i, (ref_bytes, ref_mime) in enumerate(refs):
                 processed = _to_png(ref_bytes)
                 upload_bytes = processed if processed is not None else ref_bytes
                 uploaded_name = _upload_image(base_url, upload_bytes, _requests)
                 if uploaded_name:
-                    uploaded_names.append(uploaded_name)
-            if not uploaded_names:
+                    lbl = labels[i] if i < len(labels) else ""
+                    uploaded_pairs.append((uploaded_name, lbl))
+
+            if not uploaded_pairs:
                 print("[ComfyUI] Reference: all uploads failed — falling back to txt2img.")
                 workflow = _build_txt2img_workflow(
                     prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
                 )
-            else:
-                if len(uploaded_names) < len(refs):
-                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_names)}/{len(refs)}) — continuing with available images.")
+            elif use_per_subject:
+                # Group uploaded images by subject, preserving insertion order.
+                groups: dict = {}
+                for name, lbl in uploaded_pairs:
+                    groups.setdefault(lbl, []).append(name)
+                # Only include subjects that have at least 1 successful upload.
+                uploaded_groups = [groups[s] for s in unique_subjects if s in groups]
+                loaded_subjects = [s for s in unique_subjects if s in groups]
+                if len(uploaded_pairs) < len(refs):
+                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_pairs)}/{len(refs)}) — continuing.")
                 print(
-                    f"[ComfyUI] Native reference mode — {len(uploaded_names)} reference image(s), "
+                    f"[ComfyUI] Per-subject reference mode — {len(loaded_subjects)} subject(s): {loaded_subjects}, "
+                    f"{len(uploaded_pairs)} image(s) total, output size={width}x{height}"
+                )
+                workflow = _build_per_subject_ref_workflow(
+                    prompt, gguf_path, vae_name, clip_name, steps, seed, uploaded_groups,
+                    width=width, height=height,
+                )
+            else:
+                # Single subject — use the original flat chain.
+                uploaded_names = [name for name, _ in uploaded_pairs]
+                if len(uploaded_pairs) < len(refs):
+                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_pairs)}/{len(refs)}) — continuing.")
+                print(
+                    f"[ComfyUI] Single-subject reference mode — {len(uploaded_names)} image(s), "
                     f"output size={width}x{height}"
                 )
                 workflow = _build_reference_workflow(
@@ -838,28 +1064,25 @@ async def generate_image(
     width_override: Optional[int] = None,
     height_override: Optional[int] = None,
     steps_override: Optional[int] = None,
+    reference_subjects: Optional[list] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Generate an image via a locally-running ComfyUI instance.
 
     Args:
-        prompt:           Text prompt for image generation. An anatomy quality
-                          suffix is appended automatically (matches diffusers backend).
-        reference_image:  Optional (bytes, mime_type) tuple — kept for backward
-                          compatibility with the img2img fallback path.
-        reference_images: Optional list of (bytes, mime_type) tuples. When
-                          provided, the native FLUX.2 Klein ReferenceLatent
-                          workflow is used — each image is VAE-encoded and
-                          injected into conditioning via chained ReferenceLatent
-                          nodes. Takes priority over reference_image.
-        on_progress:      Optional async callable(tag: str) called with live
-                          progress tags (same format as diffusers backend):
-                              "STAGE:loading"   — model is being loaded
-                              "LOAD:<frac>"     — fractional loading 0.0–1.0
-                              "STAGE:ready"     — inference starting
-                              "STEP:<n>/<t>"    — inference step n of t
-                              "STAGE:encoding"  — encoding final image
-                          Requires the 'websockets' package. Silently skipped
-                          if websockets is not installed or the connection fails.
+        prompt:              Text prompt for image generation. An anatomy quality
+                             suffix is appended automatically.
+        reference_image:     Optional (bytes, mime_type) tuple — kept for backward
+                             compatibility with the img2img fallback path.
+        reference_images:    Optional list of (bytes, mime_type) tuples. When
+                             provided, the native FLUX.2 Klein ReferenceLatent
+                             workflow is used. Takes priority over reference_image.
+        reference_subjects:  Optional list of subject labels, parallel to
+                             reference_images. When 2+ unique labels are present,
+                             each subject gets an isolated ReferenceLatent chain
+                             (per-subject workflow) preventing cross-character
+                             appearance bleed. Falls back to the single flat chain
+                             for 0–1 unique subjects.
+        on_progress:         Optional async callable(tag: str) for live progress.
 
     Returns:
         (image_bytes, "image/png") on success, or None on failure.
@@ -867,7 +1090,12 @@ async def generate_image(
     client_id = str(uuid.uuid4())
     base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
 
-    gen_coro = asyncio.to_thread(_run_generate, prompt, reference_image, client_id, reference_images, width_override, height_override, steps_override)
+    gen_coro = asyncio.to_thread(
+        _run_generate,
+        prompt, reference_image, client_id,
+        reference_images, width_override, height_override, steps_override,
+        reference_subjects,
+    )
 
     if on_progress is None:
         return await gen_coro

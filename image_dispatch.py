@@ -42,24 +42,22 @@ async def generate_image(
     width_override: Optional[int] = None,
     height_override: Optional[int] = None,
     steps_override: Optional[int] = None,
+    reference_subjects: Optional[list] = None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the configured backend.
 
     Args:
-        prompt:           Text prompt for image generation.
-        reference_image:  Optional (bytes, mime_type) tuple used as the img2img
-                          seed image. Passed to backends that support it
-                          (local_diffusers, hf_spaces, comfyui). Ignored by Cloudflare.
-        reference_images: Optional list of (bytes, mime_type) tuples. Forwarded to
-                          the comfyui backend for ReferenceLatent multi-character
-                          conditioning. Ignored by all other backends.
-        on_progress:      Optional async callable(tag: str) forwarded to
-                          local_diffusers and comfyui backends for live progress
-                          reporting. Silently ignored by cloudflare and hf_spaces.
-        width_override / height_override: Override the configured output dimensions.
-                          Forwarded to comfyui only; ignored by all other backends.
-        steps_override:   Override the configured inference step count.
-                          Forwarded to comfyui only; ignored by all other backends.
+        prompt:              Text prompt for image generation.
+        reference_image:     Optional (bytes, mime_type) tuple used as img2img seed.
+                             Passed to backends that support it. Ignored by Cloudflare.
+        reference_images:    Optional list of (bytes, mime_type) tuples. Forwarded to
+                             comfyui for ReferenceLatent conditioning.
+        reference_subjects:  Optional list of subject labels, parallel to reference_images.
+                             Forwarded to comfyui. When 2+ unique labels present, each
+                             subject gets an isolated ReferenceLatent chain.
+        on_progress:         Optional async callable(tag: str) for live progress.
+        width_override / height_override: Override output dimensions. comfyui only.
+        steps_override:      Override inference step count. comfyui only.
 
     Returns:
         (image_bytes, mime_type) on success, or None on failure.
@@ -82,6 +80,7 @@ async def generate_image(
             width_override=width_override,
             height_override=height_override,
             steps_override=steps_override,
+            reference_subjects=reference_subjects,
         )
     import cloudflare_ai as _cloudflare_ai
     return await _cloudflare_ai.generate_image(prompt)
