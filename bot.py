@@ -963,19 +963,21 @@ async def process_chat(
         #   • KB subject only          → KB thumbnails first, char after
         _ref_images: list = []
         _ref_labels: list = []   # parallel subject names for composite labels
-        _MAX_REF_IMAGES = 5
+        _MAX_REFS_PER_SUBJECT = 3  # up to 3 reference photos per subject
         if _is_self_ref:
             # Bot's own character is the primary subject
             if _needs_char_ctx:
                 char_count = database.get_character_image_count()
+                _bot_loaded = 0
                 for i in range(1, char_count + 1):
+                    if _bot_loaded >= _MAX_REFS_PER_SUBJECT:
+                        break
                     thumb = database.get_character_image_thumb(i)
-                    if thumb and bot_name not in _ref_labels:
+                    if thumb:
                         _ref_images.append(thumb)
                         _ref_labels.append(bot_name)
-                    if len(_ref_images) >= _MAX_REF_IMAGES:
-                        break
-            if _has_kb_subject and len(_ref_images) < _MAX_REF_IMAGES:
+                        _bot_loaded += 1
+            if _has_kb_subject:
                 for _kb_entry in _kb_matches:
                     _kb_entry_id = _kb_entry.get("id")
                     _kb_label = _kb_entry.get("title", "")
@@ -986,15 +988,15 @@ async def process_chat(
                         continue
                     _kb_indices = list(range(1, _kb_img_count + 1))
                     random.shuffle(_kb_indices)
-                    for _kb_idx in _kb_indices[:3]:
+                    _kb_loaded = 0
+                    for _kb_idx in _kb_indices:
+                        if _kb_loaded >= _MAX_REFS_PER_SUBJECT:
+                            break
                         _kb_thumb = database.get_kb_image_thumb(_kb_entry_id, _kb_idx)
                         if _kb_thumb:
                             _ref_images.append(_kb_thumb)
                             _ref_labels.append(_kb_label)
-                        if len(_ref_images) >= _MAX_REF_IMAGES:
-                            break
-                    if len(_ref_images) >= _MAX_REF_IMAGES:
-                        break
+                            _kb_loaded += 1
         else:
             # KB subject is the primary subject (or no subject at all)
             if _has_kb_subject:
@@ -1014,28 +1016,28 @@ async def process_chat(
                     _kb_indices = list(range(1, _kb_img_count + 1))
                     random.shuffle(_kb_indices)
                     _kb_loaded = 0
-                    for _kb_idx in _kb_indices[:3]:
+                    for _kb_idx in _kb_indices:
+                        if _kb_loaded >= _MAX_REFS_PER_SUBJECT:
+                            break
                         _kb_thumb = database.get_kb_image_thumb(_kb_entry_id, _kb_idx)
                         if _kb_thumb:
                             _ref_images.append(_kb_thumb)
                             _ref_labels.append(_kb_title)
                             _kb_loaded += 1
                             print(f"[Bot] KB thumbnail [{_kb_idx}/{_kb_img_count}] loaded for {_kb_title!r} (id={_kb_entry_id})")
-                        if len(_ref_images) >= _MAX_REF_IMAGES:
-                            break
                     if _kb_loaded == 0:
                         print(f"[Bot] KB entry {_kb_title!r} (id={_kb_entry_id}) thumbnails unreadable — img2img unavailable")
-                    if len(_ref_images) >= _MAX_REF_IMAGES:
-                        break
-            if _needs_char_ctx and len(_ref_images) < _MAX_REF_IMAGES:
+            if _needs_char_ctx:
                 char_count = database.get_character_image_count()
+                _bot_loaded = 0
                 for i in range(1, char_count + 1):
+                    if _bot_loaded >= _MAX_REFS_PER_SUBJECT:
+                        break
                     thumb = database.get_character_image_thumb(i)
-                    if thumb and bot_name not in _ref_labels:
+                    if thumb:
                         _ref_images.append(thumb)
                         _ref_labels.append(bot_name)
-                    if len(_ref_images) >= _MAX_REF_IMAGES:
-                        break
+                        _bot_loaded += 1
         # Build spatial prefix and reference image(s) for generation.
         # Done before enhance_image_prompt so the LLM rewriter sees the
         # left/right subject ordering in the prompt it is expanding.
@@ -2262,8 +2264,9 @@ async def generate_cmd(ctx, *, prompt: str):
     _cmd_bot_name, *_ = load_character()
     _cmd_ref_images: list = []
     _cmd_ref_labels: list = []
+    _CMD_MAX_REFS_PER_SUBJECT = 3  # up to 3 reference photos per subject
     if _IMAGE_BACKEND in ("local_diffusers", "hf_spaces", "comfyui"):
-        # Collect up to 3 random thumbnails per matched KB entry
+        # Collect up to _CMD_MAX_REFS_PER_SUBJECT random thumbnails per matched KB entry
         for _cmd_entry in kb_matches:
             _cmd_entry_title = _cmd_entry.get("title", "")
             _cmd_entry_id = _cmd_entry.get("id") or 0
@@ -2276,26 +2279,29 @@ async def generate_cmd(ctx, *, prompt: str):
                 continue
             _cmd_indices = list(range(1, _cmd_img_count + 1))
             random.shuffle(_cmd_indices)
-            for _cmd_idx in _cmd_indices[:3]:
+            _cmd_entry_loaded = 0
+            for _cmd_idx in _cmd_indices:
+                if _cmd_entry_loaded >= _CMD_MAX_REFS_PER_SUBJECT:
+                    break
                 _cmd_thumb = database.get_kb_image_thumb(_cmd_entry_id, _cmd_idx)
                 if _cmd_thumb:
                     _cmd_ref_images.append(_cmd_thumb)
                     _cmd_ref_labels.append(_cmd_entry_title)
-                if len(_cmd_ref_images) >= 5:
-                    break
-            if len(_cmd_ref_images) >= 5:
-                break
+                    _cmd_entry_loaded += 1
         # If the prompt mentions the bot itself (self-referential), also include
-        # one character thumbnail so the composite covers all referenced subjects.
+        # up to _CMD_MAX_REFS_PER_SUBJECT character thumbnails.
         _cmd_is_self_ref = await groq_ai.is_self_referential_image(prompt)
-        if _cmd_is_self_ref and len(_cmd_ref_images) < 5 and _cmd_bot_name not in _cmd_ref_labels:
+        if _cmd_is_self_ref and _cmd_bot_name not in _cmd_ref_labels:
             _cmd_char_count = database.get_character_image_count()
+            _cmd_bot_loaded = 0
             for _i in range(1, _cmd_char_count + 1):
+                if _cmd_bot_loaded >= _CMD_MAX_REFS_PER_SUBJECT:
+                    break
                 _cmd_char_thumb = database.get_character_image_thumb(_i)
                 if _cmd_char_thumb:
                     _cmd_ref_images.append(_cmd_char_thumb)
                     _cmd_ref_labels.append(_cmd_bot_name)
-                    break  # one character reference is enough
+                    _cmd_bot_loaded += 1
     _cmd_ref_image = None
     _cmd_spatial = ""
     if _IMAGE_BACKEND == "comfyui" and _cmd_ref_images:
