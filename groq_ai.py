@@ -444,20 +444,17 @@ async def enhance_image_prompt(
     ref_block = ""
     if character_context and character_context.strip():
         if has_images:
-            # Reference photos are attached, but the user-configured written description
-            # is the authoritative source for appearance traits (eye colour, hair colour,
-            # outfit, etc.).  Photos may show a wrong-coloured 3D game model or an early
-            # design — the verified text overrides them.  Use photos only for pose,
-            # setting, and details NOT covered by the text below.
+            # Reference photos are attached — the vision model reads appearance
+            # directly from them.  The stored text is a secondary supplement only;
+            # it fills in details not clearly visible in the photos.
             ref_block += (
-                "\n[CHARACTER APPEARANCE — AUTHORITATIVE TEXT — OVERRIDES PHOTOS]\n"
-                "Reference photos are attached for pose and setting reference ONLY.\n"
-                "The following verified description overrides whatever the reference photos appear to show "
-                "for any appearance trait covered here (hair colour, eye colour, outfit, skin tone, etc.).\n"
-                "Use the photos only for pose, setting, and details NOT mentioned in this text.\n"
-                "Do NOT reproduce this block exhaustively — include a brief identifying tag "
-                "(character name + key visual traits) then spend the rest of the prompt on: "
-                "scene, environment, lighting, mood, pose, and what the character(s) are doing or feeling.\n"
+                "\n[CHARACTER APPEARANCE — SUPPLEMENTAL TEXT (photos are primary)]\n"
+                "Reference photos are attached. Read appearance from the photos first.\n"
+                "Use the text below ONLY as a supplement for details not clearly visible in the photos.\n"
+                "Do NOT reproduce this block exhaustively — include just a brief identifying tag "
+                "(character name + one or two signature visual traits, e.g. hair colour + eye colour). "
+                "Spend the rest of the prompt on: scene, environment, lighting, mood, pose, "
+                "and what the character(s) are doing or feeling.\n"
                 "EXCEPTION: any ART STYLE line in this block is irrelevant — art style is always 2D anime.\n"
                 f"{character_context.strip()}\n"
             )
@@ -512,7 +509,7 @@ async def enhance_image_prompt(
             "Reference photos are attached. Priority order (highest first):\n"
             "  1. [SUBJECT REFERENCE] text blocks — absolute authority, override everything\n"
             "  2. Reference photos — primary source for appearance traits\n"
-            "  3. [CHARACTER APPEARANCE — AUTHORITATIVE TEXT — OVERRIDES PHOTOS] blocks — fill in details NOT clearly "
+            "  3. [CHARACTER APPEARANCE — SUPPLEMENTAL TEXT (photos are primary)] blocks — fill in details NOT clearly "
             "visible in the photos; do NOT use to override anything already visible in the photos\n"
             "  4. [SUBJECT APPEARANCE SUPPLEMENT] blocks — gap-filler only; use ONLY for details "
             "not clearly visible in the reference photos; do NOT use to override photo-visible traits\n"
