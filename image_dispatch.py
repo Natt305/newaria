@@ -41,6 +41,7 @@ async def generate_image(
     on_progress: Optional[Callable[[str], Coroutine]] = None,
     width_override: Optional[int] = None,
     height_override: Optional[int] = None,
+    steps_override: Optional[int] = None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the configured backend.
 
@@ -56,6 +57,8 @@ async def generate_image(
                           local_diffusers and comfyui backends for live progress
                           reporting. Silently ignored by cloudflare and hf_spaces.
         width_override / height_override: Override the configured output dimensions.
+                          Forwarded to comfyui only; ignored by all other backends.
+        steps_override:   Override the configured inference step count.
                           Forwarded to comfyui only; ignored by all other backends.
 
     Returns:
@@ -78,6 +81,7 @@ async def generate_image(
             on_progress=on_progress,
             width_override=width_override,
             height_override=height_override,
+            steps_override=steps_override,
         )
     import cloudflare_ai as _cloudflare_ai
     return await _cloudflare_ai.generate_image(prompt)

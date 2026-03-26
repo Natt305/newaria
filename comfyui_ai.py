@@ -475,6 +475,7 @@ def _run_generate(
     reference_images: Optional[list] = None,
     width_override: Optional[int] = None,
     height_override: Optional[int] = None,
+    steps_override: Optional[int] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Blocking: submit a job to ComfyUI and return (png_bytes, mime) or None."""
     try:
@@ -487,7 +488,7 @@ def _run_generate(
     gguf_path = os.environ.get("COMFYUI_GGUF", "").strip()
     vae_name = os.environ.get("COMFYUI_VAE", "").strip()
     clip_name = os.environ.get("COMFYUI_CLIP", "").strip()
-    steps = _get_int("COMFYUI_STEPS", DEFAULT_STEPS)
+    steps = steps_override if steps_override is not None else _get_int("COMFYUI_STEPS", DEFAULT_STEPS)
     width = width_override if width_override else _get_int("COMFYUI_WIDTH", DEFAULT_WIDTH)
     height = height_override if height_override else _get_int("COMFYUI_HEIGHT", DEFAULT_HEIGHT)
     strength = _get_float("COMFYUI_STRENGTH", DEFAULT_STRENGTH)
@@ -833,6 +834,7 @@ async def generate_image(
     on_progress: Optional[Callable[[str], Coroutine]] = None,
     width_override: Optional[int] = None,
     height_override: Optional[int] = None,
+    steps_override: Optional[int] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Generate an image via a locally-running ComfyUI instance.
 
@@ -862,7 +864,7 @@ async def generate_image(
     client_id = str(uuid.uuid4())
     base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
 
-    gen_coro = asyncio.to_thread(_run_generate, prompt, reference_image, client_id, reference_images, width_override, height_override)
+    gen_coro = asyncio.to_thread(_run_generate, prompt, reference_image, client_id, reference_images, width_override, height_override, steps_override)
 
     if on_progress is None:
         return await gen_coro

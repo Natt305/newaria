@@ -151,6 +151,7 @@ async def _generate_image(
     on_progress=None,
     width_override: Optional[int] = None,
     height_override: Optional[int] = None,
+    steps_override: Optional[int] = None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the active backend.
 
@@ -166,6 +167,8 @@ async def _generate_image(
         width_override / height_override: Override the configured output resolution.
                           Used for multi-character composite references where the output
                           canvas must match the composite aspect ratio.
+        steps_override: Override inference step count. Forwarded to comfyui only.
+                          Used to scale up steps for multi-subject scenes.
     """
     import image_dispatch as _dispatch
     return await _dispatch.generate_image(
@@ -175,6 +178,7 @@ async def _generate_image(
         on_progress=on_progress,
         width_override=width_override,
         height_override=height_override,
+        steps_override=steps_override,
     )
 
 
@@ -1259,6 +1263,14 @@ async def process_chat(
                         _ref_image_for_gen,
                         reference_images=_comfyui_ref_images or None,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
+                        steps_override=(
+                            min(
+                                int(os.environ.get("COMFYUI_STEPS", "4")) * _n_unique_subjects,
+                                16,
+                            )
+                            if _n_unique_subjects > 1 and _IMAGE_BACKEND == "comfyui"
+                            else None
+                        ),
                     ),
                     groq_ai.generate_image_comment(
                         image_prompt, bot_name, background, user_text, history=history
