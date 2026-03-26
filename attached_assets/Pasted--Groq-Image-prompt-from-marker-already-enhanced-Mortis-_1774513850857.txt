@@ -1,0 +1,16 @@
+[Groq] Image prompt from marker (already enhanced): '仁菜和Mortis一起唱歌的现场，背景是黑暗的舞台灯光，仁菜的明亮微笑与Mortis的神秘气质形成鲜明对比，两人合唱时的声音完美融合，anime-style i'
+[Bot] KB title scan: 1 unique subject(s) matched — ['mortis']
+[Bot] KB image enrichment: 1 title match(es) — photo-only, no text descriptions
+[Bot] KB thumbnail [3/3] loaded for 'mortis' (id=12)
+[Bot] KB thumbnail [1/3] loaded for 'mortis' (id=12)
+[Bot] KB thumbnail [2/3] loaded for 'mortis' (id=12)
+[Groq] enhance_image_prompt: using vision model with 3 reference image(s)
+[Groq] llama-3.3-70b-versatile hit daily token limit — skipping until midnight UTC.
+[Groq] Prompt enhanced: clean 2D anime illustration, flat cel-shaded coloring, soft gradient shading, vivid saturated color palette, anime digital art, 2D illustration, dark stage lighting, emotional mood, live concert setting, Renka smiling brightly while singing with Mortis, contrast between Renka's cheerful expression and Mortis's mysterious aura, their voices blending harmoniously as they sing together, pale mint-green hair, extremely long straight hair with blunt bangs and no ahoge, side-framing strands, warm amber-yellow eyes, high saturation, medium brightness, cool greenish-grey lashes, NOT black or dark brown, moderate contrast, fine and delicate, light warm ivory skin, outfit: open-front black shoulder cape; wide circle-cut, gold trim, draping to mid-thigh + off-white ruffled jabot; sternum-level, V-shaped, green-gemstone brooch + red and black short-sleeved top; gold buttons, red and black shorts underneath + dark grey opaque tights + red beret + red heeled shoes; gold buckles.
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=False, kb_refs=[], ref_images=3, unique_subjects=1, text_overrides=[], spatial='')
+[Groq] Skipping daily-exhausted models: ['llama-3.3-70b-versatile']
+[ComfyUI] Native reference mode — 3 reference image(s), output size=512x512
+[ComfyUI] Queuing reference job — size=auto (from reference), steps=4, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, clean 2D anime illustration, flat cel-shaded'
+[ComfyUI] Job queued — prompt_id=16aa43da-25fa-40ad-9d84-25ea75668ac0
+[ComfyUI] Done — 307813 bytes ('ariabot__00039_.png')
