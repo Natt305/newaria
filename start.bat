@@ -22,8 +22,8 @@ if /i not "!IMAGE_BACKEND!"=="comfyui" goto skipcomfy
 if not defined COMFYUI_PATH goto skipcomfy
 if "!COMFYUI_PATH!"=="" goto skipcomfy
 
-rem Check if ComfyUI is already listening on port 8188
-python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8188/system_stats',timeout=2); sys.exit(0)" 2>nul
+rem Check if ComfyUI is already listening on port 8188 (plain socket — works regardless of HTTP response)
+python -c "import socket,sys; s=socket.socket(); s.settimeout(2); r=s.connect_ex(('127.0.0.1',8188)); s.close(); sys.exit(0 if r==0 else 1)" 2>nul
 if not errorlevel 1 (
     echo [ComfyUI] Already running on port 8188 — skipping launch.
     echo.
@@ -35,7 +35,7 @@ start "ComfyUI" /d "!COMFYUI_PATH!" python main.py --listen 127.0.0.1 --port 818
 
 echo [ComfyUI] Waiting for ComfyUI to be ready on port 8188...
 :waitloop
-python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8188/system_stats',timeout=2); sys.exit(0)" 2>nul
+python -c "import socket,sys; s=socket.socket(); s.settimeout(2); r=s.connect_ex(('127.0.0.1',8188)); s.close(); sys.exit(0 if r==0 else 1)" 2>nul
 if errorlevel 1 (
     timeout /t 2 /nobreak >nul
     goto waitloop
