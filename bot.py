@@ -666,6 +666,30 @@ async def build_visual_kb_context(image_description: str) -> tuple:
     return "\n".join(parts), valid_matches
 
 
+def _title_matches(title_lower: str, match_lower: str) -> bool:
+    """Return True when a KB entry title is mentioned in the scanned text.
+
+    Two checks are combined:
+      (a) Forward  — the full stored title is a substring of the text.
+                     Handles exact matches and 1-char stored titles.
+      (b) Partial  — any contiguous 2+ char substring of the stored title
+                     appears in the text.  Covers nickname / given-name usage
+                     (e.g. stored title "井芹仁菜" is matched when the user
+                     writes "仁菜").  Only applied when the stored title is
+                     longer than 2 chars; 1-char and 2-char titles are fully
+                     covered by check (a) alone.  Minimum substring length of
+                     2 intentionally avoids single-character false positives.
+    """
+    if title_lower in match_lower:
+        return True
+    if len(title_lower) > 2:
+        for length in range(2, len(title_lower)):
+            for start in range(len(title_lower) - length + 1):
+                if title_lower[start:start + length] in match_lower:
+                    return True
+    return False
+
+
 async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -> tuple:
     """Enrich a generation prompt with KB image details ONLY when the image's
     title is explicitly mentioned in the prompt (e.g. saved photo of 'Alice',
@@ -700,7 +724,7 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
         title = (entry.get("title") or "").strip()
         if not title or len(title) < 2:
             continue
-        if title.lower() not in match_lower:
+        if not _title_matches(title.lower(), match_lower):
             continue
         desc = (entry.get("appearance_description") or "").strip()
         if title not in seen_titles:
@@ -718,7 +742,7 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
         title = (entry.get("title") or "").strip()
         if not title or len(title) < 2:
             continue
-        if title.lower() not in match_lower:
+        if not _title_matches(title.lower(), match_lower):
             continue
         # Use 'content' as the appearance description for text entries
         desc = (entry.get("content") or "").strip()
@@ -1502,6 +1526,13 @@ async def on_ready():
     print(f"[Bot] 建議按鈕: {'開啟' if _suggestions_enabled else '關閉'}")
     if _suggestion_prompt:
         print(f"[Bot] 自訂建議提示詞已載入 ({len(_suggestion_prompt)} 字元)")
+    # Log all KB entry titles at startup so title mismatches are immediately visible
+    _startup_kb = database.get_image_entries() + database.get_text_entries()
+    _startup_titles = [e.get("title", "") for e in _startup_kb if e.get("title")]
+    if _startup_titles:
+        print(f"[Bot] KB entries ({len(_startup_titles)}): {_startup_titles}")
+    else:
+        print("[Bot] KB entries: (none)")
 
     # Restore persisted memory settings
     global _memory_enabled, _memory_length, _passive_memory_enabled, _passive_memory_length
