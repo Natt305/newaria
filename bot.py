@@ -675,14 +675,21 @@ def _title_matches(title_lower: str, match_lower: str) -> bool:
       (b) Partial  — any contiguous 2+ char substring of the stored title
                      appears in the text.  Covers nickname / given-name usage
                      (e.g. stored title "井芹仁菜" is matched when the user
-                     writes "仁菜").  Only applied when the stored title is
-                     longer than 2 chars; 1-char and 2-char titles are fully
-                     covered by check (a) alone.  Minimum substring length of
-                     2 intentionally avoids single-character false positives.
+                     writes "仁菜").
+
+    IMPORTANT: check (b) is ONLY applied when the stored title contains at
+    least one CJK/non-ASCII character.  Pure Latin/ASCII titles (e.g.
+    "Mortis") generate 2-char substrings like "ti" or "or" that will match
+    incidentally in any English sentence ("illustration", "for", etc.),
+    causing false positives.  For those titles only the exact full-title
+    check (a) is used.
     """
     if title_lower in match_lower:
         return True
-    if len(title_lower) > 2:
+    # Partial matching only makes sense for CJK-script titles where every
+    # character is a distinct logogram and 2-char sequences are highly specific.
+    has_cjk = any(ord(ch) >= 0x3000 for ch in title_lower)
+    if has_cjk and len(title_lower) > 2:
         for length in range(2, len(title_lower)):
             for start in range(len(title_lower) - length + 1):
                 if title_lower[start:start + length] in match_lower:
