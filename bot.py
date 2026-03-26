@@ -1528,7 +1528,7 @@ async def on_ready():
         print(f"[Bot] 自訂建議提示詞已載入 ({len(_suggestion_prompt)} 字元)")
     # Log all KB entry titles at startup so title mismatches are immediately visible
     _startup_kb = database.get_image_entries() + database.get_text_entries()
-    _startup_titles = [e.get("title", "") for e in _startup_kb if e.get("title")]
+    _startup_titles = list(dict.fromkeys(e.get("title", "") for e in _startup_kb if e.get("title")))
     if _startup_titles:
         print(f"[Bot] KB entries ({len(_startup_titles)}): {_startup_titles}")
     else:
