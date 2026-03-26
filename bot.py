@@ -681,26 +681,27 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
     strings ensures titles mentioned by the user are always found.  The enriched
     prompt output still uses only image_prompt as its base.
     """
-    # Use get_image_entries() — no arbitrary limit, image-type entries only.
-    # get_all_entries(limit=200) mixed all types and could silently drop image
-    # entries beyond position 200 in the combined list.
+    # Scan both image and text entries so that subjects stored as text-only KB
+    # entries (no photo) are still recognised as named subjects — they count
+    # toward spatial prefix, n_subjects, and _kb_refs_no_photo text grounding.
     image_entries = database.get_image_entries()
+    text_entries = database.get_text_entries()
 
     # Combined scan text — includes hint_text so subjects named in the original
     # user message are found even when the LLM dropped their names from the marker.
     match_lower = (image_prompt + " " + hint_text).lower() if hint_text else image_prompt.lower()
     matched_with_desc = []   # (title, desc) for entries that have a text description
-    title_matched = []       # all entries matched by title — used for thumbnail loading
+    title_matched = []       # all matched entries (image + text) — used for subject counting
     seen_titles: set = set() # dedup: one entry per title in title_matched
     subject_references: dict = {}
+
+    # Image entries first (priority for photo loading)
     for entry in image_entries:
         title = (entry.get("title") or "").strip()
         if not title or len(title) < 2:
             continue
         if title.lower() not in match_lower:
             continue
-        # Deduplicate by title — keep the entry with the longest description when
-        # there are multiple entries sharing the same title.
         desc = (entry.get("appearance_description") or "").strip()
         if title not in seen_titles:
             seen_titles.add(title)
@@ -709,7 +710,26 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
             existing = subject_references.get(title, "")
             if len(desc) > len(existing):
                 subject_references[title] = desc
-                # Update matched_with_desc: replace existing or append new
+                matched_with_desc = [(t, d) for t, d in matched_with_desc if t != title]
+                matched_with_desc.append((title, desc))
+
+    # Text entries — provide description grounding for subjects without a photo
+    for entry in text_entries:
+        title = (entry.get("title") or "").strip()
+        if not title or len(title) < 2:
+            continue
+        if title.lower() not in match_lower:
+            continue
+        # Use 'content' as the appearance description for text entries
+        desc = (entry.get("content") or "").strip()
+        if title not in seen_titles:
+            # Text-only subject — add so it counts for spatial prefix / n_subjects
+            seen_titles.add(title)
+            title_matched.append(entry)
+        if desc:
+            existing = subject_references.get(title, "")
+            if len(desc) > len(existing):
+                subject_references[title] = desc
                 matched_with_desc = [(t, d) for t, d in matched_with_desc if t != title]
                 matched_with_desc.append((title, desc))
 
@@ -1058,17 +1078,26 @@ async def process_chat(
         # Done before enhance_image_prompt so the LLM rewriter sees the
         # left/right subject ordering in the prompt it is expanding.
         #
-        # _unique_ref_labels: deduplicated subject list (one entry per subject,
-        # preserving order).  Used both for the spatial prefix and as the
-        # authoritative unique-subject count passed to enhance_image_prompt so
-        # that multiple photos of the same subject don't inflate n_subjects_hint.
+        # _unique_ref_labels  — photo-loaded subjects only, in load order.
+        #                        Used to order ComfyUI reference latents.
+        # _all_subject_titles — ALL recognised subjects (photo + text-only),
+        #                        used for spatial prefix and n_subjects so that
+        #                        text-only KB entries still trigger multi-char
+        #                        mode and receive a left/right slot.
         _unique_ref_labels = list(dict.fromkeys(_ref_labels))
-        _n_unique_subjects = len(_unique_ref_labels)
+        _all_subject_titles: list = []
+        if _needs_char_ctx and bot_name not in _all_subject_titles:
+            _all_subject_titles.append(bot_name)
+        for _e in _kb_matches:
+            _et = _e.get("title", "")
+            if _et and _et not in _all_subject_titles:
+                _all_subject_titles.append(_et)
+        _n_unique_subjects = len(_all_subject_titles)
         _ref_image_for_gen = None
         _spatial_prefix = ""
         if _IMAGE_BACKEND == "comfyui" and _ref_images:
             if _n_unique_subjects > 1:
-                _spatial_prefix = _build_spatial_prefix(_unique_ref_labels)
+                _spatial_prefix = _build_spatial_prefix(_all_subject_titles)
         elif _IMAGE_BACKEND in ("local_diffusers", "hf_spaces") and _ref_images:
             _comp = _composite_reference_images(_ref_images, _ref_labels)
             if isinstance(_comp, dict):

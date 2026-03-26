@@ -1,0 +1,14 @@
+[Groq] Image prompt from marker (already enhanced): '仁菜和Mortis一起唱歌，anime-style illustration, 2D art, soft lighting, warm mood'
+[Bot] KB title scan: 1 unique subject(s) matched — ['mortis']
+[Bot] KB image enrichment: 1 title match(es) — photo-only, no text descriptions
+[Bot] KB thumbnail [2/3] loaded for 'mortis' (id=12)
+[Bot] KB thumbnail [1/3] loaded for 'mortis' (id=12)
+[Bot] KB thumbnail [3/3] loaded for 'mortis' (id=12)
+[Groq] enhance_image_prompt: using vision model with 3 reference image(s)
+[Groq] Prompt enhanced: clean 2D anime illustration, flat cel-shaded coloring, soft gradient shading, vivid saturated color palette, anime digital art, scene: warm soft lighting, background with sunbeams and mountain peaks, 仁菜 smiling and looking at viewer, holding a microphone, singing with Mortis, warm mood; character appearance: very pale seafoam mint-green hair, long straight with blunt bangs and no ahoge, vivid warm amber-yellow eyes, high saturation, medium brightness, cool greenish-grey lashes, NOT black or dark brown, moderate contrast, fine and delicate, light warm ivory skin with golden undertone; outfit: open-front black shoulder cape; wide circle-cut, gold-trimmed hem, draping to mid-thigh + off-white ruffled jabot; sternum-level, V-shaped, green-gemstone brooch + red high-collared blouse; gold-buttoned front, short puffed sleeves + black high-waist shorts; double-row gold buttons + dark grey opaque tights + red beret; simple design
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=False, kb_refs=[], ref_images=3, unique_subjects=1, text_overrides=[], spatial='')
+[ComfyUI] Native reference mode — 3 reference image(s), output size=512x512
+[ComfyUI] Queuing reference job — size=auto (from reference), steps=4, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, clean 2D anime illustration, flat cel-shaded'
+[ComfyUI] Job queued — prompt_id=19a1ebad-79f5-464f-b2db-06cb3fb8c0db
+[ComfyUI] Done — 296850 bytes ('ariabot__00038_.png')
