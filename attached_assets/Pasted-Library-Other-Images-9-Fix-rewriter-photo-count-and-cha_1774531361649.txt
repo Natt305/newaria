@@ -1,0 +1,45 @@
+Library
+Other
+Images
+#9 - Fix rewriter photo count and character_context authority
+What & Why
+
+Two bugs combine to produce garbled multi-character images ("3 characters", wrong colours, wrong scale):
+Bug 1 — LLM infers 3 subjects from 6 photos
+
+For a "bot + KB subject" scene the system loads up to 3 thumbnails per subject (3 + 3 = 6 photos) and passes them all to the LLM rewriter. The LLM has no mapping of which photos belong to which subject. It sees 6 slightly-different images and infers 2-3 characters on its own, overriding the n_subjects_override hint in the system prompt.
+
+Fix: create a separate _llm_ref_images list (1 photo per subject, the first loaded) for the rewriter call. ComfyUI continues to receive all photos (up to 3 per subject) for full ReferenceLatent quality. The rewriter only needs 1 image per subject to identify colour and style — it doesn't need multiple views.
+Bug 2 — Bot's written appearance description is ignored when photos exist
+
+In groq_ai.py the character_context block (the bot's own user-configured appearance description) is labelled:
+
+"[CHARACTER APPEARANCE — SECONDARY REFERENCE (photos are primary)]"
+
+So even though the user has manually set the correct appearance, the LLM reads from reference photos instead — which may show a wrong-coloured 3D game model.
+
+Fix: when character_context is non-empty AND reference photos are attached, label it [CHARACTER APPEARANCE — AUTHORITATIVE TEXT — OVERRIDES PHOTOS]. Wording: "the following verified description overrides whatever the reference photos appear to show; use photos only for pose, setting, and details NOT covered here." This mirrors the existing [SUBJECT REFERENCE — ABSOLUTE AUTHORITY] pattern used for text-only KB subjects.
+Done looks like
+
+    "想看妳跟仁菜玩耍" or any "妳 + KB subject" request:
+        Exactly 2 characters appear in the output
+        Bot character appearance matches the user-configured written description
+        KB subject appearance comes from its reference photo (compact 3-item)
+    Console log shows: [Bot] LLM ref images: 2 (1 per subject) — ComfyUI ref images: N so the split is visible without a generation attempt
+
+Out of scope
+
+    Changing how ComfyUI ReferenceLatent uses the full photo set
+    Fixing appearance of KB subjects (photo-only, no change)
+    Changing the _MAX_REFS_PER_SUBJECT cap for ComfyUI
+
+Tasks
+
+    Separate LLM photo list from ComfyUI photo list in bot.py — after _ref_images / _ref_labels are built, derive _llm_ref_images by keeping only the FIRST photo per unique subject label. Pass _llm_ref_images to enhance_image_prompt() instead of _ref_images. Log both counts.
+
+    Upgrade character_context from secondary to authoritative in groq_ai.py — when has_images is True and character_context is non-empty, change the label and wording from "secondary reference (photos are primary)" to "authoritative text that overrides the reference photos for appearance traits covered by this text." Keep the instruction to use photos for pose/setting/ details not covered.
+
+Relevant files
+
+    bot.py:1011-1130 (photo loading + enhance call)
+    groq_ai.py:444-464 (character_context ref_block injection)

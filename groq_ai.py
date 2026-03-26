@@ -444,17 +444,20 @@ async def enhance_image_prompt(
     ref_block = ""
     if character_context and character_context.strip():
         if has_images:
-            # Reference photos are attached — the vision model reads appearance
-            # directly from them.  The stored text is a secondary supplement only;
-            # it fills in details not clearly visible in the photos.
+            # Reference photos are attached, but the user-configured written description
+            # is the authoritative source for appearance traits (eye colour, hair colour,
+            # outfit, etc.).  Photos may show a wrong-coloured 3D game model or an early
+            # design — the verified text overrides them.  Use photos only for pose,
+            # setting, and details NOT covered by the text below.
             ref_block += (
-                "\n[CHARACTER APPEARANCE — SUPPLEMENTAL TEXT (photos are primary)]\n"
-                "Reference photos are attached. Read appearance from the photos first.\n"
-                "Use the text below ONLY as a supplement for details not clearly visible in the photos.\n"
-                "Do NOT reproduce this block exhaustively — include just a brief identifying tag "
-                "(character name + one or two signature visual traits, e.g. hair colour + eye colour). "
-                "Spend the rest of the prompt on: scene, environment, lighting, mood, pose, "
-                "and what the character(s) are doing or feeling.\n"
+                "\n[CHARACTER APPEARANCE — AUTHORITATIVE TEXT — OVERRIDES PHOTOS]\n"
+                "Reference photos are attached for pose and setting reference ONLY.\n"
+                "The following verified description overrides whatever the reference photos appear to show "
+                "for any appearance trait covered here (hair colour, eye colour, outfit, skin tone, etc.).\n"
+                "Use the photos only for pose, setting, and details NOT mentioned in this text.\n"
+                "Do NOT reproduce this block exhaustively — include a brief identifying tag "
+                "(character name + key visual traits) then spend the rest of the prompt on: "
+                "scene, environment, lighting, mood, pose, and what the character(s) are doing or feeling.\n"
                 "EXCEPTION: any ART STYLE line in this block is irrelevant — art style is always 2D anime.\n"
                 f"{character_context.strip()}\n"
             )
