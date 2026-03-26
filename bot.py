@@ -1019,25 +1019,19 @@ async def process_chat(
         # rewriter.  All collected images are later composited into a single
         # side-by-side tile that serves as the img2img seed, so every referenced
         # subject is visible to the model simultaneously.
-        #   • Self-referential prompt  → character thumbnails first, KB after
+        #   • Self-referential prompt  → KB photos first, bot photos LAST
+        #                                (ReferenceLatent chain: last node has
+        #                                 strongest influence — bot is primary)
         #   • KB subject only          → KB thumbnails first, char after
         _ref_images: list = []
         _ref_labels: list = []   # parallel subject names for composite labels
         _MAX_REFS_PER_SUBJECT = 3  # up to 3 reference photos per subject
         if _is_self_ref:
-            # Bot's own character is the primary subject
-            if _needs_char_ctx:
-                char_count = database.get_character_image_count()
-                _bot_loaded = 0
-                for i in range(1, char_count + 1):
-                    if _bot_loaded >= _MAX_REFS_PER_SUBJECT:
-                        break
-                    thumb = database.get_character_image_thumb(i)
-                    if thumb:
-                        _ref_images.append(thumb)
-                        _ref_labels.append(bot_name)
-                        _bot_loaded += 1
-                print(f"[Bot] Ref images: {_bot_loaded}/{char_count} character photo(s) loaded for {bot_name!r}")
+            # Bot is the primary subject.  Load KB photos FIRST so the bot's
+            # photos are the final links in the ReferenceLatent chain and
+            # therefore have the strongest conditioning influence.  If KB
+            # photos came last, the KB character's look would bleed onto the
+            # bot (and vice-versa) — which is the "both look like Nina" bug.
             if _has_kb_subject:
                 for _kb_entry in _kb_matches:
                     _kb_entry_id = _kb_entry.get("id")
@@ -1064,6 +1058,18 @@ async def process_chat(
                             _ref_labels.append(_kb_label)
                             _kb_loaded += 1
                     print(f"[Bot] Ref images: {_kb_loaded}/{_kb_img_count} photo(s) loaded for KB entry {_kb_label!r} (id={_kb_entry_id})")
+            if _needs_char_ctx:
+                char_count = database.get_character_image_count()
+                _bot_loaded = 0
+                for i in range(1, char_count + 1):
+                    if _bot_loaded >= _MAX_REFS_PER_SUBJECT:
+                        break
+                    thumb = database.get_character_image_thumb(i)
+                    if thumb:
+                        _ref_images.append(thumb)
+                        _ref_labels.append(bot_name)
+                        _bot_loaded += 1
+                print(f"[Bot] Ref images: {_bot_loaded}/{char_count} character photo(s) loaded for {bot_name!r} (LAST = primary anchor)")
         else:
             # KB subject is the primary subject (or no subject at all)
             if _has_kb_subject:
