@@ -617,12 +617,15 @@ async def enhance_image_prompt(
         if has_images:
             multi_char_note += (
                 "\n"
-                f"RULE — IDENTIFY EACH CHARACTER BRIEFLY: There are {n_subjects_hint} characters. "
-                "For each, include only a short identifying tag (name + one or two visual identifiers "
-                "read from the reference photos — e.g. hair colour, hat, or signature outfit piece). "
-                "Do NOT exhaustively list every appearance detail. "
-                "Reserve the majority of the prompt for: scene setting, environment, "
-                "lighting, mood, pose, and what the characters are doing or feeling together.\n"
+                f"RULE — IDENTIFY EACH CHARACTER: There are {n_subjects_hint} characters. "
+                "For each character include ALL of the following — these are the minimum anchors "
+                "the image model needs to render distinct characters correctly:\n"
+                "  • Hair: exact colour AND length (e.g. 'long mint-green hair', 'short black bob') — "
+                "length is MANDATORY, do not omit it\n"
+                "  • Eyes: colour\n"
+                "  • Outfit: 2–3 key pieces that make this character visually distinct\n"
+                "Keep each character block concise but complete on these four points. "
+                "Reserve the rest of the prompt for scene, environment, lighting, mood, and interaction.\n"
             )
         else:
             multi_char_note += (
@@ -645,8 +648,8 @@ async def enhance_image_prompt(
             "Verify ALL of these are present before finalizing:\n"
             "  ✓ SCENE — rich setting, lighting, mood, pose, and character interaction "
             "(this must be the majority of your output, not character appearance)\n"
-            "  ✓ CHARACTER TAGS — for each character: name + hair colour + one most "
-            "distinctive outfit piece. Nothing more per character.\n"
+            "  ✓ CHARACTER TAGS — for each character: name + hair colour AND length + "
+            "eye colour + 2–3 key outfit pieces. Hair length is mandatory.\n"
             "  ✓ ART STYLE — 'clean 2D anime illustration, flat cel-shaded, anime digital art'\n"
             "  ✓ PROPS/INSTRUMENTS — any object mentioned in the request text\n"
             "If any item is missing from your output, add it before finalizing.\n"
