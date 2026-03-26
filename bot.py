@@ -1232,19 +1232,24 @@ async def process_chat(
         #
         # Base anchor:  "[Name: hair colour]"
         # Collision tier: when two or more characters share the same hair
-        #   colour family (e.g. both mint-green), eye colour is added so FLUX
-        #   has a second differentiator: "[Name: hair colour, eye colour eyes]"
+        #   colour family (e.g. both mint-green), a key outfit piece is added
+        #   as a second differentiator: "[Name: hair colour, wearing beret]"
         #
-        # Sources parsed (both use the same HAIR:/EYES: section labels):
+        # Sources parsed (both use the same HAIR:/OUTFIT: section labels):
         #   _kb_supplements  — KB entries with photos (e.g. Mortis, Nina)
         #   char_images_ctx  — bot's own character images (Aria etc.)
         if _IMAGE_BACKEND == "comfyui" and _n_unique_subjects >= 2:
-            # ── Step 1: collect HAIR + EYES for every photo-based participant ──
-            _id_data: dict = {}  # {label: {"hair": str, "eyes": str}}
+            # ── Step 1: collect HAIR + OUTFIT for every photo-based participant ──
+            _id_data: dict = {}  # {label: {"hair": str, "outfit": str}}
 
-            def _parse_hair_eyes(text: str) -> tuple:
-                """Return (hair_phrase, eyes_phrase) from a supplement/ctx block."""
-                _hair = _eyes = ""
+            def _parse_id_traits(text: str) -> tuple:
+                """Return (hair_phrase, outfit_piece) from a supplement/ctx block.
+
+                outfit_piece is the FIRST item in the OUTFIT: line (before ' + ')
+                — chosen because it is typically the most visually distinctive
+                piece (e.g. 'deep crimson beret' for Mortis).
+                """
+                _hair = _outfit = ""
                 for _ln in text.splitlines():
                     _s = _ln.strip()
                     if _s.upper().startswith("HAIR:") and not _hair:
@@ -1253,29 +1258,33 @@ async def process_chat(
                         if len(_raw) > 80:
                             _raw = _raw[:80].rsplit(" ", 1)[0]
                         _hair = _raw
-                    elif _s.upper().startswith("EYES:") and not _eyes:
-                        _raw = _s[5:].strip()
-                        # First comma-delimited token is enough (e.g. "warm amber")
-                        _raw = _raw.split(",")[0].strip()
+                    elif _s.upper().startswith("OUTFIT:") and not _outfit:
+                        _raw = _s[7:].strip()
+                        # Take only the first ' + '-delimited piece — that's
+                        # typically the most iconic item (hat, cape, etc.).
+                        _raw = _raw.split(" + ")[0].strip()
+                        # Fall back to first comma chunk if no ' + ' found.
+                        if not _raw:
+                            _raw = _s[7:].strip().split(",")[0].strip()
                         if len(_raw) > 60:
                             _raw = _raw[:60].rsplit(" ", 1)[0]
-                        _eyes = _raw
-                    if _hair and _eyes:
+                        _outfit = _raw
+                    if _hair and _outfit:
                         break
-                return _hair, _eyes
+                return _hair, _outfit
 
             # KB supplements (Mortis, Nina, etc.)
             for _ha_name, _ha_text in (_kb_supplements or {}).items():
                 if _ha_name in _ref_labels:
-                    _h, _e = _parse_hair_eyes(_ha_text)
+                    _h, _o = _parse_id_traits(_ha_text)
                     if _h:
-                        _id_data[_ha_name] = {"hair": _h, "eyes": _e}
+                        _id_data[_ha_name] = {"hair": _h, "outfit": _o}
 
             # Bot's own character context (Aria etc.)
             if _needs_char_ctx and char_images_ctx and bot_name not in _id_data:
-                _h, _e = _parse_hair_eyes(char_images_ctx)
+                _h, _o = _parse_id_traits(char_images_ctx)
                 if _h:
-                    _id_data[bot_name] = {"hair": _h, "eyes": _e}
+                    _id_data[bot_name] = {"hair": _h, "outfit": _o}
 
             if _id_data:
                 # ── Step 2: detect hair-colour family collision ──
@@ -1297,18 +1306,23 @@ async def process_chat(
                 _has_collision = len(_families) != len(set(_families))
 
                 # ── Step 3: build anchor tags ──
-                _hair_anchors = []
+                # Base:      "[Name: hair colour]"
+                # Collision: "[Name: hair colour, outfit piece]"
+                #   outfit_piece = first item in OUTFIT: line (e.g. "deep crimson beret")
+                #   — chosen because iconic accessories are the strongest visual anchor
+                #   for FLUX when two characters share the same hair colour family.
+                _id_anchors = []
                 for _ha_name, _data in _id_data.items():
                     _tag = f"[{_ha_name}: {_data['hair']}"
-                    if _has_collision and _data["eyes"]:
-                        _tag += f", {_data['eyes']} eyes"
+                    if _has_collision and _data["outfit"]:
+                        _tag += f", wearing {_data['outfit']}"
                     _tag += "]"
-                    _hair_anchors.append(_tag)
+                    _id_anchors.append(_tag)
 
-                _ha_prefix = " ".join(_hair_anchors)
+                _ha_prefix = " ".join(_id_anchors)
                 enriched_prompt = _ha_prefix + ", " + enriched_prompt.lstrip(" ,")
-                _col_note = " (collision — eyes added)" if _has_collision else ""
-                print(f"[Bot] ID anchors injected{_col_note}: {_hair_anchors}")
+                _col_note = " (collision — outfit added)" if _has_collision else ""
+                print(f"[Bot] ID anchors injected{_col_note}: {_id_anchors}")
 
         # Prepend a compact Flux-friendly style prefix so Flux anchors on style
         # early (left-to-right token weighting).  Keep it short — the enriched
