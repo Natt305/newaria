@@ -722,7 +722,7 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
     # Image entries first (priority for photo loading)
     for entry in image_entries:
         title = (entry.get("title") or "").strip()
-        if not title or len(title) < 2:
+        if not title:
             continue
         if not _title_matches(title.lower(), match_lower):
             continue
@@ -740,7 +740,7 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
     # Text entries — provide description grounding for subjects without a photo
     for entry in text_entries:
         title = (entry.get("title") or "").strip()
-        if not title or len(title) < 2:
+        if not title:
             continue
         if not _title_matches(title.lower(), match_lower):
             continue
