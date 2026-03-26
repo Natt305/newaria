@@ -72,12 +72,14 @@ async def enhance_image_prompt(
     character_context: str = "",
     subject_references: dict = None,
     reference_images: list = None,
+    n_subjects_override: int = None,
 ) -> str:
     return await _mod().enhance_image_prompt(
         raw_prompt,
         character_context=character_context,
         subject_references=subject_references,
         reference_images=reference_images,
+        n_subjects_override=n_subjects_override,
     )
 
 
