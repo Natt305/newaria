@@ -1007,15 +1007,23 @@ async def process_chat(
         # doing so overwrites the subject's appearance with the bot's own.
         _needs_char_ctx = _is_self_ref or (_prompt_from_marker and _has_char_photos and not _has_kb_subject)
         if _needs_char_ctx:
-            # Build character context with the manually-written `looks` field first
-            # (it is the authoritative, user-verified source for traits like eye color)
-            # followed by auto-generated photo descriptions as supplementary evidence.
+            # Build character context for the LLM prompt rewriter.
+            # The manually-written `looks` field is always included as the text anchor
+            # (e.g. correct hair/eye colour when the raw prompt would otherwise guess wrong).
+            # Auto-generated photo descriptions (build_character_images_context) are only
+            # included when NO actual photos will be sent as visual input — when photos ARE
+            # sent, the LLM reads appearance directly from them, and having stale or
+            # multi-angle text descriptions alongside causes conflicts (the LLM follows the
+            # text even when the photo clearly shows something different).
             _ctx_parts = []
             if looks:
                 _ctx_parts.append(f"[Authoritative written appearance description — HIGHEST PRIORITY]\n{looks}")
-            _img_ctx = build_character_images_context()
-            if _img_ctx:
-                _ctx_parts.append(f"[Reference photo descriptions — use to fill in any gaps not covered above]\n{_img_ctx}")
+            _has_bot_photos = database.get_character_image_count() > 0
+            if not _has_bot_photos:
+                # No photos to send visually — include text descriptions as the only source.
+                _img_ctx = build_character_images_context()
+                if _img_ctx:
+                    _ctx_parts.append(f"[Reference photo descriptions — use to fill in any gaps not covered above]\n{_img_ctx}")
             char_images_ctx = "\n\n".join(_ctx_parts)
         else:
             char_images_ctx = ""
