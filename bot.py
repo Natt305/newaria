@@ -1109,6 +1109,19 @@ async def process_chat(
         #                        text-only KB entries still trigger multi-char
         #                        mode and receive a left/right slot.
         _unique_ref_labels = list(dict.fromkeys(_ref_labels))
+        # _llm_ref_images — one photo per subject, used exclusively by the LLM
+        # rewriter.  Sending multiple photos per subject causes the rewriter to
+        # infer extra characters (it sees N photos and guesses N subjects even
+        # when n_subjects_override is passed).  One photo per subject is enough
+        # for the LLM to read hair colour and style; ComfyUI gets all photos for
+        # full ReferenceLatent quality.
+        _llm_seen: set = set()
+        _llm_ref_images: list = []
+        for _img, _lbl in zip(_ref_images, _ref_labels):
+            if _lbl not in _llm_seen:
+                _llm_ref_images.append(_img)
+                _llm_seen.add(_lbl)
+        print(f"[Bot] LLM ref images: {len(_llm_ref_images)} (1 per subject) — ComfyUI ref images: {len(_ref_images)}")
         _all_subject_titles: list = []
         if _needs_char_ctx and bot_name not in _all_subject_titles:
             _all_subject_titles.append(bot_name)
@@ -1160,8 +1173,8 @@ async def process_chat(
                 character_context=char_images_ctx,
                 subject_references=_kb_text_only if _kb_text_only else None,
                 subject_supplements=None,
-                reference_images=_ref_images if _ref_images else None,
-                n_subjects_override=_n_unique_subjects if _ref_images else None,
+                reference_images=_llm_ref_images if _llm_ref_images else None,
+                n_subjects_override=_n_unique_subjects if _llm_ref_images else None,
             )
             _refs_with_photo = [n for n in _kb_subject_refs if n in _ref_labels]
             print(f"[Bot] Prompt enhanced (from_marker={_prompt_from_marker}, has_char_ctx={bool(char_images_ctx)}, kb_refs={list(_kb_subject_refs.keys())}, ref_images={len(_ref_images)}, unique_subjects={_n_unique_subjects}, authority_refs={list(_kb_text_only.keys())}, photo_only={_refs_with_photo}, spatial={_spatial_prefix!r})")

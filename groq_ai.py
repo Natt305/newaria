@@ -444,18 +444,21 @@ async def enhance_image_prompt(
     ref_block = ""
     if character_context and character_context.strip():
         if has_images:
-            # Reference photos are attached — the vision model reads appearance
-            # directly from them.  The stored text is a secondary fallback only.
-            # Do NOT instruct the model to enumerate all traits; instead keep
-            # appearance brief and let scene/action dominate the output.
+            # Reference photos are attached AND a user-configured character description
+            # exists.  The written description is the ground truth — it was manually
+            # set by the user and may describe a character that differs from what the
+            # reference photos show (e.g. photos from a 3D game model with different
+            # colours).  The text therefore takes priority over the photos for every
+            # appearance trait it covers.  Photos are still useful for pose, setting,
+            # and any detail NOT mentioned in the text.
             ref_block += (
-                "\n[CHARACTER APPEARANCE — SECONDARY REFERENCE (photos are primary)]\n"
-                "Reference photos are attached above. Read appearance from the photos, not this text.\n"
-                "Use the text below ONLY as a fallback for details not clearly visible in the photos.\n"
-                "Do NOT reproduce this block exhaustively — include just a brief identifying tag "
-                "(character name + one or two signature visual traits, e.g. hair colour + eye colour). "
-                "Spend the rest of the prompt on: scene, environment, lighting, mood, pose, "
-                "and what the character(s) are doing or feeling.\n"
+                "\n[CHARACTER APPEARANCE — AUTHORITATIVE TEXT — OVERRIDES PHOTOS]\n"
+                "The following is the user-configured, verified appearance description for the main character. "
+                "It overrides whatever the reference photos appear to show for any trait it covers. "
+                "Reference photos may show a 3D model, game render, or stylised render that differs from "
+                "the canonical design described here — ignore photo-derived colours or outfit details "
+                "that conflict with this text.\n"
+                "Use the reference photos ONLY for: pose, action, setting, and details NOT mentioned below.\n"
                 "EXCEPTION: any ART STYLE line in this block is irrelevant — art style is always 2D anime.\n"
                 f"{character_context.strip()}\n"
             )
@@ -509,7 +512,7 @@ async def enhance_image_prompt(
             "\n[PRIORITY RULING — READ BEFORE EVERYTHING ELSE — MANDATORY OVERRIDES]\n"
             "Reference photos are attached. Priority order (highest first):\n"
             "  1. [SUBJECT REFERENCE] text blocks — absolute authority, override everything\n"
-            "  2. [CHARACTER APPEARANCE] text blocks — authoritative, override photos\n"
+            "  2. [CHARACTER APPEARANCE — AUTHORITATIVE TEXT] blocks — authoritative, override photos\n"
             "  3. Reference photos — primary source for all traits not covered by items 1-2 above\n"
             "  4. [SUBJECT APPEARANCE SUPPLEMENT] blocks — gap-filler only; use ONLY for details "
             "not clearly visible in the reference photos; do NOT use to override photo-visible traits\n"
