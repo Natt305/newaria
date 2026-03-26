@@ -1225,6 +1225,33 @@ async def process_chat(
         else:
             print("[Bot] Skipping enhancement — prompt already crafted by LLM via [IMAGE:] marker, no visual refs")
 
+        # For ComfyUI multi-character scenes: inject compact hair-colour anchors
+        # directly from the stored supplement text.  This is LLM-independent —
+        # even if the LLM rewriter omits the supplement hair phrase the anchor is
+        # always present, preventing FLUX from defaulting to dark hair.
+        # Only applies when: ComfyUI backend, 2+ unique subjects, supplements exist.
+        if _IMAGE_BACKEND == "comfyui" and _n_unique_subjects >= 2 and _kb_supplements:
+            _hair_anchors: list = []
+            for _ha_name, _ha_text in _kb_supplements.items():
+                if _ha_name not in _ref_labels:
+                    continue  # only photo-based characters
+                for _ha_line in _ha_text.splitlines():
+                    _ha_line = _ha_line.strip()
+                    if _ha_line.upper().startswith("HAIR:"):
+                        _ha_val = _ha_line[5:].strip()
+                        # Truncate at first sentence boundary or double-comma to stay concise.
+                        _ha_val = _re.split(r"[.;]|,\s*,", _ha_val)[0].strip()
+                        # Hard cap.
+                        if len(_ha_val) > 80:
+                            _ha_val = _ha_val[:80].rsplit(" ", 1)[0]
+                        if _ha_val:
+                            _hair_anchors.append(f"[{_ha_name}: {_ha_val}]")
+                        break
+            if _hair_anchors:
+                _ha_prefix = " ".join(_hair_anchors)
+                enriched_prompt = _ha_prefix + ", " + enriched_prompt.lstrip(" ,")
+                print(f"[Bot] Hair anchors injected: {_hair_anchors}")
+
         # Prepend a compact Flux-friendly style prefix so Flux anchors on style
         # early (left-to-right token weighting).  Keep it short — the enriched
         # prompt body already contains detailed style language from the LLM rewriter.
