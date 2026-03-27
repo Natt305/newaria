@@ -744,29 +744,29 @@ def _run_generate(
                     (unique_subjects[0] if unique_subjects else "unknown")
                 )
 
-                # ── AIO per-segment inpainting path ─────────────────────────────
-                # Used when: 2+ subjects with photo references AND per-character
-                # appearance descriptions are provided AND the AIO workflow file
-                # is available.  Each subject gets their own ReferenceLatent slot
-                # plus their own dedicated text prompt line in the inpainting loop,
-                # which prevents appearance bleed between characters.
-                _used_aio = False
-                if (
-                    n_subjects >= 2
-                    and subject_appearances
-                    and len(subject_uploaded) >= 2
-                ):
+                # ── ReferenceChainConditioning path ──────────────────────────────
+                # Primary multi-reference path: uses ReferenceChainConditioning
+                # (ComfyUI-ReferenceChain, https://github.com/remingtonspaz/ComfyUI-ReferenceChain).
+                # One node takes all uploaded reference images at once, handles
+                # scaling + VAE-encoding internally, and chains them as reference
+                # latents on both positive and negative conditioning streams.
+                #
+                # Used when: 2+ subjects each have at least one reference photo.
+                # Falls back to flat-chain (ReferenceLatent) if the node is not
+                # installed on the ComfyUI server.
+                _used_refchain = False
+                if n_subjects >= 2 and len(subject_uploaded) >= 2:
                     try:
-                        from workflow_adapter import build_aio_workflow, get_expanded_aio
-                        if get_expanded_aio() is not None:
-                            per_char_prompts = [
-                                subject_appearances.get(s, "")
-                                for s in unique_subjects[:4]
-                            ]
-                            aio_wf = build_aio_workflow(
-                                overall_prompt=prompt,
-                                per_character_prompts=per_char_prompts,
-                                uploaded_filenames=dict(subject_uploaded),
+                        from workflow_adapter import build_refchain_workflow
+                        # Check that ReferenceChainConditioning is registered on the server
+                        _rc_check = _requests.get(
+                            f"{base_url}/object_info/ReferenceChainConditioning",
+                            timeout=5,
+                        )
+                        if _rc_check.status_code == 200 and _rc_check.json():
+                            refchain_wf = build_refchain_workflow(
+                                prompt=prompt,
+                                uploaded_filenames=uploaded_names,
                                 unet_name=gguf_path,
                                 vae_name=vae_name,
                                 clip_name=clip_name,
@@ -775,18 +775,21 @@ def _run_generate(
                                 width=width,
                                 height=height,
                             )
-                            if aio_wf:
-                                workflow = aio_wf
-                                _used_aio = True
-                                print(
-                                    f"[ComfyUI] AIO per-segment workflow — {subject_label}, "
-                                    f"{len(uploaded_names)} image(s), "
-                                    f"per-char prompts: {per_char_prompts}"
-                                )
-                    except Exception as _aio_exc:
-                        print(f"[ComfyUI] AIO workflow build failed ({_aio_exc}) — falling back to flat chain.")
+                            workflow = refchain_wf
+                            _used_refchain = True
+                            print(
+                                f"[ComfyUI] ReferenceChain workflow — {subject_label}, "
+                                f"{len(uploaded_names)} image(s), output size={width}x{height}"
+                            )
+                        else:
+                            print(
+                                "[ComfyUI] ReferenceChainConditioning not found on server "
+                                f"(HTTP {_rc_check.status_code}) — falling back to flat chain."
+                            )
+                    except Exception as _rc_exc:
+                        print(f"[ComfyUI] ReferenceChain path failed ({_rc_exc}) — falling back to flat chain.")
 
-                if not _used_aio:
+                if not _used_refchain:
                     # Fallback: flat single-chain ReferenceLatent (all images in one chain).
                     # Character differentiation is handled by the text prompt (ID anchors).
                     print(

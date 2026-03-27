@@ -1,27 +1,27 @@
 """
-ComfyUI AIO workflow adapter for AriaBot.
+ComfyUI workflow adapters for AriaBot.
 
-Converts the subgraph-format "Flux.2 AIO Pro Simple v3.1" GUI workflow JSON
-into the flat API format that ComfyUI's /prompt endpoint accepts, then injects
-per-run parameters: model filenames, reference images, per-character prompts.
+Primary: build_refchain_workflow() — programmatic FLUX.2 Klein workflow using
+  ReferenceChainConditioning (ComfyUI-ReferenceChain). One node accepts all
+  reference images at once as a JSON list, handles scaling+VAE-encoding internally,
+  and chains them as reference latents. Requires one node pack; no JSON file needed.
 
-Architecture summary of the AIO workflow:
-  - Model settings subgraph: UNETLoader, CLIPLoader, VAELoader, EmptyFlux2LatentImage
-  - Image 1-4 subgraphs: LoadImageWithSwitch → VAEEncode → ReferenceLatent → Switch conditioning
-    Each has a PrimitiveString "Use at part" that gates which loop step it fires on.
-  - Prompt settings subgraph: CLIPTextEncode (fixed base text) + PrimitiveStringMultiline
-    "Overall prompt" + "Per segment prompt" (multiline; one line per character per inpaint pass).
-  - Sampling subgraph: SamplerCustomAdvanced with for-loop and InpaintStitch finish pass.
-
-The "per segment" loop runs N iterations (one per character). On each iteration i:
-  - The Image slot whose "Use at part" == str(i) has its ReferenceLatent conditioning active.
-  - One line from the "Per segment prompt" multiline is used as the text prompt for that pass.
-Result: each character gets their OWN reference photo conditioning + their OWN text prompt per inpaint pass.
+Legacy (kept for reference): AIO per-segment inpainting workflow expander.
+  Converts the subgraph-format "Flux.2 AIO Pro Simple v3.1" GUI workflow JSON
+  into the flat API format. Requires 6+ custom node packs; no longer used as
+  the primary path.
 """
 
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
+
+# Anatomy quality suffix — must match _ANATOMY_SUFFIX in comfyui_ai.py.
+# Duplicated here to avoid a circular import (comfyui_ai imports workflow_adapter).
+_ANATOMY_SUFFIX = (
+    ", perfect anatomy, correct arms, well-drawn hands, "
+    "five fingers, proper limbs, symmetrical body"
+)
 
 _AIO_PATH = os.path.join(os.path.dirname(__file__), "workflows", "Flux_2_AIO_Pro_Simple_v3_1.json")
 
@@ -337,6 +337,9 @@ def build_aio_workflow(
     per_character_prompts: one prompt per subject (appearance description for the inpaint pass).
 
     Returns the populated workflow dict, or None if the AIO file is unavailable.
+
+    NOTE: This path is RETIRED in favour of build_refchain_workflow() which needs only one
+    node pack (ComfyUI-ReferenceChain) instead of six.  Kept for reference.
     """
     template = get_expanded_aio()
     if template is None:
@@ -367,3 +370,159 @@ def build_aio_workflow(
         width=width,
         height=height,
     )
+
+
+def build_refchain_workflow(
+    prompt: str,
+    uploaded_filenames: List[str],
+    unet_name: str,
+    vae_name: str,
+    clip_name: str,
+    seed: int,
+    steps: int = 6,
+    width: int = 1280,
+    height: int = 720,
+) -> Dict[str, dict]:
+    """Build a ComfyUI API workflow using ReferenceChainConditioning.
+
+    This is the primary multi-reference workflow for FLUX.2 Klein.  The
+    ReferenceChainConditioning node (from ComfyUI-ReferenceChain,
+    https://github.com/remingtonspaz/ComfyUI-ReferenceChain) accepts all
+    reference images at once as a JSON list of ComfyUI-uploaded filenames,
+    handles scaling + VAE-encoding internally, and chains them as reference
+    latents into a single conditioning output.
+
+    Advantages over the AIO inpainting approach:
+      • One node pack instead of six
+      • No GUI JSON file — workflow is pure Python
+      • No inpainting loop or mask machinery required
+      • Both positive AND negative conditioning are updated together (matching
+        how FLUX.2 Klein expects reference latents on both streams)
+
+    Node inputs for ReferenceChainConditioning (from nodes.py):
+      conditioning         — positive CONDITIONING from CLIPTextEncode
+      neg_conditioning     — negative CONDITIONING (zero-out for distilled FLUX)
+      vae                  — VAE model
+      upscale_method       — "lanczos" (best quality)
+      scale_megapixels     — matched to output resolution (width*height/1e6)
+      images               — JSON string list of ComfyUI uploaded filenames
+      image_input_node_count — 0 (no external IMAGE node inputs)
+
+    Outputs (slot indices):
+      0: conditioning      — positive conditioning with all reference latents
+      1: neg_conditioning  — negative conditioning with all reference latents
+      2: first_image_scaled — not connected
+
+    Args:
+        prompt:             Raw text prompt (anatomy suffix appended internally).
+        uploaded_filenames: ComfyUI server filenames of all uploaded reference images,
+                            in order. All characters' photos in a flat list.
+        unet_name:          GGUF model filename for UnetLoaderGGUF.
+        vae_name:           VAE filename for VAELoader.
+        clip_name:          CLIP filename for CLIPLoader.
+        seed:               Random noise seed.
+        steps:              Sampler step count.
+        width / height:     Output resolution.
+
+    Returns:
+        ComfyUI API-format workflow dict, ready for the /prompt endpoint.
+    """
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
+    megapixels = round((width * height) / 1_000_000, 4)
+
+    return {
+        "1": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": unet_name},
+            "_meta": {"title": "UNET Loader (GGUF)"},
+        },
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": clip_name, "type": "flux2"},
+            "_meta": {"title": "CLIP Loader"},
+        },
+        "3": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": vae_name},
+            "_meta": {"title": "VAE Loader"},
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": enhanced_prompt},
+            "_meta": {"title": "CLIP Text Encode (Prompt)"},
+        },
+        # FLUX.2 Klein is a distilled model — zero out the negative conditioning.
+        "5": {
+            "class_type": "ConditioningZeroOut",
+            "inputs": {"conditioning": ["4", 0]},
+            "_meta": {"title": "Zero Out (Negative)"},
+        },
+        # ReferenceChainConditioning: all reference images → reference latents on both
+        # conditioning streams.  The `images` input is a JSON list of ComfyUI filenames.
+        "6": {
+            "class_type": "ReferenceChainConditioning",
+            "inputs": {
+                "conditioning": ["4", 0],
+                "neg_conditioning": ["5", 0],
+                "vae": ["3", 0],
+                "upscale_method": "lanczos",
+                "scale_megapixels": megapixels,
+                "images": json.dumps(uploaded_filenames),
+                "image_input_node_count": 0,
+            },
+            "_meta": {"title": "Reference Chain Conditioning"},
+        },
+        "31": {
+            "class_type": "EmptyFlux2LatentImage",
+            "inputs": {"width": width, "height": height, "batch_size": 1},
+            "_meta": {"title": "Empty Flux2 Latent Image"},
+        },
+        "32": {
+            "class_type": "Flux2Scheduler",
+            "inputs": {"steps": steps, "width": width, "height": height},
+            "_meta": {"title": "Flux2 Scheduler"},
+        },
+        "33": {
+            "class_type": "KSamplerSelect",
+            "inputs": {"sampler_name": "euler"},
+            "_meta": {"title": "KSampler Select"},
+        },
+        "34": {
+            "class_type": "RandomNoise",
+            "inputs": {"noise_seed": seed},
+            "_meta": {"title": "Random Noise"},
+        },
+        # CFGGuider: slot 0 → positive conditioning (refchain output 0)
+        #            slot 1 → negative conditioning (refchain output 1)
+        "35": {
+            "class_type": "CFGGuider",
+            "inputs": {
+                "model": ["1", 0],
+                "positive": ["6", 0],
+                "negative": ["6", 1],
+                "cfg": 1.0,
+            },
+            "_meta": {"title": "CFG Guider"},
+        },
+        "36": {
+            "class_type": "SamplerCustomAdvanced",
+            "inputs": {
+                "noise": ["34", 0],
+                "guider": ["35", 0],
+                "sampler": ["33", 0],
+                "sigmas": ["32", 0],
+                "latent_image": ["31", 0],
+            },
+            "_meta": {"title": "Sampler Custom Advanced"},
+        },
+        "37": {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["36", 0], "vae": ["3", 0]},
+            "_meta": {"title": "VAE Decode"},
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {"images": ["37", 0], "filename_prefix": "ariabot_"},
+            "_meta": {"title": "Save Image"},
+        },
+    }
