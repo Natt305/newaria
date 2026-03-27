@@ -617,17 +617,25 @@ async def enhance_image_prompt(
         if has_images:
             multi_char_note += (
                 "\n"
-                f"RULE — POSITION LABELS + HAIR COLOUR ONLY for photo characters:\n"
-                "Reference photos carry all appearance via the image model's own conditioning mechanism. "
-                "DO NOT write eye colour, skin tone, outfit, or any other appearance for photo characters — "
-                "that text overrides the photos and causes mis-renders.\n"
-                "For each photo-based character write EXACTLY TWO things:\n"
+                "RULE — PER-CHARACTER ANCHORS for photo characters:\n"
+                "Reference photos condition character identity (face, hair, overall look) "
+                "but are NOT reliable for differentiating outfits between multiple characters "
+                "in the same scene. Without explicit per-character outfit text the image model "
+                "defaults to giving ALL characters the SAME outfit — this is 'character bleed' "
+                "and MUST be prevented.\n"
+                "For each photo-based character write ALL THREE of the following:\n"
                 "  1. Spatial position label + name: '(left) [Name]' or '(right) [Name]'\n"
-                "  2. Hair colour ONLY — copy verbatim from their [SUBJECT APPEARANCE SUPPLEMENT] block "
-                "if one is present in the system prompt. Hair colour alone is the single anchor that "
-                "prevents the image model from defaulting to dark hair.\n"
-                "     If no supplement exists for that character, omit hair colour too.\n"
-                "     NEVER derive hair colour from the reference photos yourself — only copy from the supplement.\n"
+                "  2. Hair colour — copy verbatim from the HAIR: line in their "
+                "[SUBJECT APPEARANCE SUPPLEMENT] block. "
+                "If no supplement exists, omit hair colour. "
+                "NEVER derive hair colour from the reference photos yourself.\n"
+                "  3. Outfit — copy verbatim from the OUTFIT: line in their "
+                "[SUBJECT APPEARANCE SUPPLEMENT] block. "
+                "If no OUTFIT: line exists in their supplement, omit outfit entirely. "
+                "NEVER invent or share outfits across characters.\n"
+                "DO NOT write eye colour, skin tone, or any other appearance beyond the three items above.\n"
+                "DO NOT write 'both wearing X' or any outfit description that applies to more than one "
+                "character — each character must have their own distinct outfit text.\n"
                 "EXCEPTION: if a character has a [SUBJECT REFERENCE] block (no photos), "
                 "reproduce their FULL appearance from that block as usual.\n"
             )
@@ -643,19 +651,22 @@ async def enhance_image_prompt(
         multi_char_note = ""
 
     # Pre-submission checklist injected into the system prompt.
-    # For multi-character scenes with photos the exhaustive per-trait checklist
-    # is counter-productive — it pushes the LLM to enumerate appearance for each
-    # character, leaving no room for scene description.  Use a shorter scene-first
-    # checklist in that case; preserve the full detail checklist for single-character.
+    # For multi-character scenes with photos, use a focused checklist that enforces
+    # per-character position + hair + outfit (to prevent character bleed) while still
+    # leaving room for scene description.  Preserve the full single-character checklist
+    # for solo shots where exhaustive trait coverage is the priority.
     if n_subjects_hint >= 2 and has_images:
         _checklist = (
             "MANDATORY PRE-SUBMISSION CHECKLIST — multi-character scene with reference photos. "
             "Verify ALL of these before finalizing:\n"
-            "  ✓ POSITION + HAIR — each photo-based character has: position label + name + "
-            "hair colour copied verbatim from their [SUBJECT APPEARANCE SUPPLEMENT] (if one exists). "
-            "Nothing else about their appearance.\n"
-            "  ✓ NO EXTRA APPEARANCE — eye colour, skin tone, outfit text for photo-based "
-            "characters are ABSENT (those override the reference photos and cause mis-renders)\n"
+            "  ✓ POSITION + HAIR + OUTFIT — each photo-based character has:\n"
+            "      • position label + name\n"
+            "      • hair colour verbatim from HAIR: in their [SUBJECT APPEARANCE SUPPLEMENT] (if one exists)\n"
+            "      • outfit verbatim from OUTFIT: in their [SUBJECT APPEARANCE SUPPLEMENT] (if one exists)\n"
+            "  ✓ DISTINCT OUTFITS — no two characters share the same outfit description. "
+            "If their supplement blocks list different outfits, each character MUST have their own distinct outfit text. "
+            "NEVER write 'both wearing X' or any shared outfit phrase unless the request explicitly asks for matching outfits.\n"
+            "  ✓ NO EXTRA APPEARANCE — eye colour and skin tone for photo-based characters are ABSENT\n"
             "  ✓ SCENE — rich setting, lighting, mood, pose, and character interaction\n"
             "  ✓ ART STYLE — 'clean 2D anime illustration, flat cel-shaded, anime digital art'\n"
             "  ✓ PROPS/INSTRUMENTS — any object mentioned in the request text\n"
