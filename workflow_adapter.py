@@ -492,6 +492,11 @@ def build_refchain_workflow(
             "inputs": {"noise_seed": seed},
             "_meta": {"title": "Random Noise"},
         },
+        # CFGGuider with cfg=1.0 (effectively no CFG amplification) and a zeroed-out
+        # negative — this is the proven local pattern for distilled FLUX.2 Klein.
+        # ReferenceChainConditioning outputs both pos (slot 0) and neg (slot 1)
+        # conditioning streams; wiring both to CFGGuider is more correct than
+        # BasicGuider+FluxGuidance (which discards the neg_conditioning output).
         # CFGGuider: slot 0 → positive conditioning (refchain output 0)
         #            slot 1 → negative conditioning (refchain output 1)
         "35": {

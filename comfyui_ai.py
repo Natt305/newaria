@@ -704,6 +704,11 @@ def _run_generate(
     refs = reference_images or []
 
     try:
+        # Pre-built flat-chain fallback populated when ReferenceChainConditioning is chosen,
+        # so that if /prompt rejects the node at runtime we can auto-retry without a second
+        # image-upload cycle (images are already on the server).
+        _refchain_fallback_wf: Optional[dict] = None
+
         if custom_workflow_path and os.path.exists(custom_workflow_path):
             with open(custom_workflow_path, "r", encoding="utf-8") as f:
                 workflow = json.load(f)
@@ -777,6 +782,12 @@ def _run_generate(
                             )
                             workflow = refchain_wf
                             _used_refchain = True
+                            # Pre-build flat-chain fallback so we can auto-retry if
+                            # /prompt rejects the ReferenceChainConditioning node.
+                            _refchain_fallback_wf = _build_reference_workflow(
+                                prompt, gguf_path, vae_name, clip_name, steps, seed,
+                                uploaded_names, width=width, height=height,
+                            )
                             print(
                                 f"[ComfyUI] ReferenceChain workflow — {subject_label}, "
                                 f"{len(uploaded_names)} image(s), output size={width}x{height}"
@@ -839,6 +850,7 @@ def _run_generate(
 
         if resp.status_code != 200:
             print(f"[ComfyUI] /prompt returned HTTP {resp.status_code}.")
+            _refchain_node_failed = False
             try:
                 err = resp.json()
                 top_error = err.get("error", {})
@@ -851,6 +863,8 @@ def _run_generate(
                 node_errors = err.get("node_errors", {})
                 for node_id, node_err in node_errors.items():
                     class_type = workflow.get(node_id, {}).get("class_type", node_id)
+                    if class_type == "ReferenceChainConditioning":
+                        _refchain_node_failed = True
                     errs = node_err.get("errors", [])
                     for e in errs:
                         print(f"[ComfyUI]   Node {node_id} ({class_type}): "
@@ -859,7 +873,23 @@ def _run_generate(
                     print(f"[ComfyUI] Raw response: {resp.text[:500]}")
             except Exception:
                 print(f"[ComfyUI] Raw response: {resp.text[:500]}")
-            return None
+
+            # Guarded retry: if ReferenceChainConditioning was rejected by the server
+            # (e.g. not installed despite /object_info 200), re-submit with the pre-built
+            # flat-chain fallback.  Images are already uploaded — no extra upload cycle.
+            # prompt_id is extracted below in the normal flow.
+            if _refchain_node_failed and _refchain_fallback_wf is not None:
+                print("[ComfyUI] ReferenceChainConditioning rejected — auto-retrying with flat-chain fallback.")
+                workflow = _refchain_fallback_wf
+                _refchain_fallback_wf = None
+                payload = {"prompt": workflow, "client_id": client_id}
+                resp = _requests.post(f"{base_url}/prompt", json=payload, timeout=15)
+                if resp.status_code != 200:
+                    print(f"[ComfyUI] Flat-chain fallback also failed (HTTP {resp.status_code}).")
+                    return None
+                # Fall through — prompt_id extracted below from resp
+            else:
+                return None
 
         prompt_id = resp.json().get("prompt_id")
         if not prompt_id:
