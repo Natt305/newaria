@@ -153,6 +153,7 @@ async def _generate_image(
     height_override: Optional[int] = None,
     steps_override: Optional[int] = None,
     reference_subjects=None,
+    subject_appearances=None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the active backend.
 
@@ -162,9 +163,9 @@ async def _generate_image(
         reference_images:    Optional list of (bytes, mime) tuples for ComfyUI
                              ReferenceLatent multi-character conditioning.
         reference_subjects:  Optional list of subject labels parallel to
-                             reference_images. When 2+ unique labels are present,
-                             each subject gets an isolated ReferenceLatent chain
-                             (per-subject workflow) — no cross-character bleed.
+                             reference_images.
+        subject_appearances: Optional dict {name -> appearance_text} used by the
+                             AIO per-segment inpainting workflow.
         on_progress:         Optional async callable(tag: str) for live progress.
         width_override / height_override: Override output resolution.
         steps_override:      Override inference step count (comfyui only).
@@ -179,6 +180,7 @@ async def _generate_image(
         height_override=height_override,
         steps_override=steps_override,
         reference_subjects=reference_subjects,
+        subject_appearances=subject_appearances,
     )
 
 
@@ -1240,6 +1242,8 @@ async def process_chat(
         # Sources parsed (both use the same HAIR:/OUTFIT: section labels):
         #   _kb_supplements  — KB entries with photos (e.g. Mortis, Nina)
         #   char_images_ctx  — bot's own character images (Aria etc.)
+        _subject_appearances: dict = {}  # {name -> "hair phrase, outfit piece"} for AIO workflow
+
         if _IMAGE_BACKEND == "comfyui" and _n_unique_subjects >= 2:
             # ── Step 1: collect HAIR + OUTFIT for every photo-based participant ──
             _id_data: dict = {}  # {label: {"hair": str, "outfit": str}}
@@ -1337,6 +1341,14 @@ async def process_chat(
                 _col_note = " (hair collision detected)" if _has_collision else ""
                 print(f"[Bot] ID anchors injected{_col_note}: {_id_anchors}")
 
+                # Build per-character appearance strings for the AIO workflow's
+                # per-segment inpainting pass.  Format: "hair, outfit" per subject.
+                for _sa_name, _sa_data in _id_data.items():
+                    _sa_parts = [_sa_data["hair"]]
+                    if _sa_data["outfit"]:
+                        _sa_parts.append(_sa_data["outfit"])
+                    _subject_appearances[_sa_name] = ", ".join(_sa_parts)
+
         # Prepend a compact Flux-friendly style prefix so Flux anchors on style
         # early (left-to-right token weighting).  Keep it short — the enriched
         # prompt body already contains detailed style language from the LLM rewriter.
@@ -1383,6 +1395,7 @@ async def process_chat(
                         _ref_image_for_gen,
                         reference_images=_comfyui_ref_images or None,
                         reference_subjects=_ref_labels if _comfyui_ref_images else None,
+                        subject_appearances=_subject_appearances or None,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
                         steps_override=(
                             min(

@@ -43,6 +43,7 @@ async def generate_image(
     height_override: Optional[int] = None,
     steps_override: Optional[int] = None,
     reference_subjects: Optional[list] = None,
+    subject_appearances: Optional[dict] = None,
 ) -> Optional[tuple]:
     """Dispatch image generation to the configured backend.
 
@@ -53,8 +54,9 @@ async def generate_image(
         reference_images:    Optional list of (bytes, mime_type) tuples. Forwarded to
                              comfyui for ReferenceLatent conditioning.
         reference_subjects:  Optional list of subject labels, parallel to reference_images.
-                             Forwarded to comfyui. When 2+ unique labels present, each
-                             subject gets an isolated ReferenceLatent chain.
+                             Forwarded to comfyui.
+        subject_appearances: Optional dict {name -> appearance_text} for per-character
+                             prompt lines in the AIO per-segment inpainting workflow.
         on_progress:         Optional async callable(tag: str) for live progress.
         width_override / height_override: Override output dimensions. comfyui only.
         steps_override:      Override inference step count. comfyui only.
@@ -81,6 +83,7 @@ async def generate_image(
             height_override=height_override,
             steps_override=steps_override,
             reference_subjects=reference_subjects,
+            subject_appearances=subject_appearances,
         )
     import cloudflare_ai as _cloudflare_ai
     return await _cloudflare_ai.generate_image(prompt)

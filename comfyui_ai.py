@@ -49,7 +49,8 @@ import os
 import tempfile
 import time
 import uuid
-from typing import Callable, Coroutine, Optional, Tuple
+from collections import defaultdict
+from typing import Callable, Coroutine, Dict, List, Optional, Tuple
 
 DEFAULT_URL = "http://127.0.0.1:8188"
 DEFAULT_STEPS = 4
@@ -671,6 +672,7 @@ def _run_generate(
     height_override: Optional[int] = None,
     steps_override: Optional[int] = None,
     reference_subjects: Optional[list] = None,
+    subject_appearances: Optional[Dict[str, str]] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Blocking: submit a job to ComfyUI and return (png_bytes, mime) or None."""
     try:
@@ -710,34 +712,22 @@ def _run_generate(
             # Native FLUX.2 Klein ReferenceLatent path.
             # Convert all reference images to PNG before upload (avoids JPEG/WebP
             # decode issues inside ComfyUI's LoadImage node).
-            #
-            # Always use the flat single-chain ReferenceLatent workflow for ALL
-            # reference image scenarios (single or multi-character).
-            #
-            # Rationale: the per-subject isolated workflow
-            # (_build_per_subject_ref_workflow) combines two independent
-            # ReferenceLatent chains with ConditioningCombine.  In practice
-            # ConditioningCombine creates interference between the two
-            # conditioning streams rather than cleanly assigning each
-            # character's photos to the correct subject — the photo
-            # conditioning effectively cancels out and only the text prompt
-            # drives appearance.  The flat chain (proven to work in solo mode)
-            # feeds all reference images into one sequential chain and lets
-            # FLUX use them coherently.  Character differentiation is handled
-            # by the text prompt (position labels + ID anchors with hair and
-            # outfit), not by conditioning isolation.
             labels = reference_subjects or []
             unique_subjects = list(dict.fromkeys(labels)) if labels else []
+            n_subjects = len(unique_subjects)
 
-            # Upload all reference images in interleaved order (already
-            # arranged round-robin by subject in bot.py).
-            uploaded_names: list = []
-            for ref_bytes, ref_mime in refs:
+            # Upload all reference images, tracking which subject each belongs to.
+            uploaded_names: List[str] = []
+            subject_uploaded: Dict[str, List[str]] = defaultdict(list)
+            for idx, (ref_bytes, ref_mime) in enumerate(refs):
                 processed = _to_png(ref_bytes)
                 upload_bytes = processed if processed is not None else ref_bytes
                 uploaded_name = _upload_image(base_url, upload_bytes, _requests)
                 if uploaded_name:
                     uploaded_names.append(uploaded_name)
+                    subj = labels[idx] if idx < len(labels) else ""
+                    if subj:
+                        subject_uploaded[subj].append(uploaded_name)
 
             if not uploaded_names:
                 print("[ComfyUI] Reference: all uploads failed — falling back to txt2img.")
@@ -745,22 +735,68 @@ def _run_generate(
                     prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
                 )
             else:
-                n_subjects = len(unique_subjects)
+                if len(uploaded_names) < len(refs):
+                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_names)}/{len(refs)}) — continuing.")
+
                 subject_label = (
                     f"{n_subjects} subject(s): {unique_subjects}"
                     if n_subjects > 1 else
                     (unique_subjects[0] if unique_subjects else "unknown")
                 )
-                if len(uploaded_names) < len(refs):
-                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_names)}/{len(refs)}) — continuing.")
-                print(
-                    f"[ComfyUI] Flat-chain reference mode — {subject_label}, "
-                    f"{len(uploaded_names)} image(s) total, output size={width}x{height}"
-                )
-                workflow = _build_reference_workflow(
-                    prompt, gguf_path, vae_name, clip_name, steps, seed, uploaded_names,
-                    width=width, height=height,
-                )
+
+                # ── AIO per-segment inpainting path ─────────────────────────────
+                # Used when: 2+ subjects with photo references AND per-character
+                # appearance descriptions are provided AND the AIO workflow file
+                # is available.  Each subject gets their own ReferenceLatent slot
+                # plus their own dedicated text prompt line in the inpainting loop,
+                # which prevents appearance bleed between characters.
+                _used_aio = False
+                if (
+                    n_subjects >= 2
+                    and subject_appearances
+                    and len(subject_uploaded) >= 2
+                ):
+                    try:
+                        from workflow_adapter import build_aio_workflow, get_expanded_aio
+                        if get_expanded_aio() is not None:
+                            per_char_prompts = [
+                                subject_appearances.get(s, "")
+                                for s in unique_subjects[:4]
+                            ]
+                            aio_wf = build_aio_workflow(
+                                overall_prompt=prompt,
+                                per_character_prompts=per_char_prompts,
+                                uploaded_filenames=dict(subject_uploaded),
+                                unet_name=gguf_path,
+                                vae_name=vae_name,
+                                clip_name=clip_name,
+                                seed=seed,
+                                steps=steps,
+                                width=width,
+                                height=height,
+                            )
+                            if aio_wf:
+                                workflow = aio_wf
+                                _used_aio = True
+                                print(
+                                    f"[ComfyUI] AIO per-segment workflow — {subject_label}, "
+                                    f"{len(uploaded_names)} image(s), "
+                                    f"per-char prompts: {per_char_prompts}"
+                                )
+                    except Exception as _aio_exc:
+                        print(f"[ComfyUI] AIO workflow build failed ({_aio_exc}) — falling back to flat chain.")
+
+                if not _used_aio:
+                    # Fallback: flat single-chain ReferenceLatent (all images in one chain).
+                    # Character differentiation is handled by the text prompt (ID anchors).
+                    print(
+                        f"[ComfyUI] Flat-chain reference mode — {subject_label}, "
+                        f"{len(uploaded_names)} image(s) total, output size={width}x{height}"
+                    )
+                    workflow = _build_reference_workflow(
+                        prompt, gguf_path, vae_name, clip_name, steps, seed, uploaded_names,
+                        width=width, height=height,
+                    )
         elif reference_image is not None:
             img_bytes, mime = reference_image
             # Pre-process: smart-crop + convert to PNG (matches diffusers_worker.py)
@@ -1059,6 +1095,7 @@ async def generate_image(
     height_override: Optional[int] = None,
     steps_override: Optional[int] = None,
     reference_subjects: Optional[list] = None,
+    subject_appearances: Optional[Dict[str, str]] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Generate an image via a locally-running ComfyUI instance.
 
@@ -1071,11 +1108,10 @@ async def generate_image(
                              provided, the native FLUX.2 Klein ReferenceLatent
                              workflow is used. Takes priority over reference_image.
         reference_subjects:  Optional list of subject labels, parallel to
-                             reference_images. When 2+ unique labels are present,
-                             each subject gets an isolated ReferenceLatent chain
-                             (per-subject workflow) preventing cross-character
-                             appearance bleed. Falls back to the single flat chain
-                             for 0–1 unique subjects.
+                             reference_images.
+        subject_appearances: Optional dict {subject_name -> appearance_text} used
+                             by the AIO per-segment inpainting workflow to provide
+                             per-character text prompts for each inpaint pass.
         on_progress:         Optional async callable(tag: str) for live progress.
 
     Returns:
@@ -1088,7 +1124,7 @@ async def generate_image(
         _run_generate,
         prompt, reference_image, client_id,
         reference_images, width_override, height_override, steps_override,
-        reference_subjects,
+        reference_subjects, subject_appearances,
     )
 
     if on_progress is None:
