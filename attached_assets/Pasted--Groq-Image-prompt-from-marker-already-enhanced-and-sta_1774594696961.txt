@@ -1,0 +1,18 @@
+[Groq] Image prompt from marker (already enhanced): '若葉睦 and 井芹仁菜 standing together, anime-style illustration, 2D art, soft lighting,'
+[Bot] KB title scan: 1 unique subject(s) matched — ['井芹仁菜']
+[Bot] KB image enrichment: 1 text description(s) applied to prompt
+[Bot] Ref images: 3/3 photo(s) loaded for '井芹仁菜' (id=13)
+[Bot] Ref images: 2/2 bot photo(s) loaded for '若葉睦'
+[Bot] Ref images interleaved: 5 total across 2 subject(s): ['井芹仁菜', '若葉睦']
+[Bot] LLM ref images: 2 (1 per subject) — ComfyUI ref images: 5 — subjects: ['井芹仁菜', '若葉睦']
+[Groq] enhance_image_prompt: using vision model with 2 reference image(s)
+[Groq] subject_supplement (gap-filler) — 井芹仁菜: 'HAIR: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey, NOT pure white;'
+[Groq] Prompt enhanced: (left) 井芹仁菜, dark brown hair and (right) 若葉睦, 浅灰绿 hair. Centered composition with both characters fully visible in frame, standing close together in the center of the scene. 井芹仁菜 has a mischievous expression, playfully holding a microphone to her mouth with her right hand, while her left hand is raised with the index finger pressed against her lips, as if signaling for silence or secrecy. 若葉睦 stands beside her with a calm demeanor, hands clasped together in front of her, gazing softly at 井芹仁菜 with a gentle smile. The setting is a vibrant, softly lit environment with a warm atmosphere, suggesting a lively interaction between the two characters. The microphone and their engaged body language highlight their shared activity and playful mood. clean 2D anime illustration, flat cel-shaded, anime digital art, vivid saturated color palette.
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=True, kb_refs=['井芹仁菜'], ref_images=5, unique_subjects=2, authority_refs=[], supplements=['井芹仁菜'], photo_only=['井芹仁菜'], spatial='(left) 井芹仁菜, (right) 若葉睦, centered composition, all characters fully visible in frame')
+[Bot] ID anchors injected: ['[井芹仁菜: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey,]']
+[ComfyUI] Flat-chain reference mode — 2 subject(s): ['井芹仁菜', '若葉睦'], 5 image(s) total, output size=512x512
+[ComfyUI] Queuing reference job — size=auto (from reference), steps=8, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, [井芹仁菜: dark brown hair, low saturation, extr'
+[ComfyUI] Job queued — prompt_id=0b2ca45a-919b-4a89-a811-5dab3f203f4c
+[ComfyUI] Still generating… (16s elapsed, job is running)
+[ComfyUI] Done — 405616 bytes ('ariabot__00080_.png')
