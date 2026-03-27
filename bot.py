@@ -1145,9 +1145,11 @@ async def process_chat(
         # read hair colour and style; ComfyUI gets all photos via _comfyui_ref_images.
         _llm_seen: set = set()
         _llm_ref_images: list = []
+        _llm_ref_labels: list = []   # character name matching each image — same index
         for _img, _lbl in zip(_ref_images, _ref_labels):
             if _lbl not in _llm_seen:
                 _llm_ref_images.append(_img)
+                _llm_ref_labels.append(_lbl)
                 _llm_seen.add(_lbl)
 
         # _all_subject_titles — ALL recognised subjects (photo + text-only).
@@ -1220,6 +1222,7 @@ async def process_chat(
                 subject_references=_kb_text_only if _kb_text_only else None,
                 subject_supplements=_kb_supplements if _kb_supplements else None,
                 reference_images=_llm_ref_images if _llm_ref_images else None,
+                reference_image_labels=_llm_ref_labels if _llm_ref_labels else None,
                 n_subjects_override=_n_unique_subjects if _llm_ref_images else None,
             )
             _refs_with_photo = [n for n in _kb_subject_refs if n in _ref_labels]

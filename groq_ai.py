@@ -398,6 +398,7 @@ async def enhance_image_prompt(
     subject_references: dict = None,
     subject_supplements: dict = None,
     reference_images: Optional[list] = None,
+    reference_image_labels: Optional[list] = None,
     n_subjects_override: Optional[int] = None,
 ) -> str:
     """Translate and expand a raw (possibly Chinese) prompt into a rich English
@@ -551,6 +552,22 @@ async def enhance_image_prompt(
             "\n"
             "STRUCTURE (hairstyle shape, bang style, character identity) — use the text descriptions as the authority.\n"
         )
+        # When character names are attached to the photos, inject a numbered
+        # mapping so the LLM knows exactly which photo belongs to which person.
+        # Without this the model reads the WRONG photo for the WRONG character.
+        if reference_image_labels:
+            _photo_map_lines = "\n".join(
+                f"  Photo {i + 1} = {lbl}"
+                for i, lbl in enumerate(reference_image_labels)
+            )
+            image_note += (
+                "\n[REFERENCE PHOTO ORDER — NON-NEGOTIABLE]\n"
+                "The attached photos are provided in this exact order:\n"
+                f"{_photo_map_lines}\n"
+                "When reading appearance for a character, use ONLY their assigned photo number. "
+                "Do NOT mix or cross-reference photos. "
+                "Photo 1 describes ONLY the first character listed, Photo 2 the second, etc.\n"
+            )
     else:
         image_note = ""
 

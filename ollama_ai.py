@@ -495,7 +495,10 @@ async def enhance_image_prompt(
     raw_prompt: str,
     character_context: str = "",
     subject_references: dict = None,
+    subject_supplements: dict = None,
     reference_images: list = None,
+    reference_image_labels: list = None,
+    n_subjects_override: int = None,
 ) -> str:
     """Translate and expand a raw prompt into a rich English image-generation prompt.
 
