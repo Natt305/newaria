@@ -771,7 +771,7 @@ def _run_generate(
                         if _rc_check.status_code == 200 and _rc_check.json():
                             refchain_wf = build_refchain_workflow(
                                 prompt=prompt,
-                                uploaded_filenames=uploaded_names,
+                                subject_filenames=subject_uploaded,
                                 unet_name=gguf_path,
                                 vae_name=vae_name,
                                 clip_name=clip_name,
@@ -788,9 +788,10 @@ def _run_generate(
                                 prompt, gguf_path, vae_name, clip_name, steps, seed,
                                 uploaded_names, width=width, height=height,
                             )
+                            _per_char = {n: len(fs) for n, fs in subject_uploaded.items() if fs}
                             print(
                                 f"[ComfyUI] ReferenceChain workflow — {subject_label}, "
-                                f"{len(uploaded_names)} image(s), output size={width}x{height}"
+                                f"per-character nodes: {_per_char}, output size={width}x{height}"
                             )
                         else:
                             print(

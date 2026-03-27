@@ -372,9 +372,10 @@ def build_aio_workflow(
     )
 
 
+
 def build_refchain_workflow(
     prompt: str,
-    uploaded_filenames: List[str],
+    subject_filenames: Dict[str, List[str]],
     unet_name: str,
     vae_name: str,
     clip_name: str,
@@ -383,52 +384,65 @@ def build_refchain_workflow(
     width: int = 1280,
     height: int = 720,
 ) -> Dict[str, dict]:
-    """Build a ComfyUI API workflow using ReferenceChainConditioning.
+    """Build a ComfyUI API workflow with one ReferenceChainConditioning node per character.
 
-    This is the primary multi-reference workflow for FLUX.2 Klein.  The
-    ReferenceChainConditioning node (from ComfyUI-ReferenceChain,
-    https://github.com/remingtonspaz/ComfyUI-ReferenceChain) accepts all
-    reference images at once as a JSON list of ComfyUI-uploaded filenames,
-    handles scaling + VAE-encoding internally, and chains them as reference
-    latents into a single conditioning output.
+    Each character gets their own node fed only their own photos, chained in sequence:
 
-    Advantages over the AIO inpainting approach:
-      • One node pack instead of six
-      • No GUI JSON file — workflow is pure Python
-      • No inpainting loop or mask machinery required
-      • Both positive AND negative conditioning are updated together (matching
-        how FLUX.2 Klein expects reference latents on both streams)
+      CLIPTextEncode -> ConditioningZeroOut
+        -> ReferenceChain[char1] -> ReferenceChain[char2] -> ...
+        -> CFGGuider -> SamplerCustomAdvanced -> VAEDecode -> SaveImage
 
-    Node inputs for ReferenceChainConditioning (from nodes.py):
-      conditioning         — positive CONDITIONING from CLIPTextEncode
-      neg_conditioning     — negative CONDITIONING (zero-out for distilled FLUX)
-      vae                  — VAE model
-      upscale_method       — "lanczos" (best quality)
-      scale_megapixels     — matched to output resolution (width*height/1e6)
-      images               — JSON string list of ComfyUI uploaded filenames
-      image_input_node_count — 0 (no external IMAGE node inputs)
+    This prevents the node from cross-referencing photos between characters (the
+    previous single-node approach sent all photos at once with no per-character
+    isolation, causing outfit bleed).
 
-    Outputs (slot indices):
-      0: conditioning      — positive conditioning with all reference latents
-      1: neg_conditioning  — negative conditioning with all reference latents
-      2: first_image_scaled — not connected
+    Node IDs "6", "7", "8", ... are allocated to ReferenceChainConditioning nodes
+    in character order.  Fixed infrastructure nodes use IDs 1-5 and 31-37, 9.
 
     Args:
-        prompt:             Raw text prompt (anatomy suffix appended internally).
-        uploaded_filenames: ComfyUI server filenames of all uploaded reference images,
-                            in order. All characters' photos in a flat list.
-        unet_name:          GGUF model filename for UnetLoaderGGUF.
-        vae_name:           VAE filename for VAELoader.
-        clip_name:          CLIP filename for CLIPLoader.
-        seed:               Random noise seed.
-        steps:              Sampler step count.
-        width / height:     Output resolution.
+        prompt:            Raw text prompt (anatomy suffix appended internally).
+        subject_filenames: {character_name: [comfyui_filename, ...]} grouped per
+                           character so each node only sees its own photos.
+        unet_name:         GGUF model filename for UnetLoaderGGUF.
+        vae_name:          VAE filename for VAELoader.
+        clip_name:         CLIP filename for CLIPLoader.
+        seed:              Random noise seed.
+        steps:             Sampler step count.
+        width / height:    Output resolution.
 
     Returns:
         ComfyUI API-format workflow dict, ready for the /prompt endpoint.
     """
     enhanced_prompt = prompt + _ANATOMY_SUFFIX
     megapixels = round((width * height) / 1_000_000, 4)
+
+    # Build one ReferenceChainConditioning node per character that has photos.
+    # Node IDs start at "6"; each node feeds the next (chain).
+    _chars_with_photos = [(name, fnames) for name, fnames in subject_filenames.items() if fnames]
+    refchain_nodes: Dict[str, dict] = {}
+    _prev_id: Optional[str] = None
+    for i, (char_name, fnames) in enumerate(_chars_with_photos):
+        node_id = str(6 + i)
+        cond_input = [_prev_id, 0] if _prev_id else ["4", 0]
+        neg_input  = [_prev_id, 1] if _prev_id else ["5", 0]
+        refchain_nodes[node_id] = {
+            "class_type": "ReferenceChainConditioning",
+            "inputs": {
+                "conditioning":           cond_input,
+                "neg_conditioning":       neg_input,
+                "vae":                    ["3", 0],
+                "upscale_method":         "lanczos",
+                "scale_megapixels":       megapixels,
+                "images":                 json.dumps(fnames),
+                "image_input_node_count": 0,
+            },
+            "_meta": {"title": f"ReferenceChain — {char_name}"},
+        }
+        _prev_id = node_id
+
+    # Last node in the chain feeds CFGGuider.
+    _cfg_pos = [_prev_id, 0] if _prev_id else ["4", 0]
+    _cfg_neg = [_prev_id, 1] if _prev_id else ["5", 0]
 
     return {
         "1": {
@@ -457,21 +471,8 @@ def build_refchain_workflow(
             "inputs": {"conditioning": ["4", 0]},
             "_meta": {"title": "Zero Out (Negative)"},
         },
-        # ReferenceChainConditioning: all reference images → reference latents on both
-        # conditioning streams.  The `images` input is a JSON list of ComfyUI filenames.
-        "6": {
-            "class_type": "ReferenceChainConditioning",
-            "inputs": {
-                "conditioning": ["4", 0],
-                "neg_conditioning": ["5", 0],
-                "vae": ["3", 0],
-                "upscale_method": "lanczos",
-                "scale_megapixels": megapixels,
-                "images": json.dumps(uploaded_filenames),
-                "image_input_node_count": 0,
-            },
-            "_meta": {"title": "Reference Chain Conditioning"},
-        },
+        # Per-character ReferenceChainConditioning nodes (dynamically built above).
+        **refchain_nodes,
         "31": {
             "class_type": "EmptyFlux2LatentImage",
             "inputs": {"width": width, "height": height, "batch_size": 1},
@@ -492,30 +493,25 @@ def build_refchain_workflow(
             "inputs": {"noise_seed": seed},
             "_meta": {"title": "Random Noise"},
         },
-        # CFGGuider with cfg=1.0 (effectively no CFG amplification) and a zeroed-out
-        # negative — this is the proven local pattern for distilled FLUX.2 Klein.
-        # ReferenceChainConditioning outputs both pos (slot 0) and neg (slot 1)
-        # conditioning streams; wiring both to CFGGuider is more correct than
-        # BasicGuider+FluxGuidance (which discards the neg_conditioning output).
-        # CFGGuider: slot 0 → positive conditioning (refchain output 0)
-        #            slot 1 → negative conditioning (refchain output 1)
+        # CFGGuider (cfg=1.0) — correct pattern for distilled FLUX.2 Klein.
+        # Positive/negative wired from the last ReferenceChainConditioning in the chain.
         "35": {
             "class_type": "CFGGuider",
             "inputs": {
-                "model": ["1", 0],
-                "positive": ["6", 0],
-                "negative": ["6", 1],
-                "cfg": 1.0,
+                "model":    ["1", 0],
+                "positive": _cfg_pos,
+                "negative": _cfg_neg,
+                "cfg":      1.0,
             },
             "_meta": {"title": "CFG Guider"},
         },
         "36": {
             "class_type": "SamplerCustomAdvanced",
             "inputs": {
-                "noise": ["34", 0],
-                "guider": ["35", 0],
-                "sampler": ["33", 0],
-                "sigmas": ["32", 0],
+                "noise":        ["34", 0],
+                "guider":       ["35", 0],
+                "sampler":      ["33", 0],
+                "sigmas":       ["32", 0],
                 "latent_image": ["31", 0],
             },
             "_meta": {"title": "Sampler Custom Advanced"},
