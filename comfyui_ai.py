@@ -711,57 +711,51 @@ def _run_generate(
             # Convert all reference images to PNG before upload (avoids JPEG/WebP
             # decode issues inside ComfyUI's LoadImage node).
             #
-            # When reference_subjects labels are provided and there are 2+ unique
-            # subjects, use the per-subject isolated workflow (_build_per_subject_ref_workflow)
-            # which gives each character their own ReferenceLatent chain — no cross-
-            # subject conditioning bleed.  Single-subject scenes use the original
-            # flat chain (_build_reference_workflow).
+            # Always use the flat single-chain ReferenceLatent workflow for ALL
+            # reference image scenarios (single or multi-character).
+            #
+            # Rationale: the per-subject isolated workflow
+            # (_build_per_subject_ref_workflow) combines two independent
+            # ReferenceLatent chains with ConditioningCombine.  In practice
+            # ConditioningCombine creates interference between the two
+            # conditioning streams rather than cleanly assigning each
+            # character's photos to the correct subject — the photo
+            # conditioning effectively cancels out and only the text prompt
+            # drives appearance.  The flat chain (proven to work in solo mode)
+            # feeds all reference images into one sequential chain and lets
+            # FLUX use them coherently.  Character differentiation is handled
+            # by the text prompt (position labels + ID anchors with hair and
+            # outfit), not by conditioning isolation.
             labels = reference_subjects or []
             unique_subjects = list(dict.fromkeys(labels)) if labels else []
-            use_per_subject = len(unique_subjects) >= 2
 
-            # Upload all reference images, tracking which subject each belongs to.
-            # uploaded_pairs: [(uploaded_name, subject_label), ...]
-            uploaded_pairs: list = []
-            for i, (ref_bytes, ref_mime) in enumerate(refs):
+            # Upload all reference images in interleaved order (already
+            # arranged round-robin by subject in bot.py).
+            uploaded_names: list = []
+            for ref_bytes, ref_mime in refs:
                 processed = _to_png(ref_bytes)
                 upload_bytes = processed if processed is not None else ref_bytes
                 uploaded_name = _upload_image(base_url, upload_bytes, _requests)
                 if uploaded_name:
-                    lbl = labels[i] if i < len(labels) else ""
-                    uploaded_pairs.append((uploaded_name, lbl))
+                    uploaded_names.append(uploaded_name)
 
-            if not uploaded_pairs:
+            if not uploaded_names:
                 print("[ComfyUI] Reference: all uploads failed — falling back to txt2img.")
                 workflow = _build_txt2img_workflow(
                     prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
                 )
-            elif use_per_subject:
-                # Group uploaded images by subject, preserving insertion order.
-                groups: dict = {}
-                for name, lbl in uploaded_pairs:
-                    groups.setdefault(lbl, []).append(name)
-                # Only include subjects that have at least 1 successful upload.
-                uploaded_groups = [groups[s] for s in unique_subjects if s in groups]
-                loaded_subjects = [s for s in unique_subjects if s in groups]
-                if len(uploaded_pairs) < len(refs):
-                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_pairs)}/{len(refs)}) — continuing.")
-                print(
-                    f"[ComfyUI] Per-subject reference mode — {len(loaded_subjects)} subject(s): {loaded_subjects}, "
-                    f"{len(uploaded_pairs)} image(s) total, output size={width}x{height}"
-                )
-                workflow = _build_per_subject_ref_workflow(
-                    prompt, gguf_path, vae_name, clip_name, steps, seed, uploaded_groups,
-                    width=width, height=height,
-                )
             else:
-                # Single subject — use the original flat chain.
-                uploaded_names = [name for name, _ in uploaded_pairs]
-                if len(uploaded_pairs) < len(refs):
-                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_pairs)}/{len(refs)}) — continuing.")
+                n_subjects = len(unique_subjects)
+                subject_label = (
+                    f"{n_subjects} subject(s): {unique_subjects}"
+                    if n_subjects > 1 else
+                    (unique_subjects[0] if unique_subjects else "unknown")
+                )
+                if len(uploaded_names) < len(refs):
+                    print(f"[ComfyUI] Reference: partial upload ({len(uploaded_names)}/{len(refs)}) — continuing.")
                 print(
-                    f"[ComfyUI] Single-subject reference mode — {len(uploaded_names)} image(s), "
-                    f"output size={width}x{height}"
+                    f"[ComfyUI] Flat-chain reference mode — {subject_label}, "
+                    f"{len(uploaded_names)} image(s) total, output size={width}x{height}"
                 )
                 workflow = _build_reference_workflow(
                     prompt, gguf_path, vae_name, clip_name, steps, seed, uploaded_names,
