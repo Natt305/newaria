@@ -16,3 +16,11 @@ groq
 Pillow
 requests
 websockets
+aiohttp>=3.9.0
+discord.py>=2.3.0
+gguf>=0.10.0
+gradio_client
+groq>=1.0.0
+Pillow>=10.0.0
+requests>=2.31.0
+websockets
