@@ -1,0 +1,24 @@
+[Groq] Image prompt from marker (already enhanced): 'Mortis and Nina performing on stage together, anime-style illustration, 2D art, '
+[Bot] KB title scan: 2 unique subject(s) matched — ['Mortis', '井芹仁菜']
+[Bot] KB image enrichment: 2 text description(s) applied to prompt
+[Bot] Ref images: 3/3 photo(s) loaded for 'Mortis' (id=14)
+[Bot] Ref images: 3/3 photo(s) loaded for '井芹仁菜' (id=13)
+[Bot] Ref images interleaved: 6 total across 2 subject(s): ['Mortis', '井芹仁菜']
+[Bot] LLM ref images: 2 (1 per subject) — ComfyUI ref images: 6 — subjects: ['Mortis', '井芹仁菜']
+[Groq] enhance_image_prompt: using vision model with 2 reference image(s)
+[Groq] subject_supplement (gap-filler) — Mortis: '圖片1: HAIR: very pale seafoam mint-green hair, extremely desaturated, almost achromatic, unmistakably'
+[Groq] subject_supplement (gap-filler) — 井芹仁菜: 'HAIR: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey, NOT pure white;'
+[Groq] Prompt enhanced: (left) Mortis, very pale seafoam mint-green hair; (right) 井芹仁菜, dark brown hair. Centered composition with both characters fully visible in frame, Mortis and 井芹仁菜 performing on stage together under vibrant lighting that highlights their energetic performance. Mortis, on the left, wears a deep crimson beret, a black open-front sleeveless shoulder cape with gold-braid trim and gold buttons, a deep red and black short-sleeved top with a gold-trimmed collar and a small white ruffled jabot secured with a green gemstone brooch, deep red shorts with gold buttons, and off-white knee-high stockings. 井芹仁菜, on the right, sports a dark navy blue jacket with faux fur-lined hood, a white t-shirt, a dark red and black plaid pleated skirt, white socks with thin blue pinstripes, and black and white sneakers. As they perform, Mortis holds a microphone in her hand, and 井芹仁菜 plays a guitar, their expressions energetic and engaged. The stage setting includes a brightly lit backdrop that enhances the vibrant atmosphere, and the overall mood is lively and dynamic. clean 2D anime illustration, flat cel-shaded, anime digital art, vivid saturated color palette.
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=False, kb_refs=['Mortis', '井芹仁菜'], ref_images=6, unique_subjects=2, authority_refs=[], supplements=['Mortis', '井芹仁菜'], photo_only=['Mortis', '井芹仁菜'], spatial='(left) Mortis, (right) 井芹仁菜, centered composition, all characters fully visible in frame')
+[Bot] ID anchors injected: ['[Mortis: very pale seafoam mint-green hair, extremely desaturated, almost achromatic,]', '[井芹仁菜: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey,]']
+[ComfyUI] Workflow mode: 'ultimate_inpaint' — refs=6, subject_appearances=['Mortis', '井芹仁菜']
+[ComfyUI] Ultimate: generating initial scene via txt2img pass…
+[ComfyUI] Ultimate: scene image uploaded as 'reference.png'
+[UltimateWF] Loaded and expanded Ultimate workflow: 190 nodes
+[ComfyUI] Ultimate Inpaint workflow — 2 character(s): ['Mortis', '井芹仁菜'], scene='reference.png', SAM=on, output=512x512
+[ComfyUI] Queuing txt2img job — size=512x512, steps=8, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, [Mortis: very pale seafoam mint-green hair, '
+[ComfyUI] /prompt returned HTTP 400.
+[ComfyUI] Error type:    missing_node_type
+[ComfyUI] Error message: Node 'Logic Comparison AND' not found. The custom node may not be installed.
+[ComfyUI] Error details: Node ID '#1002'
