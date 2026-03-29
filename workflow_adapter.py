@@ -551,6 +551,31 @@ def populate_ultimate_workflow(
     for i, part_nid in enumerate(char_part_nids):
         api[part_nid]["inputs"]["value"] = str(i + 1)
 
+    # SAM loop None-propagation fix:
+    # The easy forLoopStart that drives the SAM3 query loop has no initial_value1,
+    # so its accumulator starts as Python None. When SAM finds no segments the switch
+    # inside the loop propagates None → GrowMaskWithBlur crashes.
+    # Fix: find the InvertMask node (gradient-mask fallback, always a valid tensor)
+    # and wire it as the SAM loop's initial accumulator.  That way, if SAM fails on
+    # every iteration the loop exits with the gradient mask rather than None.
+    _invert_mask_nid: Optional[str] = None
+    _godmt_nid: Optional[str] = None
+    for _nid, _node in api.items():
+        if _node.get("class_type") == "InvertMask":
+            _invert_mask_nid = _nid
+        if _node.get("class_type") == "GODMT_SplitString":
+            _godmt_nid = _nid
+    if _invert_mask_nid and _godmt_nid:
+        # Find the forLoopStart whose 'total' is linked to GODMT_SplitString output
+        for _nid, _node in api.items():
+            if _node.get("class_type") == "easy forLoopStart":
+                _total = _node["inputs"].get("total")
+                if isinstance(_total, list) and _total[0] == _godmt_nid:
+                    # This is the SAM query loop — inject gradient mask as initial accumulator
+                    if "initial_value1" not in _node["inputs"]:
+                        _node["inputs"]["initial_value1"] = [_invert_mask_nid, 0]
+                    break
+
     # InpaintCropImproved added a required 'device_mode' input in newer Impact-Pack
     # versions; inject the default ("auto") if the node doesn't already have it.
     for _node in api.values():

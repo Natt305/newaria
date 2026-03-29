@@ -1159,7 +1159,14 @@ def _run_generate(
                 return None
 
             outputs = job.get("outputs", {})
-            for _node_id, node_out in outputs.items():
+            # Prefer type=output (SaveImage) over type=temp (PreviewImage) so we
+            # always return the final stitched result, not an intermediate frame.
+            def _img_sort_key(item):
+                imgs = item[1].get("images", [])
+                if not imgs:
+                    return 1
+                return 0 if imgs[0].get("type", "output") == "output" else 1
+            for _node_id, node_out in sorted(outputs.items(), key=_img_sort_key):
                 images = node_out.get("images", [])
                 if images:
                     img_info = images[0]
@@ -1176,7 +1183,7 @@ def _run_generate(
                     )
                     view_resp.raise_for_status()
                     image_bytes = view_resp.content
-                    print(f"[ComfyUI] Done — {len(image_bytes)} bytes ('{filename}')")
+                    print(f"[ComfyUI] Done — {len(image_bytes)} bytes ('{filename}', type={img_type!r})")
                     return image_bytes, "image/png"
 
             print(f"[ComfyUI] Job completed but outputs contained no images.")
