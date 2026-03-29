@@ -826,6 +826,17 @@ def _run_generate(
                     ]
                     _sam_query = ", ".join(list(subject_uploaded.keys())[:4]) or "person"
                     _use_sam = os.environ.get("COMFYUI_USE_SAM", "true").strip().lower() not in ("0", "false", "no")
+                    if _use_sam:
+                        # Auto-detect: disable SAM if SAM3Segment isn't registered on this server
+                        try:
+                            _sam_check = _requests.get(
+                                f"{base_url}/object_info/SAM3Segment", timeout=5
+                            )
+                            if _sam_check.status_code != 200:
+                                print("[ComfyUI] SAM3Segment not found on server — disabling SAM automatically.")
+                                _use_sam = False
+                        except Exception:
+                            _use_sam = False
                     ultimate_wf = build_ultimate_workflow(
                         overall_prompt=prompt,
                         per_character_prompts=_per_char_prompts,
