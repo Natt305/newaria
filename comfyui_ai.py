@@ -862,6 +862,10 @@ def _run_generate(
                                 _use_sam = False
                         except Exception:
                             _use_sam = False
+                    # Cap at 4 steps: the user confirmed 4 gives excellent results and
+                    # the per-character SAM inpaint loop is heavy enough that 8+ steps
+                    # OOMs the RTX 3060 before any output is produced.
+                    _inpaint_steps = min(steps, 4)
                     ultimate_wf = build_ultimate_workflow(
                         overall_prompt=prompt,
                         per_character_prompts=_per_char_prompts,
@@ -871,7 +875,7 @@ def _run_generate(
                         vae_name=vae_name,
                         clip_name=clip_name,
                         seed=seed,
-                        steps=steps,
+                        steps=_inpaint_steps,
                         width=width,
                         height=height,
                         sam_query=_sam_query,
@@ -903,7 +907,7 @@ def _run_generate(
                                 vae_name=vae_name,
                                 clip_name=clip_name,
                                 seed=seed,
-                                steps=steps,
+                                steps=_inpaint_steps,
                                 width=width,
                                 height=height,
                                 sam_query=_sam_query,
@@ -1040,11 +1044,17 @@ def _run_generate(
             mode = "reference"
         elif "12" in workflow:
             mode = "img2img"
+        elif "1188" in workflow:
+            # Ultimate Inpaint workflow — node 1188 is its SaveImage node
+            mode = "ultimate_inpaint"
         else:
             mode = "txt2img"
         size_info = f"{width}x{height}" if mode != "reference" else "auto (from reference)"
         strength_info = strength if mode == "img2img" else "n/a"
-        print(f"[ComfyUI] Queuing {mode} job — size={size_info}, steps={steps}, strength={strength_info}")
+        # For the ultimate inpaint mode show the actual capped step count, not the
+        # raw configured value — the cap happens before build_ultimate_workflow is called.
+        _display_steps = min(steps, 4) if mode == "ultimate_inpaint" else steps
+        print(f"[ComfyUI] Queuing {mode} job — size={size_info}, steps={_display_steps}, strength={strength_info}")
         print(f"[ComfyUI] Prompt: {prompt[:120]!r}")
 
         payload = {"prompt": workflow, "client_id": client_id}
