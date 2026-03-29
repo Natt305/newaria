@@ -498,7 +498,11 @@ def populate_ultimate_workflow(
 
     # Sampler settings
     _patch_orig(api, o["seed"],   "RandomNoise",           "noise_seed",  seed)
-    _patch_orig(api, o["steps"],  "PrimitiveInt",          "value",       steps)
+    # Per-character inpaint needs more steps than the txt2img scene pass so that
+    # ReferenceLatent conditioning has enough iterations to transfer character
+    # appearance from the reference photo. Enforce a minimum of 20 steps.
+    inpaint_steps = max(steps, 20)
+    _patch_orig(api, o["steps"],  "PrimitiveInt",          "value",       inpaint_steps)
 
     # Prompts (inside the main inpaint-loop subgraph)
     _patch_orig(api, o["prompt_main"], "PrimitiveStringMultiline", "value", overall_prompt + _ANATOMY_SUFFIX)
@@ -547,7 +551,7 @@ def populate_ultimate_workflow(
     # versions; inject the default ("auto") if the node doesn't already have it.
     for _node in api.values():
         if _node.get("class_type") == "InpaintCropImproved":
-            _node["inputs"].setdefault("device_mode", "auto")
+            _node["inputs"].setdefault("device_mode", "gpu (much faster)")
 
     # Strip internal metadata keys before sending to ComfyUI
     clean: Dict[str, dict] = {}
