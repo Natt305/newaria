@@ -768,10 +768,13 @@ def _run_generate(
                     )
                 else:
                     # Step 2: generate initial scene with txt2img, then upload it
+                    # Cap scene-pass steps at 4: the scene is just a canvas for inpainting;
+                    # high step counts risk VRAM OOM on the RTX 3060 without quality benefit.
+                    _scene_steps = min(steps, 4)
                     scene_seed = int(uuid.uuid4().int % (2**31))
                     print("[ComfyUI] Ultimate: generating initial scene via txt2img pass…")
                     _scene_wf = _build_txt2img_workflow(
-                        prompt, gguf_path, vae_name, clip_name, steps, width, height, scene_seed
+                        prompt, gguf_path, vae_name, clip_name, _scene_steps, width, height, scene_seed
                     )
                     _scene_payload = {"prompt": _scene_wf, "client_id": client_id + "_scene"}
                     _scene_resp = _requests.post(f"{base_url}/prompt", json=_scene_payload, timeout=15)
@@ -779,14 +782,24 @@ def _run_generate(
                     if _scene_resp.status_code == 200:
                         _scene_pid = _scene_resp.json().get("prompt_id")
                         _scene_deadline = time.time() + timeout
+                        _scene_poll_fails = 0
                         while time.time() < _scene_deadline:
                             time.sleep(2)
                             try:
                                 _sh = _requests.get(f"{base_url}/history/{_scene_pid}", timeout=30)
                             except Exception:
+                                _scene_poll_fails += 1
+                                if _scene_poll_fails >= 30:
+                                    print("[ComfyUI] Scene poll: ComfyUI appears down — aborting scene wait.")
+                                    break
                                 continue  # ComfyUI busy generating; retry next tick
                             if _sh.status_code != 200 or _scene_pid not in _sh.json():
+                                _scene_poll_fails += 1
+                                if _scene_poll_fails >= 30:
+                                    print("[ComfyUI] Scene poll: ComfyUI not responding — aborting scene wait.")
+                                    break
                                 continue
+                            _scene_poll_fails = 0  # reset on good response
                             _sj = _sh.json()[_scene_pid]
                             if not _sj.get("status", {}).get("completed"):
                                 continue
@@ -1088,6 +1101,9 @@ def _run_generate(
 
         deadline = time.time() + timeout
         last_log = time.time()
+        _consecutive_poll_failures = 0
+        # After this many consecutive failures (~60 s) we assume ComfyUI crashed.
+        _MAX_CONSECUTIVE_FAILURES = 30
         while time.time() < deadline:
             time.sleep(2)
 
@@ -1116,10 +1132,22 @@ def _run_generate(
                 hist_resp = _requests.get(f"{base_url}/history/{prompt_id}", timeout=30)
             except Exception:
                 # ComfyUI is busy generating — its HTTP server may not respond mid-run;
-                # just retry on the next poll tick instead of aborting.
+                # count consecutive failures so we can detect a crash.
+                _consecutive_poll_failures += 1
+                if _consecutive_poll_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    print(f"[ComfyUI] No response for {_consecutive_poll_failures * 2}s "
+                          f"— ComfyUI appears to have crashed. Aborting.")
+                    return None
                 continue
             if hist_resp.status_code != 200:
+                _consecutive_poll_failures += 1
+                if _consecutive_poll_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    print(f"[ComfyUI] ComfyUI returning errors for {_consecutive_poll_failures * 2}s "
+                          f"— aborting.")
+                    return None
                 continue
+            # Got a real HTTP response — reset crash counter
+            _consecutive_poll_failures = 0
             history = hist_resp.json()
             if prompt_id not in history:
                 continue
