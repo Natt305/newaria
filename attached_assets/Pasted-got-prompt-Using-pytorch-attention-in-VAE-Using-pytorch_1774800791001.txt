@@ -1,0 +1,52 @@
+got prompt
+Using pytorch attention in VAE
+Using pytorch attention in VAE
+VAE load device: cuda:0, offload device: cpu, dtype: torch.bfloat16
+CLIP/text encoder model load device: cuda:0, offload device: cpu, current: cpu, dtype: torch.float16
+Requested to load Flux2TEModel_
+Model Flux2TEModel_ prepared for dynamic VRAM loading. 7671MB Staged. 0 patches attached. Force pre-loaded 145 weights: 383 KB.
+FETCH ComfyRegistry Data: 70/135
+FETCH ComfyRegistry Data: 75/135
+Model Flux2TEModel_ prepared for dynamic VRAM loading. 7671MB Staged. 0 patches attached. Force pre-loaded 145 weights: 383 KB.
+gguf qtypes: F32 (60), Q6_K (30), Q5_K (50), BF16 (9)
+model weight dtype torch.bfloat16, manual cast: None
+model_type FLUX
+Requested to load Flux2
+FETCH ComfyRegistry Data: 80/135
+loaded completely; 3347.30 MB usable, 3038.98 MB loaded, full load: True
+ 38%|███████████████████████████████▌                                                    | 3/8 [00:02<00:04,  1.05it/s]FETCH ComfyRegistry Data: 85/135
+100%|████████████████████████████████████████████████████████████████████████████████████| 8/8 [00:07<00:00,  1.05it/s]
+Requested to load AutoencoderKL
+0 models unloaded.
+Model AutoencoderKL prepared for dynamic VRAM loading. 160MB Staged. 0 patches attached.
+FETCH ComfyRegistry Data: 90/135
+Prompt executed in 19.81 seconds
+got prompt
+Failed to validate prompt for output 1188:
+* UNETLoader 1014:
+  - Value not in list: unet_name: 'flux-2-klein-4b-Q5_K_M.gguf' not in []
+Output will be ignored
+WARNING: LoadImage.IS_CHANGED() got an unexpected keyword argument 'enabled'
+WARNING: LoadImage.IS_CHANGED() got an unexpected keyword argument 'enabled'
+WARNING: LoadImage.IS_CHANGED() got an unexpected keyword argument 'enabled'
+WARNING: LoadImage.IS_CHANGED() got an unexpected keyword argument 'enabled'
+WARNING: LoadImage.IS_CHANGED() got an unexpected keyword argument 'enabled'
+[mask_to_segs] Empty mask.
+# of Detected SEGS: 0
+FETCH ComfyRegistry Data: 95/135
+FETCH ComfyRegistry Data: 100/135
+FETCH ComfyRegistry Data: 105/135
+a: 1 b: 2 comparison: a < b
+FETCH ComfyRegistry Data: 110/135
+FETCH ComfyRegistry Data: 115/135
+FETCH ComfyRegistry Data: 120/135
+FETCH ComfyRegistry Data: 125/135
+a: 2 b: 2 comparison: a < b
+Expanding/Contracting Mask: 100%|████████████████████████████████████████████████████████| 2/2 [00:00<00:00, 41.01it/s]
+Prompt executed in 32.68 seconds
+FETCH ComfyRegistry Data: 130/135
+FETCH ComfyRegistry Data: 135/135
+FETCH ComfyRegistry Data [DONE]
+[ComfyUI-Manager] default cache updated: https://api.comfy.org/nodes
+FETCH DATA from: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json [DONE]
+[ComfyUI-Manager] All startup tasks have been completed.

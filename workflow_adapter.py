@@ -488,7 +488,15 @@ def populate_ultimate_workflow(
     o = _ULTIMATE_ORIG
 
     # Model loaders
-    _patch_orig(api, o["unet"],   "UNETLoader",            "unet_name",   unet_name)
+    # The workflow template uses the standard UNETLoader which validates against the
+    # non-GGUF model list (always empty here). Swap it for UnetLoaderGGUF which is
+    # what the txt2img workflow uses and correctly finds .gguf files.
+    for _node in api.values():
+        if _node.get("_orig_id") == o["unet"] and _node.get("class_type") == "UNETLoader":
+            _node["class_type"] = "UnetLoaderGGUF"
+            _node["inputs"].pop("weight_dtype", None)
+            break
+    _patch_orig(api, o["unet"],   "UnetLoaderGGUF",        "unet_name",   unet_name)
     _patch_orig(api, o["clip"],   "CLIPLoader",            "clip_name",   clip_name)
     _patch_orig(api, o["vae"],    "VAELoader",             "vae_name",    vae_name)
 
