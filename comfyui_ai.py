@@ -29,6 +29,21 @@ Multi-reference mode (FLUX.2 Klein native):
     Uses the advanced sampler pipeline: EmptyFlux2LatentImage + Flux2Scheduler +
     SamplerCustomAdvanced + CFGGuider + KSamplerSelect + RandomNoise.
 
+Ultimate Inpaint multi-character mode:
+    Activated by COMFYUI_MODE=ultimate_inpaint when reference_images and subject_appearances
+    are both provided. Uses the "Flux.2 Ultimate Inpaint Pro Ultra v3.1" GUI workflow which
+    supports up to 4 characters each with their own ReferenceLatent conditioning, RMBG
+    background removal, and InpaintCropImproved per-character inpainting pass.
+    Workflow:
+      1. Character reference images are uploaded to ComfyUI.
+      2. An initial scene is generated via a txt2img pass and uploaded as the canvas.
+      3. The Ultimate Inpaint workflow runs: for each character slot it crops the character
+         region, inpaints with the reference conditioning, and stitches back.
+      4. Optional SAM3 auto-segmentation detects character regions (enabled by default;
+         disable with COMFYUI_USE_SAM=false).
+    Additional optional env vars for this mode:
+        COMFYUI_USE_SAM    Enable SAM3 auto-segmentation (default: true).
+
 Progress reporting:
     generate_image() connects to ComfyUI's WebSocket API (ws://.../ws?clientId=…)
     and translates server-sent events to the same tag format used by the diffusers
@@ -709,10 +724,138 @@ def _run_generate(
         # image-upload cycle (images are already on the server).
         _refchain_fallback_wf: Optional[dict] = None
 
+        _workflow_mode = os.environ.get("COMFYUI_MODE", "").strip().lower()
+
         if custom_workflow_path and os.path.exists(custom_workflow_path):
             with open(custom_workflow_path, "r", encoding="utf-8") as f:
                 workflow = json.load(f)
             print(f"[ComfyUI] Using custom workflow: {custom_workflow_path}")
+        elif _workflow_mode == "ultimate_inpaint" and refs and subject_appearances:
+            # ── Ultimate Inpaint multi-character path ────────────────────────────
+            # Uses the Flux.2 Ultimate Inpaint Pro Ultra v3.1 GUI workflow which
+            # provides per-character ReferenceLatent + InpaintCropImproved passes
+            # with optional SAM3 auto-segmentation. Activated by:
+            #   COMFYUI_MODE=ultimate_inpaint
+            # Requires a scene/canvas image — generated via a first txt2img pass
+            # and automatically uploaded before the inpainting job is submitted.
+            try:
+                from workflow_adapter import build_ultimate_workflow
+                labels = reference_subjects or []
+                unique_subjects = list(dict.fromkeys(labels)) if labels else []
+
+                # Step 1: upload character reference images
+                subject_uploaded: Dict[str, List[str]] = defaultdict(list)
+                uploaded_names: List[str] = []
+                for idx, (ref_bytes, ref_mime) in enumerate(refs):
+                    processed = _to_png(ref_bytes)
+                    up_bytes = processed if processed is not None else ref_bytes
+                    up_name = _upload_image(base_url, up_bytes, _requests)
+                    if up_name:
+                        uploaded_names.append(up_name)
+                        subj = labels[idx] if idx < len(labels) else ""
+                        if subj:
+                            subject_uploaded[subj].append(up_name)
+
+                if not uploaded_names:
+                    print("[ComfyUI] Ultimate: all reference uploads failed — falling back to txt2img.")
+                    workflow = _build_txt2img_workflow(
+                        prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
+                    )
+                else:
+                    # Step 2: generate initial scene with txt2img, then upload it
+                    scene_seed = int(uuid.uuid4().int % (2**31))
+                    print("[ComfyUI] Ultimate: generating initial scene via txt2img pass…")
+                    _scene_wf = _build_txt2img_workflow(
+                        prompt, gguf_path, vae_name, clip_name, steps, width, height, scene_seed
+                    )
+                    _scene_payload = {"prompt": _scene_wf, "client_id": client_id + "_scene"}
+                    _scene_resp = _requests.post(f"{base_url}/prompt", json=_scene_payload, timeout=15)
+                    _scene_image_filename: Optional[str] = None
+                    if _scene_resp.status_code == 200:
+                        _scene_pid = _scene_resp.json().get("prompt_id")
+                        _scene_deadline = time.time() + timeout
+                        while time.time() < _scene_deadline:
+                            time.sleep(2)
+                            _sh = _requests.get(f"{base_url}/history/{_scene_pid}", timeout=10)
+                            if _sh.status_code != 200 or _scene_pid not in _sh.json():
+                                continue
+                            _sj = _sh.json()[_scene_pid]
+                            if not _sj.get("status", {}).get("completed"):
+                                continue
+                            for _sout in _sj.get("outputs", {}).values():
+                                _simgs = _sout.get("images", [])
+                                if _simgs:
+                                    _si = _simgs[0]
+                                    _sv = _requests.get(
+                                        f"{base_url}/view",
+                                        params={"filename": _si["filename"],
+                                                "type": _si.get("type", "output"),
+                                                **( {"subfolder": _si["subfolder"]} if _si.get("subfolder") else {} )},
+                                        timeout=30,
+                                    )
+                                    if _sv.status_code == 200:
+                                        _scene_image_filename = _upload_image(
+                                            base_url, _sv.content, _requests
+                                        )
+                                    break
+                            if _scene_image_filename:
+                                break
+                        if _scene_image_filename:
+                            print(f"[ComfyUI] Ultimate: scene image uploaded as '{_scene_image_filename}'")
+                        else:
+                            print("[ComfyUI] Ultimate: scene generation failed — using blank canvas.")
+
+                    # Step 3: build blank canvas if scene generation failed
+                    if not _scene_image_filename:
+                        try:
+                            from PIL import Image as _PILImage
+                            _blank = _PILImage.new("RGB", (width, height), color=(255, 255, 255))
+                            _buf = io.BytesIO()
+                            _blank.save(_buf, format="PNG")
+                            _scene_image_filename = _upload_image(base_url, _buf.getvalue(), _requests) or "none.png"
+                        except Exception:
+                            _scene_image_filename = "none.png"
+
+                    # Step 4: build and submit Ultimate Inpaint workflow
+                    _per_char_prompts = [
+                        subject_appearances.get(s, "") for s in list(subject_uploaded.keys())[:4]
+                    ]
+                    _sam_query = ", ".join(list(subject_uploaded.keys())[:4]) or "person"
+                    _use_sam = os.environ.get("COMFYUI_USE_SAM", "true").strip().lower() not in ("0", "false", "no")
+                    ultimate_wf = build_ultimate_workflow(
+                        overall_prompt=prompt,
+                        per_character_prompts=_per_char_prompts,
+                        uploaded_filenames=dict(subject_uploaded),
+                        scene_image_filename=_scene_image_filename,
+                        unet_name=gguf_path,
+                        vae_name=vae_name,
+                        clip_name=clip_name,
+                        seed=seed,
+                        steps=steps,
+                        width=width,
+                        height=height,
+                        sam_query=_sam_query,
+                        use_sam=_use_sam,
+                    )
+                    if ultimate_wf is None:
+                        print("[ComfyUI] Ultimate: workflow build failed — falling back to flat-chain.")
+                        workflow = _build_reference_workflow(
+                            prompt, gguf_path, vae_name, clip_name, steps, seed,
+                            uploaded_names, width=width, height=height,
+                        )
+                    else:
+                        workflow = ultimate_wf
+                        n_chars = len([v for v in subject_uploaded.values() if v])
+                        print(
+                            f"[ComfyUI] Ultimate Inpaint workflow — {n_chars} character(s): "
+                            f"{list(subject_uploaded.keys())}, scene='{_scene_image_filename}', "
+                            f"SAM={'on' if _use_sam else 'off'}, output={width}x{height}"
+                        )
+            except Exception as _ult_exc:
+                print(f"[ComfyUI] Ultimate Inpaint path failed ({_ult_exc}) — falling back to txt2img.")
+                workflow = _build_txt2img_workflow(
+                    prompt, gguf_path, vae_name, clip_name, steps, width, height, seed
+                )
         elif refs:
             # Native FLUX.2 Klein ReferenceLatent path.
             # Convert all reference images to PNG before upload (avoids JPEG/WebP

@@ -6,6 +6,13 @@ Primary: build_refchain_workflow() — programmatic FLUX.2 Klein workflow using
   reference images at once as a JSON list, handles scaling+VAE-encoding internally,
   and chains them as reference latents. Requires one node pack; no JSON file needed.
 
+Multi-character inpainting: build_ultimate_workflow() — uses the "Flux.2 Ultimate
+  Inpaint Pro Ultra v3.1" GUI workflow JSON, which supports up to 4 character slots
+  with per-character ReferenceLatent conditioning, RMBG background removal,
+  InpaintCropImproved per-character inpainting, and optional SAM3 auto-segmentation.
+  Activated by setting COMFYUI_MODE=ultimate_inpaint. Requires a ComfyUI server
+  with the matching custom node packs installed.
+
 Legacy (kept for reference): AIO per-segment inpainting workflow expander.
   Converts the subgraph-format "Flux.2 AIO Pro Simple v3.1" GUI workflow JSON
   into the flat API format. Requires 6+ custom node packs; no longer used as
@@ -24,6 +31,7 @@ _ANATOMY_SUFFIX = (
 )
 
 _AIO_PATH = os.path.join(os.path.dirname(__file__), "workflows", "Flux_2_AIO_Pro_Simple_v3_1.json")
+_ULTIMATE_PATH = os.path.join(os.path.dirname(__file__), "workflows", "Flux_2_Ultimate_Inpaint_Pro_Ultra_v3_1.json")
 
 # Subgraph UUIDs used in the AIO workflow
 _SG_IMAGE_1  = "a195af2c-3c21-4534-9b25-96a8957e40d4"
@@ -371,6 +379,220 @@ def build_aio_workflow(
         height=height,
     )
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ultimate Inpaint Pro Ultra v3.1 — multi-character inpainting workflow
+# ─────────────────────────────────────────────────────────────────────────────
+# Node discovery constants (inner _orig_id values found in the expanded graph).
+# These are the internal IDs used within each subgraph; they stay stable across
+# template versions as long as the workflow file is not restructured.
+_ULTIMATE_ORIG = {
+    "unet":          94,   # UNETLoader (inside model subgraph)
+    "clip":          92,   # CLIPLoader
+    "vae":            8,   # VAELoader
+    "width":         37,   # easy int "Width"
+    "height":        38,   # easy int "Height"
+    "seed":          15,   # RandomNoise
+    "steps":        733,   # PrimitiveInt "Steps"
+    "prompt_main":  604,   # PrimitiveStringMultiline "Overall prompt"
+    "prompt_seg":   605,   # PrimitiveStringMultiline "Per segment prompt"
+    "sam_enable":   637,   # PrimitiveBoolean (enable SAM3)
+    "sam_query":    662,   # GODMT_SplitString (SAM3 text query)
+    "scene_image":    9,   # LoadImageWithSwitch (outer scene/canvas image)
+    "char_image":   568,   # LoadImageWithSwitch ×4 (character reference images)
+    "char_part":    574,   # PrimitiveString ×4 ("Use at part" index)
+}
+
+
+def _patch_orig(api: Dict[str, dict], orig_id: int, class_type: str,
+                widget_name: str, value: Any) -> bool:
+    """Patch the first API node matching orig_id + class_type."""
+    for node in api.values():
+        if node.get("_orig_id") == orig_id and node.get("class_type") == class_type:
+            node["inputs"][widget_name] = value
+            return True
+    return False
+
+
+def load_expanded_ultimate() -> Optional[Dict[str, dict]]:
+    """Load and expand the Ultimate Inpaint GUI workflow to API format."""
+    if not os.path.exists(_ULTIMATE_PATH):
+        print(f"[UltimateWF] Workflow file not found: {_ULTIMATE_PATH}")
+        return None
+    try:
+        with open(_ULTIMATE_PATH, "r", encoding="utf-8") as f:
+            gui = json.load(f)
+        api = expand_aio_workflow(gui)
+        print(f"[UltimateWF] Loaded and expanded Ultimate workflow: {len(api)} nodes")
+        return api
+    except Exception as exc:
+        print(f"[UltimateWF] Failed to load/expand workflow: {exc}")
+        return None
+
+
+_EXPANDED_ULTIMATE: Optional[Dict[str, dict]] = None
+
+
+def get_expanded_ultimate() -> Optional[Dict[str, dict]]:
+    """Return the cached expanded Ultimate workflow, loading it if needed."""
+    global _EXPANDED_ULTIMATE
+    if _EXPANDED_ULTIMATE is None:
+        _EXPANDED_ULTIMATE = load_expanded_ultimate()
+    return _EXPANDED_ULTIMATE
+
+
+def populate_ultimate_workflow(
+    api_template: Dict[str, dict],
+    unet_name: str,
+    vae_name: str,
+    clip_name: str,
+    overall_prompt: str,
+    per_segment_prompt: str,
+    scene_image_filename: str,
+    ref_images: List[Optional[str]],
+    seed: int,
+    steps: int = 8,
+    width: int = 1280,
+    height: int = 720,
+    sam_query: str = "person",
+    use_sam: bool = True,
+) -> Dict[str, dict]:
+    """
+    Populate an expanded Ultimate Inpaint workflow template with per-run values.
+
+    scene_image_filename: ComfyUI filename of the main canvas/scene image.
+    ref_images:           Up to 4 ComfyUI filenames for character reference images
+                          (or None to leave a slot disabled).
+
+    Returns a clean workflow dict ready for POST /prompt.
+    """
+    import copy
+    api = copy.deepcopy(api_template)
+    o = _ULTIMATE_ORIG
+
+    # Model loaders
+    _patch_orig(api, o["unet"],   "UNETLoader",            "unet_name",   unet_name)
+    _patch_orig(api, o["clip"],   "CLIPLoader",            "clip_name",   clip_name)
+    _patch_orig(api, o["vae"],    "VAELoader",             "vae_name",    vae_name)
+
+    # Resolution — easy int nodes inside the model subgraph
+    _patch_orig(api, o["width"],  "easy int",              "value",       width)
+    _patch_orig(api, o["height"], "easy int",              "value",       height)
+
+    # Sampler settings
+    _patch_orig(api, o["seed"],   "RandomNoise",           "noise_seed",  seed)
+    _patch_orig(api, o["steps"],  "PrimitiveInt",          "value",       steps)
+
+    # Prompts (inside the main inpaint-loop subgraph)
+    _patch_orig(api, o["prompt_main"], "PrimitiveStringMultiline", "value", overall_prompt + _ANATOMY_SUFFIX)
+    _patch_orig(api, o["prompt_seg"],  "PrimitiveStringMultiline", "value", per_segment_prompt)
+
+    # Main scene / canvas image
+    _patch_orig(api, o["scene_image"], "LoadImageWithSwitch", "image",   scene_image_filename)
+    _patch_orig(api, o["scene_image"], "LoadImageWithSwitch", "enabled", True)
+
+    # SAM3 auto-segmentation toggle and query string
+    _patch_orig(api, o["sam_enable"], "PrimitiveBoolean",   "value",  use_sam)
+    _patch_orig(api, o["sam_query"],  "GODMT_SplitString",  "STRING", sam_query)
+
+    # Character reference image slots — sorted by API node ID so they correspond
+    # to character 1, 2, 3, 4 in top-level node order (outer_ids 2, 3, 4, 7).
+    char_load_nids = sorted(
+        [nid for nid, n in api.items()
+         if n.get("class_type") == "LoadImageWithSwitch" and n.get("_orig_id") == o["char_image"]],
+        key=lambda x: int(x),
+    )
+    char_part_nids = sorted(
+        [nid for nid, n in api.items()
+         if n.get("class_type") == "PrimitiveString" and n.get("_orig_id") == o["char_part"]],
+        key=lambda x: int(x),
+    )
+
+    for i, load_nid in enumerate(char_load_nids):
+        img_fn = ref_images[i] if i < len(ref_images) else None
+        api[load_nid]["inputs"]["image"]   = img_fn or "none.png"
+        api[load_nid]["inputs"]["enabled"] = img_fn is not None
+
+    for i, part_nid in enumerate(char_part_nids):
+        api[part_nid]["inputs"]["value"] = str(i + 1)
+
+    # Strip internal metadata keys before sending to ComfyUI
+    clean: Dict[str, dict] = {}
+    for nid, node in api.items():
+        entry: Dict[str, Any] = {
+            "class_type": node["class_type"],
+            "inputs":     node["inputs"],
+        }
+        if "_meta" in node:
+            entry["_meta"] = node["_meta"]
+        clean[nid] = entry
+    return clean
+
+
+def build_ultimate_workflow(
+    overall_prompt: str,
+    per_character_prompts: List[str],
+    uploaded_filenames: Dict[str, List[str]],
+    scene_image_filename: str,
+    unet_name: str,
+    vae_name: str,
+    clip_name: str,
+    seed: int,
+    steps: int = 8,
+    width: int = 1280,
+    height: int = 720,
+    sam_query: Optional[str] = None,
+    use_sam: bool = True,
+) -> Optional[Dict[str, dict]]:
+    """
+    High-level entry point: build a populated Ultimate Inpaint workflow ready for
+    ComfyUI /prompt.
+
+    uploaded_filenames:      {subject_name -> [comfyui_filename, ...]} — first
+                             filename per subject is used as the character reference.
+    per_character_prompts:   One appearance description per subject (parallel to
+                             uploaded_filenames order). Used as the per-segment prompt.
+    scene_image_filename:    ComfyUI filename of the main scene/canvas image. Pass
+                             a blank white image filename if no pre-existing scene.
+
+    Returns the populated workflow dict, or None if the Ultimate file is unavailable.
+    """
+    template = get_expanded_ultimate()
+    if template is None:
+        return None
+
+    subjects_ordered = list(uploaded_filenames.keys())
+    ref_images: List[Optional[str]] = []
+    for subj in subjects_ordered[:4]:
+        photos = uploaded_filenames.get(subj, [])
+        ref_images.append(photos[0] if photos else None)
+    while len(ref_images) < 4:
+        ref_images.append(None)
+
+    per_seg = "\n".join(per_character_prompts[:4]) if per_character_prompts else overall_prompt
+
+    # Build a SAM query string from subject names so SAM3 can find each character.
+    if not sam_query and subjects_ordered:
+        sam_query = ", ".join(subjects_ordered[:4])
+    sam_query = sam_query or "person"
+
+    return populate_ultimate_workflow(
+        api_template=template,
+        unet_name=unet_name,
+        vae_name=vae_name,
+        clip_name=clip_name,
+        overall_prompt=overall_prompt,
+        per_segment_prompt=per_seg,
+        scene_image_filename=scene_image_filename,
+        ref_images=ref_images,
+        seed=seed,
+        steps=steps,
+        width=width,
+        height=height,
+        sam_query=sam_query,
+        use_sam=use_sam,
+    )
 
 
 def build_refchain_workflow(
