@@ -725,12 +725,16 @@ def _run_generate(
         _refchain_fallback_wf: Optional[dict] = None
 
         _workflow_mode = os.environ.get("COMFYUI_MODE", "").strip().lower()
+        print(
+            f"[ComfyUI] Workflow mode: '{_workflow_mode or 'default'}' — "
+            f"refs={len(refs)}, subject_appearances={list((subject_appearances or {}).keys())}"
+        )
 
         if custom_workflow_path and os.path.exists(custom_workflow_path):
             with open(custom_workflow_path, "r", encoding="utf-8") as f:
                 workflow = json.load(f)
             print(f"[ComfyUI] Using custom workflow: {custom_workflow_path}")
-        elif _workflow_mode == "ultimate_inpaint" and refs and subject_appearances:
+        elif _workflow_mode == "ultimate_inpaint" and refs:
             # ── Ultimate Inpaint multi-character path ────────────────────────────
             # Uses the Flux.2 Ultimate Inpaint Pro Ultra v3.1 GUI workflow which
             # provides per-character ReferenceLatent + InpaintCropImproved passes
