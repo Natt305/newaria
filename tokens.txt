@@ -221,7 +221,7 @@ COMFYUI_MODE=ultimate_inpaint
 # 啟用 SAM3 自動分割（COMFYUI_MODE=ultimate_inpaint 時有效，預設 true）
 # Enable SAM3 auto-segmentation for Ultimate Inpaint mode (default: true).
 # Set to false if SAM3 is not installed on your ComfyUI server.
-COMFYUI_USE_SAM=false
+COMFYUI_USE_SAM=true
 
 # ================================================================
 #  多角色參考圖 — 原生 FLUX.2 Klein ReferenceLatent（無需額外插件）
