@@ -850,7 +850,10 @@ def _run_generate(
                         _sq_hint = _sq_app.split(",")[0].strip() if _sq_app else ""
                         _sam_parts.append(_sq_hint if _sq_hint else "person")
                     _sam_query = ", ".join(_sam_parts) if _sam_parts else "person, girl"
-                    _use_sam = os.environ.get("COMFYUI_USE_SAM", "true").strip().lower() not in ("0", "false", "no")
+                    # SAM defaults OFF: the RTX 3060 12 GB has no headroom for SAM3
+                    # after the Flux model loads from the scene pass.
+                    # Set COMFYUI_USE_SAM=true in tokens.txt to opt in.
+                    _use_sam = os.environ.get("COMFYUI_USE_SAM", "false").strip().lower() not in ("0", "false", "no")
                     if _use_sam:
                         # Auto-detect: disable SAM if SAM3Segment isn't registered on this server
                         try:
@@ -861,11 +864,12 @@ def _run_generate(
                                 print("[ComfyUI] SAM3Segment not found on server — disabling SAM automatically.")
                                 _use_sam = False
                         except Exception:
+                            print("[ComfyUI] SAM3Segment check failed — disabling SAM to be safe.")
                             _use_sam = False
                     if _use_sam:
                         # VRAM guard: loading SAM3 alongside the already-resident Flux
                         # model crashes the RTX 3060 (12 GB) when torch_vram_free < ~2 GB.
-                        # Check headroom after the scene pass and auto-disable SAM if tight.
+                        # Fail-closed: any check failure disables SAM.
                         _VRAM_SAM_MIN_MB = int(os.environ.get("COMFYUI_SAM_MIN_VRAM_MB", "2000"))
                         try:
                             _ss = _requests.get(f"{base_url}/system_stats", timeout=5)
@@ -879,9 +883,13 @@ def _run_generate(
                                     )
                                     _use_sam = False
                                 else:
-                                    print(f"[ComfyUI] VRAM OK ({_tvf_mb} MB free) — SAM enabled.")
-                        except Exception:
-                            pass  # Can't check — leave SAM state as-is
+                                    print(f"[ComfyUI] VRAM OK ({_tvf_mb} MB free) — SAM staying enabled.")
+                            else:
+                                print(f"[ComfyUI] system_stats returned {_ss.status_code} — disabling SAM to be safe.")
+                                _use_sam = False
+                        except Exception as _vram_exc:
+                            print(f"[ComfyUI] VRAM check failed ({_vram_exc}) — disabling SAM to be safe.")
+                            _use_sam = False
                     # Cap at 4 steps: the user confirmed 4 gives excellent results and
                     # the per-character SAM inpaint loop is heavy enough that 8+ steps
                     # OOMs the RTX 3060 before any output is produced.
