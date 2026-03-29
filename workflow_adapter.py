@@ -111,6 +111,22 @@ def _expand(nodes, links, subgraph_defs, parent_inputs, counter):
         old_id = n["id"]
         ntype = n.get("type", "")
 
+        if ntype in ("Reroute", "Note", "PrimitiveNode"):
+            # GUI-only nodes: Reroute passes its single input straight through;
+            # Note and PrimitiveNode carry no runtime meaning.
+            if ntype == "Reroute":
+                inp_list = n.get("inputs", [])
+                if inp_list:
+                    lnk = inp_list[0].get("link")
+                    if lnk and lnk in link_src:
+                        o_n, o_s = link_src[lnk]
+                        r = resolve(o_n, o_s)
+                        if r:
+                            old_to_new[old_id] = r[0]
+                            # Reroute always passes slot 0 → map via sg_out_maps
+                            sg_out_maps[old_id] = {0: r}
+            continue
+
         if ntype in subgraph_defs:
             sg = subgraph_defs[ntype]
             sg_pi = {}
