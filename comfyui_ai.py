@@ -862,6 +862,26 @@ def _run_generate(
                                 _use_sam = False
                         except Exception:
                             _use_sam = False
+                    if _use_sam:
+                        # VRAM guard: loading SAM3 alongside the already-resident Flux
+                        # model crashes the RTX 3060 (12 GB) when torch_vram_free < ~2 GB.
+                        # Check headroom after the scene pass and auto-disable SAM if tight.
+                        _VRAM_SAM_MIN_MB = int(os.environ.get("COMFYUI_SAM_MIN_VRAM_MB", "2000"))
+                        try:
+                            _ss = _requests.get(f"{base_url}/system_stats", timeout=5)
+                            if _ss.status_code == 200:
+                                _tvf = _ss.json().get("devices", [{}])[0].get("torch_vram_free", 0)
+                                _tvf_mb = _tvf // (1024 * 1024)
+                                if _tvf_mb < _VRAM_SAM_MIN_MB:
+                                    print(
+                                        f"[ComfyUI] Only {_tvf_mb} MB torch VRAM free after scene pass "
+                                        f"(need {_VRAM_SAM_MIN_MB} MB for SAM) — disabling SAM to prevent OOM crash."
+                                    )
+                                    _use_sam = False
+                                else:
+                                    print(f"[ComfyUI] VRAM OK ({_tvf_mb} MB free) — SAM enabled.")
+                        except Exception:
+                            pass  # Can't check — leave SAM state as-is
                     # Cap at 4 steps: the user confirmed 4 gives excellent results and
                     # the per-character SAM inpaint loop is heavy enough that 8+ steps
                     # OOMs the RTX 3060 before any output is produced.
