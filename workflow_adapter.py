@@ -518,7 +518,7 @@ def populate_ultimate_workflow(
     for _nid, _node in api.items():
         if _node.get("class_type") == "SAM3Segment":
             _node["inputs"]["confidence_threshold"] = 0.15
-            _node["inputs"]["output_mode"] = "Merge"
+            _node["inputs"]["output_mode"] = "Merged"
 
     # Character reference image slots — sorted by API node ID so they correspond
     # to character 1, 2, 3, 4 in top-level node order (outer_ids 2, 3, 4, 7).
@@ -535,11 +535,19 @@ def populate_ultimate_workflow(
 
     for i, load_nid in enumerate(char_load_nids):
         img_fn = ref_images[i] if i < len(ref_images) else None
-        api[load_nid]["inputs"]["image"]   = img_fn or "none.png"
+        # Disabled slots still require a valid image filename for ComfyUI's validator;
+        # use the scene image (always uploaded) as a harmless placeholder.
+        api[load_nid]["inputs"]["image"]   = img_fn or scene_image_filename
         api[load_nid]["inputs"]["enabled"] = img_fn is not None
 
     for i, part_nid in enumerate(char_part_nids):
         api[part_nid]["inputs"]["value"] = str(i + 1)
+
+    # InpaintCropImproved added a required 'device_mode' input in newer Impact-Pack
+    # versions; inject the default ("auto") if the node doesn't already have it.
+    for _node in api.values():
+        if _node.get("class_type") == "InpaintCropImproved":
+            _node["inputs"].setdefault("device_mode", "auto")
 
     # Strip internal metadata keys before sending to ComfyUI
     clean: Dict[str, dict] = {}

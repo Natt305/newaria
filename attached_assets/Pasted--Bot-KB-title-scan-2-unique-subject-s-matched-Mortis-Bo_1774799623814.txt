@@ -1,0 +1,35 @@
+[Bot] KB title scan: 2 unique subject(s) matched — ['Mortis', '井芹仁菜']
+[Bot] KB image enrichment: 2 text description(s) applied to prompt
+[Bot] Ref images: 3/3 photo(s) loaded for 'Mortis' (id=14)
+[Bot] Ref images: 3/3 photo(s) loaded for '井芹仁菜' (id=13)
+[Bot] Ref images interleaved: 6 total across 2 subject(s): ['Mortis', '井芹仁菜']
+[Bot] LLM ref images: 2 (1 per subject) — ComfyUI ref images: 6 — subjects: ['Mortis', '井芹仁菜']
+[Groq] enhance_image_prompt: using vision model with 2 reference image(s)
+[Groq] subject_supplement (gap-filler) — Mortis: '圖片1: HAIR: very pale seafoam mint-green hair, extremely desaturated, almost achromatic, unmistakably'
+[Groq] subject_supplement (gap-filler) — 井芹仁菜: 'HAIR: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey, NOT pure white;'
+[Groq] Skipping daily-exhausted models: ['llama-3.3-70b-versatile']
+[Groq] Skipping daily-exhausted models: ['llama-3.3-70b-versatile']
+[Memory] Stored: '刺 想看 Mortis 與 仁菜'
+[Groq] Prompt enhanced: (left) Mortis, very pale seafoam mint-green hair + (right) 井芹仁菜, dark brown hair; centered composition, both characters fully visible in frame, standing on a dramatic stage with a black and red lighting scheme, set against a gothic backdrop with intricate designs; Mortis is wielding a seven-string guitar and positioned slightly to the left, while 井芹仁菜 stands to the right, singing with a passionate expression; the atmosphere is intense yet elegant, with a sense of performance and music filling the air; Mortis wears a deep crimson beret, black open-front sleeveless shoulder cape with gold-braid trim, deep red and black short-sleeved top with gold-trimmed collar and small white ruffled jabot secured with a green gemstone brooch, deep red shorts, and off-white stockings; 井芹仁菜 wears a dark navy blue jacket with faux fur-lined hood, white t-shirt, dark red and black plaid pleated skirt, white socks with thin blue pinstripes, and black and white sneakers; clean 2D anime illustration, flat cel-shaded, anime digital art, vivid saturated color palette.
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=False, kb_refs=['Mortis', '井芹仁菜'], ref_images=6, unique_subjects=2, authority_refs=[], supplements=['Mortis', '井芹仁菜'], photo_only=['Mortis', '井芹仁菜'], spatial='(left) Mortis, (right) 井芹仁菜, centered composition, all characters fully visible in frame')
+[Bot] ID anchors injected: ['[Mortis: very pale seafoam mint-green hair, extremely desaturated, almost achromatic,]', '[井芹仁菜: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey,]']
+[Groq] Skipping daily-exhausted models: ['llama-3.3-70b-versatile']
+[ComfyUI] Workflow mode: 'ultimate_inpaint' — refs=6, subject_appearances=['Mortis', '井芹仁菜']
+[ComfyUI] Ultimate: generating initial scene via txt2img pass…
+[ComfyUI] Ultimate: scene image uploaded as 'reference.png'
+[UltimateWF] Loaded and expanded Ultimate workflow: 189 nodes
+[ComfyUI] Ultimate Inpaint workflow — 2 character(s): ['Mortis', '井芹仁菜'], scene='reference.png', SAM=on, output=512x512
+[ComfyUI] Queuing txt2img job — size=512x512, steps=8, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, [Mortis: very pale seafoam mint-green hair, '
+[ComfyUI] /prompt returned HTTP 400.
+[ComfyUI] Error type:    prompt_outputs_failed_validation
+[ComfyUI] Error message: Prompt outputs failed validation
+[ComfyUI]   Node 1006 (SAM3Segment): [value_not_in_list] Value not in list — output_mode: 'Merge' not in ['Merged', 'Separate']
+[ComfyUI]   Node 1048 (InpaintCropImproved): [required_input_missing] Required input is missing — device_mode
+[ComfyUI]   Node 1014 (UNETLoader): [value_not_in_list] Value not in list — unet_name: 'flux-2-klein-4b-Q5_K_M.gguf' not in []
+[ComfyUI]   Node 1145 (LoadImageWithSwitch): [custom_validation_failed] Custom validation failed for node — image - Invalid image file: none.png
+[ComfyUI]   Node 1150 (InpaintCropImproved): [required_input_missing] Required input is missing — device_mode
+[ComfyUI]   Node 1122 (LoadImageWithSwitch): [custom_validation_failed] Custom validation failed for node — image - Invalid image file: none.png
+[ComfyUI]   Node 1127 (InpaintCropImproved): [required_input_missing] Required input is missing — device_mode
+[ComfyUI]   Node 1104 (InpaintCropImproved): [required_input_missing] Required input is missing — device_mode
+[ComfyUI]   Node 1080 (InpaintCropImproved): [required_input_missing] Required input is missing — device_mode
