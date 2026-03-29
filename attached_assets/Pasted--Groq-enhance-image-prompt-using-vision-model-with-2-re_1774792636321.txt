@@ -1,0 +1,16 @@
+[Groq] enhance_image_prompt: using vision model with 2 reference image(s)
+[Groq] subject_supplement (gap-filler) — Mortis: '圖片1: HAIR: very pale seafoam mint-green hair, extremely desaturated, almost achromatic, unmistakably'
+[Groq] subject_supplement (gap-filler) — 井芹仁菜: 'HAIR: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey, NOT pure white;'
+[Groq] Prompt enhanced: (left) Mortis, very pale seafoam mint-green hair; (right) 井芹仁菜, dark brown hair. Centered composition with both characters fully visible in frame, Mortis and 井芹仁菜 standing back to back, looking cool with calm expressions. The scene is set against a softly lit, serene background with gentle gradients of blue and white hues, evoking a sense of tranquility. Mortis wears a deep crimson beret atop her long, straight mint-green hair, complemented by a black open-front shoulder cape with gold-braid trim and a deep red short-sleeved top. Her outfit is finished with deep red shorts and off-white knee-high stockings. On the other side, 井芹仁菜 sports a dark crimson beret with her short bob of dark brown hair, paired with a dark navy blue jacket and a dark red and black plaid pleated skirt. A black and white sneaker adorns her feet. The atmosphere remains calm and cool, with no prop or instrument in sight, simply focusing on the stylistic contrast and camaraderie between the characters. The artistic rendering is a clean 2D anime illustration with flat cel-shaded coloring and a vivid saturated color palette.
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=False, kb_refs=['Mortis', '井芹仁菜'], ref_images=6, unique_subjects=2, authority_refs=[], supplements=['Mortis', '井芹仁菜'], photo_only=['Mortis', '井芹仁菜'], spatial='(left) Mortis, (right) 井芹仁菜, centered composition, all characters fully visible in frame')
+[Bot] ID anchors injected: ['[Mortis: very pale seafoam mint-green hair, extremely desaturated, almost achromatic,]', '[井芹仁菜: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey,]']
+[ComfyUI] Workflow mode: 'ultimate_inpaint' — refs=6, subject_appearances=['Mortis', '井芹仁菜']
+[ComfyUI] Ultimate: generating initial scene via txt2img pass…
+[ComfyUI] Ultimate: scene image uploaded as 'reference.png'
+[ComfyUI] Ultimate Inpaint workflow — 2 character(s): ['Mortis', '井芹仁菜'], scene='reference.png', SAM=on, output=512x512
+[ComfyUI] Queuing txt2img job — size=512x512, steps=8, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, [Mortis: very pale seafoam mint-green hair, '
+[ComfyUI] /prompt returned HTTP 400.
+[ComfyUI] Error type:    missing_node_type
+[ComfyUI] Error message: Node 'SAM3Segment' not found. The custom node may not be installed.
+[ComfyUI] Error details: Node ID '#1006'
