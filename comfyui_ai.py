@@ -723,6 +723,7 @@ def _run_generate(
         # so that if /prompt rejects the node at runtime we can auto-retry without a second
         # image-upload cycle (images are already on the server).
         _refchain_fallback_wf: Optional[dict] = None
+        _ultimate_sam_fallback_wf: Optional[dict] = None
 
         _workflow_mode = os.environ.get("COMFYUI_MODE", "").strip().lower()
         print(
@@ -824,7 +825,15 @@ def _run_generate(
                     _per_char_prompts = [
                         subject_appearances.get(s, "") for s in list(subject_uploaded.keys())[:4]
                     ]
-                    _sam_query = ", ".join(list(subject_uploaded.keys())[:4]) or "person"
+                    # SAM3 needs visual descriptions, not character names.
+                    # Build a query from appearance data; fall back to "person, girl".
+                    _sam_parts = []
+                    for _sq_subj in list(subject_uploaded.keys())[:4]:
+                        _sq_app = (subject_appearances or {}).get(_sq_subj, "")
+                        # Take the first visual noun phrase (hair colour phrase) as the hint
+                        _sq_hint = _sq_app.split(",")[0].strip() if _sq_app else ""
+                        _sam_parts.append(_sq_hint if _sq_hint else "person")
+                    _sam_query = ", ".join(_sam_parts) if _sam_parts else "person, girl"
                     _use_sam = os.environ.get("COMFYUI_USE_SAM", "true").strip().lower() not in ("0", "false", "no")
                     if _use_sam:
                         # Auto-detect: disable SAM if SAM3Segment isn't registered on this server
@@ -866,6 +875,24 @@ def _run_generate(
                             f"{list(subject_uploaded.keys())}, scene='{_scene_image_filename}', "
                             f"SAM={'on' if _use_sam else 'off'}, output={width}x{height}"
                         )
+                        # Pre-build a SAM-off fallback in case SAM3 returns None at runtime
+                        _ultimate_sam_fallback_wf: Optional[dict] = None
+                        if _use_sam:
+                            _ultimate_sam_fallback_wf = build_ultimate_workflow(
+                                overall_prompt=prompt,
+                                per_character_prompts=_per_char_prompts,
+                                uploaded_filenames=dict(subject_uploaded),
+                                scene_image_filename=_scene_image_filename,
+                                unet_name=gguf_path,
+                                vae_name=vae_name,
+                                clip_name=clip_name,
+                                seed=seed,
+                                steps=steps,
+                                width=width,
+                                height=height,
+                                sam_query=_sam_query,
+                                use_sam=False,
+                            )
             except Exception as _ult_exc:
                 print(f"[ComfyUI] Ultimate Inpaint path failed ({_ult_exc}) — falling back to txt2img.")
                 workflow = _build_txt2img_workflow(
@@ -1100,11 +1127,34 @@ def _run_generate(
 
             if is_error:
                 messages = status.get("messages", [])
+                _sam_caused_failure = False
                 for msg in messages:
                     if isinstance(msg, (list, tuple)) and len(msg) >= 2 and msg[0] == "execution_error":
                         err = msg[1]
+                        exc_msg = err.get("exception_message", "")
+                        node_type = err.get("node_type", "")
                         print(f"[ComfyUI] Execution error in node {err.get('node_id')} "
-                              f"({err.get('node_type')}): {err.get('exception_message')}")
+                              f"({node_type}): {exc_msg}")
+                        # Detect SAM3 returning None mask (NoneType has no attribute reshape/mul/etc.)
+                        if node_type in ("GrowMaskWithBlur", "MaskToSEGS", "SAM3Segment") and (
+                            "NoneType" in exc_msg or "None" in exc_msg
+                        ):
+                            _sam_caused_failure = True
+                # Auto-retry without SAM if SAM3 produced a None mask
+                if _sam_caused_failure and _ultimate_sam_fallback_wf is not None:
+                    print("[ComfyUI] SAM3 returned None mask — auto-retrying with SAM disabled.")
+                    _ultimate_sam_fallback_wf_copy = _ultimate_sam_fallback_wf
+                    _ultimate_sam_fallback_wf = None  # prevent infinite retry
+                    payload = {"prompt": _ultimate_sam_fallback_wf_copy, "client_id": client_id + "_nosam"}
+                    resp2 = _requests.post(f"{base_url}/prompt", json=payload, timeout=15)
+                    if resp2.status_code == 200:
+                        prompt_id = resp2.json().get("prompt_id")
+                        if prompt_id:
+                            deadline = time.time() + timeout
+                            last_log = time.time()
+                            continue  # re-enter polling loop with new prompt_id
+                    print("[ComfyUI] SAM-off retry also failed.")
+                    return None
                 print(f"[ComfyUI] Job failed with status 'error'.")
                 return None
 
