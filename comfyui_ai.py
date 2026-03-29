@@ -781,7 +781,10 @@ def _run_generate(
                         _scene_deadline = time.time() + timeout
                         while time.time() < _scene_deadline:
                             time.sleep(2)
-                            _sh = _requests.get(f"{base_url}/history/{_scene_pid}", timeout=10)
+                            try:
+                                _sh = _requests.get(f"{base_url}/history/{_scene_pid}", timeout=30)
+                            except Exception:
+                                continue  # ComfyUI busy generating; retry next tick
                             if _sh.status_code != 200 or _scene_pid not in _sh.json():
                                 continue
                             _sj = _sh.json()[_scene_pid]
@@ -1109,7 +1112,12 @@ def _run_generate(
                     print(f"[ComfyUI] Still waiting… ({elapsed}s elapsed)")
                 last_log = now
 
-            hist_resp = _requests.get(f"{base_url}/history/{prompt_id}", timeout=10)
+            try:
+                hist_resp = _requests.get(f"{base_url}/history/{prompt_id}", timeout=30)
+            except Exception:
+                # ComfyUI is busy generating — its HTTP server may not respond mid-run;
+                # just retry on the next poll tick instead of aborting.
+                continue
             if hist_resp.status_code != 200:
                 continue
             history = hist_resp.json()
