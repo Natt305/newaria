@@ -512,6 +512,14 @@ def populate_ultimate_workflow(
     _patch_orig(api, o["sam_enable"], "PrimitiveBoolean",   "value",  use_sam)
     _patch_orig(api, o["sam_query"],  "GODMT_SplitString",  "STRING", sam_query)
 
+    # SAM3Segment runtime parameters — lower threshold so it finds characters in
+    # generated scenes, and use Merge mode so an empty result returns a blank tensor
+    # (not Python None) which the downstream switch nodes can handle without crashing.
+    for _nid, _node in api.items():
+        if _node.get("class_type") == "SAM3Segment":
+            _node["inputs"]["confidence_threshold"] = 0.15
+            _node["inputs"]["output_mode"] = "Merge"
+
     # Character reference image slots — sorted by API node ID so they correspond
     # to character 1, 2, 3, 4 in top-level node order (outer_ids 2, 3, 4, 7).
     char_load_nids = sorted(
