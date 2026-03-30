@@ -18,3 +18,9 @@ id = "wvehl3bZp1Cw7oCLFPmmq"
 uri = "file://attached_assets/_test_dreamshaper_mortis.png"
 type = "image"
 title = "Dreamshaper-8-LCM test (768×768, negative prompts for lashes)"
+
+[[outputs]]
+id = "s-Cm5x_q2K3bVbeBq74Ql"
+uri = "file://attached_assets/_test_mortis_nina_output.png"
+type = "image"
+title = "Mortis & 仁菜 — rooftop sunset"
