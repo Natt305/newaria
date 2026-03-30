@@ -878,7 +878,27 @@ def build_multiref_workflow(
                 "CN{k}"    ConditioningCombine  (negative merge, step k)
     Output:     "31"–"37", "9"
     """
-    enhanced_scene = scene_prompt + _ANATOMY_SUFFIX
+    subjects: List[Tuple[str, List[str]]] = [
+        (name, fnames) for name, fnames in subject_filenames.items() if fnames
+    ]
+
+    # Build a single combined prompt that explicitly describes ALL characters with
+    # spatial placement so the text conditioning knows about every character upfront.
+    # e.g. "scene. Left character — CharA: [appearance]. Right character — CharB: [appearance]."
+    _SIDE_LABELS = ["Left character", "Right character", "Center character", "Background character"]
+    char_descriptions: List[str] = []
+    for s, (char_name, _) in enumerate(subjects):
+        app = subject_appearances.get(char_name, "").strip()
+        if app:
+            label = _SIDE_LABELS[s] if len(subjects) > 1 and s < len(_SIDE_LABELS) else char_name
+            char_descriptions.append(f"{label} — {char_name}: {app}")
+
+    if char_descriptions:
+        combined_scene = scene_prompt + ". " + ". ".join(char_descriptions)
+    else:
+        combined_scene = scene_prompt
+    enhanced_scene = combined_scene + _ANATOMY_SUFFIX
+
     megapixels = round((width * height) / 1_000_000, 4)
 
     workflow: Dict[str, Any] = {
@@ -900,7 +920,7 @@ def build_multiref_workflow(
         "4": {
             "class_type": "CLIPTextEncode",
             "inputs": {"clip": ["2", 0], "text": enhanced_scene},
-            "_meta": {"title": "Scene Prompt"},
+            "_meta": {"title": "Scene Prompt (all characters)"},
         },
         "5": {
             "class_type": "ConditioningZeroOut",
@@ -909,61 +929,14 @@ def build_multiref_workflow(
         },
     }
 
-    subjects: List[Tuple[str, List[str]]] = [
-        (name, fnames) for name, fnames in subject_filenames.items() if fnames
-    ]
-    n_subjects = len(subjects)
     subject_final_pos: List[str] = []
     subject_final_neg: List[str] = []
 
-    # Spatial position hints injected into each character's appearance encoding so
-    # the text conditioning explicitly places each character left-to-right in the scene.
-    _POSITION_HINTS = ["on the left side", "on the right side", "in the center",
-                       "in the background"]
-
     for s, (char_name, fnames) in enumerate(subjects):
-        appearance = subject_appearances.get(char_name, "").strip()
-        pos_hint   = _POSITION_HINTS[s] if n_subjects > 1 and s < len(_POSITION_HINTS) else ""
-
-        # Per-character appearance conditioning with spatial hint
-        if appearance or pos_hint:
-            app_text = appearance
-            if pos_hint:
-                app_text = f"{app_text}, {pos_hint}" if app_text else pos_hint
-            workflow[f"AT{s}"] = {
-                "class_type": "CLIPTextEncode",
-                "inputs": {
-                    "clip": ["2", 0],
-                    "text": app_text + _ANATOMY_SUFFIX,
-                },
-                "_meta": {"title": f"Appearance — {char_name}"},
-            }
-            # Combine scene + appearance, then gate to a per-character timestep window
-            # so each character gets equal influence across the full denoising range.
-            workflow[f"AC{s}"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {
-                    "conditioning_1": ["4", 0],
-                    "conditioning_2": [f"AT{s}", 0],
-                },
-                "_meta": {"title": f"Scene ⊕ Appearance — {char_name}"},
-            }
-            # Gate this character's conditioning to 100 % of the timestep range
-            # but give it a dedicated slot so ConditioningCombine at the merge step
-            # sees two equally-weighted non-overlapping character bundles.
-            workflow[f"TR{s}"] = {
-                "class_type": "ConditioningSetTimestepRange",
-                "inputs": {
-                    "conditioning": [f"AC{s}", 0],
-                    "start": 0.0,
-                    "end":   1.0,
-                },
-                "_meta": {"title": f"TimestepRange — {char_name}"},
-            }
-            chain_pos_start: List = [f"TR{s}", 0]
-        else:
-            chain_pos_start = ["4", 0]
-
+        # Both characters' reference chains start from the same combined base ("4").
+        # The text conditioning already describes both characters, so the reference
+        # latents serve purely as visual guides — no separate per-character encoding.
+        chain_pos_start: List = ["4", 0]
         chain_neg_start: List = ["5", 0]
 
         # Per-reference-image nodes: isolated chain for this character only

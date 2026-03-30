@@ -243,7 +243,7 @@ wf = build_multiref_workflow(
     subject_appearances={"Mortis": MORTIS_APPEARANCE, "Nina": NINA_APPEARANCE},
     unet_name=GGUF, vae_name=VAE, clip_name=CLIP,
     seed=int(uuid.uuid4().int % (2**31)),
-    steps=6, width=768, height=768,
+    steps=4, width=512, height=768,
 )
 print(f"  Nodes: {len(wf)}")
 clean = {nid: {k: v for k, v in n.items() if k != "_meta"} for nid, n in wf.items()}
