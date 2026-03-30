@@ -814,3 +814,269 @@ def build_refchain_workflow(
             "_meta": {"title": "Save Image"},
         },
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRUE multi-character photo-referencing workflow (no SAM3, no custom nodes)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_multiref_workflow(
+    scene_prompt: str,
+    subject_filenames: Dict[str, List[str]],
+    subject_appearances: Dict[str, str],
+    unet_name: str,
+    vae_name: str,
+    clip_name: str,
+    seed: int,
+    steps: int = 6,
+    width: int = 1280,
+    height: int = 720,
+) -> Dict[str, dict]:
+    """TRUE multi-character photo-referencing using only built-in ComfyUI nodes.
+
+    Architecture overview
+    ─────────────────────
+    1. Shared base:  scene prompt → CLIPTextEncode ("4")
+                     ConditioningZeroOut ("5") for the distilled-model negative
+
+    2. Per character s:
+       a. Encode character appearance text   → CLIPTextEncode ("AT{s}")
+       b. Combine scene + appearance          → ConditioningCombine ("AC{s}")
+          (If no appearance text, start directly from "4".)
+       c. For each reference photo p of that character:
+            LoadImage  →  ImageScaleToTotalPixels  →  VAEEncode
+            →  ReferenceLatent (positive chain "RP{s}_{p}")
+            →  ReferenceLatent (negative chain "RN{s}_{p}")
+          Each chain starts independently from the combined conditioning of step b,
+          so NO cross-character contamination is possible.
+
+    3. Merge:  all per-character final conditioning tensors are joined left-to-right
+               via ConditioningCombine ("CP{k}" positive / "CN{k}" negative).
+
+    4. Sample: standard FLUX.2 Klein advanced sampler pipeline
+               (EmptyFlux2LatentImage → Flux2Scheduler → RandomNoise →
+                CFGGuider → SamplerCustomAdvanced → VAEDecode → SaveImage).
+
+    Requirements
+    ────────────
+    • No SAM3, no InpaintCropImproved, no ReferenceChainConditioning.
+    • All nodes are built into ComfyUI core (requires ComfyUI 0.8.2+ for
+      ReferenceLatent, EmptyFlux2LatentImage, Flux2Scheduler).
+    • Works with any FLUX.2 Klein GGUF loaded via UnetLoaderGGUF (city96).
+
+    Node-ID scheme
+    ──────────────
+    Fixed:      "1"–"5"    (model loaders + scene text + zero-neg)
+    Per char:   "AT{s}"    CLIPTextEncode  (appearance text, if provided)
+                "AC{s}"    ConditioningCombine  (scene ⊕ appearance)
+    Per photo:  "L{s}_{p}" LoadImage
+                "SC{s}_{p}" ImageScaleToTotalPixels
+                "E{s}_{p}"  VAEEncode
+                "RP{s}_{p}" ReferenceLatent  (positive chain)
+                "RN{s}_{p}" ReferenceLatent  (negative chain)
+    Merge:      "CP{k}"    ConditioningCombine  (positive merge, step k)
+                "CN{k}"    ConditioningCombine  (negative merge, step k)
+    Output:     "31"–"37", "9"
+    """
+    enhanced_scene = scene_prompt + _ANATOMY_SUFFIX
+    megapixels = round((width * height) / 1_000_000, 4)
+
+    workflow: Dict[str, Any] = {
+        "1": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": unet_name},
+            "_meta": {"title": "UNET Loader (GGUF)"},
+        },
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": clip_name, "type": "flux2"},
+            "_meta": {"title": "CLIP Loader"},
+        },
+        "3": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": vae_name},
+            "_meta": {"title": "VAE Loader"},
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": enhanced_scene},
+            "_meta": {"title": "Scene Prompt"},
+        },
+        "5": {
+            "class_type": "ConditioningZeroOut",
+            "inputs": {"conditioning": ["4", 0]},
+            "_meta": {"title": "Zero Out (Shared Negative)"},
+        },
+    }
+
+    subjects: List[Tuple[str, List[str]]] = [
+        (name, fnames) for name, fnames in subject_filenames.items() if fnames
+    ]
+    subject_final_pos: List[str] = []
+    subject_final_neg: List[str] = []
+
+    for s, (char_name, fnames) in enumerate(subjects):
+        appearance = subject_appearances.get(char_name, "").strip()
+
+        # Per-character appearance conditioning
+        if appearance:
+            workflow[f"AT{s}"] = {
+                "class_type": "CLIPTextEncode",
+                "inputs": {
+                    "clip": ["2", 0],
+                    "text": appearance + _ANATOMY_SUFFIX,
+                },
+                "_meta": {"title": f"Appearance — {char_name}"},
+            }
+            workflow[f"AC{s}"] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {
+                    "conditioning_1": ["4", 0],
+                    "conditioning_2": [f"AT{s}", 0],
+                },
+                "_meta": {"title": f"Scene ⊕ Appearance — {char_name}"},
+            }
+            chain_pos_start: List = [f"AC{s}", 0]
+        else:
+            chain_pos_start = ["4", 0]
+
+        chain_neg_start: List = ["5", 0]
+
+        # Per-reference-image nodes: isolated chain for this character only
+        for p, img_name in enumerate(fnames):
+            load_id  = f"L{s}_{p}"
+            scale_id = f"SC{s}_{p}"
+            enc_id   = f"E{s}_{p}"
+            rpos_id  = f"RP{s}_{p}"
+            rneg_id  = f"RN{s}_{p}"
+
+            prev_pos: List = chain_pos_start if p == 0 else [f"RP{s}_{p - 1}", 0]
+            prev_neg: List = chain_neg_start if p == 0 else [f"RN{s}_{p - 1}", 0]
+
+            workflow[load_id] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": img_name, "upload": "image"},
+                "_meta": {"title": f"Load — {char_name} ref #{p + 1}"},
+            }
+            workflow[scale_id] = {
+                "class_type": "ImageScaleToTotalPixels",
+                "inputs": {
+                    "image": [load_id, 0],
+                    "upscale_method": "lanczos",
+                    "megapixels": megapixels,
+                    "resolution_steps": 64,
+                },
+                "_meta": {"title": f"Scale — {char_name} ref #{p + 1}"},
+            }
+            workflow[enc_id] = {
+                "class_type": "VAEEncode",
+                "inputs": {"pixels": [scale_id, 0], "vae": ["3", 0]},
+                "_meta": {"title": f"VAE Encode — {char_name} ref #{p + 1}"},
+            }
+            workflow[rpos_id] = {
+                "class_type": "ReferenceLatent",
+                "inputs": {"conditioning": prev_pos, "latent": [enc_id, 0]},
+                "_meta": {"title": f"ReferenceLatent+ — {char_name} #{p + 1}"},
+            }
+            workflow[rneg_id] = {
+                "class_type": "ReferenceLatent",
+                "inputs": {"conditioning": prev_neg, "latent": [enc_id, 0]},
+                "_meta": {"title": f"ReferenceLatent- — {char_name} #{p + 1}"},
+            }
+
+        last_p = len(fnames) - 1
+        subject_final_pos.append(f"RP{s}_{last_p}")
+        subject_final_neg.append(f"RN{s}_{last_p}")
+
+    # Merge all per-character conditioning chains into a single tensor pair
+    if len(subject_final_pos) == 1:
+        final_pos: List = [subject_final_pos[0], 0]
+        final_neg: List = [subject_final_neg[0], 0]
+    else:
+        cur_pos_id = subject_final_pos[0]
+        cur_neg_id = subject_final_neg[0]
+        for k in range(1, len(subject_final_pos)):
+            cp_id = f"CP{k - 1}"
+            cn_id = f"CN{k - 1}"
+            workflow[cp_id] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {
+                    "conditioning_1": [cur_pos_id, 0],
+                    "conditioning_2": [subject_final_pos[k], 0],
+                },
+                "_meta": {"title": f"Merge Positive — step {k}"},
+            }
+            workflow[cn_id] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {
+                    "conditioning_1": [cur_neg_id, 0],
+                    "conditioning_2": [subject_final_neg[k], 0],
+                },
+                "_meta": {"title": f"Merge Negative — step {k}"},
+            }
+            cur_pos_id = cp_id
+            cur_neg_id = cn_id
+        final_pos = [cur_pos_id, 0]
+        final_neg = [cur_neg_id, 0]
+
+    # Standard FLUX.2 Klein advanced sampler pipeline
+    workflow["31"] = {
+        "class_type": "EmptyFlux2LatentImage",
+        "inputs": {"width": width, "height": height, "batch_size": 1},
+        "_meta": {"title": "Empty Flux2 Latent Image"},
+    }
+    workflow["32"] = {
+        "class_type": "Flux2Scheduler",
+        "inputs": {"steps": steps, "width": width, "height": height},
+        "_meta": {"title": "Flux2 Scheduler"},
+    }
+    workflow["33"] = {
+        "class_type": "KSamplerSelect",
+        "inputs": {"sampler_name": "euler"},
+        "_meta": {"title": "KSampler Select"},
+    }
+    workflow["34"] = {
+        "class_type": "RandomNoise",
+        "inputs": {"noise_seed": seed},
+        "_meta": {"title": "Random Noise"},
+    }
+    workflow["35"] = {
+        "class_type": "CFGGuider",
+        "inputs": {
+            "model": ["1", 0],
+            "positive": final_pos,
+            "negative": final_neg,
+            "cfg": 1.0,
+        },
+        "_meta": {"title": "CFG Guider (cfg=1.0)"},
+    }
+    workflow["36"] = {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+            "noise":        ["34", 0],
+            "guider":       ["35", 0],
+            "sampler":      ["33", 0],
+            "sigmas":       ["32", 0],
+            "latent_image": ["31", 0],
+        },
+        "_meta": {"title": "Sampler Custom Advanced"},
+    }
+    workflow["37"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["36", 0], "vae": ["3", 0]},
+        "_meta": {"title": "VAE Decode"},
+    }
+    workflow["9"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["37", 0], "filename_prefix": "ariabot_"},
+        "_meta": {"title": "Save Image"},
+    }
+
+    n_chars = len(subjects)
+    n_photos = sum(len(f) for _, f in subjects)
+    print(
+        f"[MultiRef] Built multiref workflow — {n_chars} character(s), "
+        f"{n_photos} reference photo(s) total, output={width}x{height}, "
+        f"appearance_text={[c for c, _ in subjects if subject_appearances.get(c)]}"
+    )
+    return workflow

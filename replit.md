@@ -72,27 +72,33 @@ Set these in `tokens.txt` **or** as Replit Secrets (Secrets take priority):
 | `COMFYUI_CLIP_VISION` | Optional | CLIP Vision model filename (e.g. `clip_l.safetensors`) — required alongside COMFYUI_IPADAPTER |
 | `COMFYUI_IPADAPTER_STRENGTH` | Optional | IP-Adapter injection strength (default: 0.8) |
 | `COMFYUI_IPADAPTER_GUIDANCE` | Optional | IP-Adapter guidance strength (default: 3.5) |
-| `COMFYUI_MODE` | Optional | Set to `ultimate_inpaint` to enable the Ultimate Inpaint multi-character workflow (see below) |
-| `COMFYUI_USE_SAM` | Optional | `true` (default) or `false` — enable/disable SAM3 auto-segmentation in Ultimate Inpaint mode |
+| `COMFYUI_MODE` | Optional | `multiref` (default, recommended) — TRUE multi-character native ReferenceLatent; `refchain` — ReferenceChainConditioning custom node; `ultimate_inpaint` — SAM3 inpaint loop (requires many custom nodes) |
+| `COMFYUI_USE_SAM` | Optional | `true` or `false` (default) — SAM3 auto-segmentation, only relevant for `ultimate_inpaint` mode |
 
-### Ultimate Inpaint Multi-Character Mode
+### Multi-Character Photo-Referencing Modes
 
-Set `COMFYUI_MODE=ultimate_inpaint` to use the **Flux.2 Ultimate Inpaint Pro Ultra v3.1** workflow for multi-character generation. This mode is activated automatically when the bot generates a scene involving 2+ characters with knowledge-base reference images and `IMAGE_BACKEND=comfyui`.
+#### `multiref` (default — recommended, no extra node packs needed)
 
-**How it works:**
-1. Character reference images are uploaded to ComfyUI.
-2. An initial scene is generated via a first txt2img pass to create the canvas.
-3. The Ultimate Inpaint workflow runs a per-character inpainting loop: for each character slot it uses RMBG to isolate the character from their reference image, optionally uses SAM3 to find their region in the scene, then inpaints with ReferenceLatent conditioning.
+The primary multi-character path. Uses **only built-in ComfyUI nodes** — no SAM3, no IP-Adapter, no custom packs.
 
-**Required ComfyUI node packs** (must be installed on your ComfyUI server):
-- `ComfyUI-GGUF` — GGUF model loader
-- `ComfyUI-Easy-Use` — `easy int`, `easy mathInt`, etc.
-- `ComfyUI-Crystools` — `Switch *` nodes
-- `ComfyUI-Impact-Pack` — `InpaintCropImproved`, `InpaintStitchImproved`, `MaskToSEGS`
-- `ComfyUI-BRIA-RMBG` or equivalent — `RMBG` background removal
-- `SAM3` — optional, for auto-segmentation (`COMFYUI_USE_SAM=false` to skip)
-- `ComfyUI-GODMT` — `GODMT_SplitString`
-- `ComfyUI-layerdiffuse` or `LayerStyle` — `LayerMask: CreateGradientMask`
+**Architecture:**
+1. Each character gets an **isolated** `ReferenceLatent` conditioning chain starting from the shared scene prompt.
+2. Per-character **appearance text** (`CLIPTextEncode` → `ConditioningCombine`) is layered into each character's chain before their reference images are injected.
+3. All character chains are **merged** via `ConditioningCombine` before the sampler.
+4. Standard FLUX.2 Klein advanced sampler pipeline: `EmptyFlux2LatentImage` → `Flux2Scheduler` → `SamplerCustomAdvanced`.
+
+**Only requires:** `ComfyUI-GGUF` (city96) for GGUF model loading. Everything else is ComfyUI core (0.8.2+).
+
+#### `refchain` (opt-in, requires `ComfyUI-ReferenceChain` node pack)
+
+Uses `ReferenceChainConditioning` — one node per character, handles scaling + VAE encoding internally. Falls back to `multiref` automatically if the node is not installed.
+
+#### `ultimate_inpaint` (opt-in, requires many node packs + SAM3)
+
+The legacy two-pass workflow: generates a base scene first, then runs per-character inpainting loops with optional SAM3 auto-segmentation. Falls back to `multiref` if the workflow fails.
+
+**Required ComfyUI node packs** (Ultimate Inpaint only):
+- `ComfyUI-Easy-Use`, `ComfyUI-Crystools`, `ComfyUI-Impact-Pack`, `ComfyUI-BRIA-RMBG`, `SAM3`, `ComfyUI-GODMT`, `ComfyUI-layerdiffuse`
 
 ## Running
 
