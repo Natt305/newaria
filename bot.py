@@ -3506,6 +3506,9 @@ def main():
         _hf_space = os.environ.get("HF_SPACE_ID", "black-forest-labs/FLUX.2-klein-4B").strip()
         _hf_ready = bool(os.environ.get("HF_TOKEN", "").strip())
         print(f"[Bot] 圖像後端: HuggingFace Spaces ({_hf_space}) — {'準備就緒' if _hf_ready else '已禁用 (未設定 HF_TOKEN)'}")
+    elif _IMAGE_BACKEND == "comfyui":
+        _comfyui_url = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188").strip()
+        print(f"[Bot] 圖像後端: ComfyUI — 準備就緒 ({_comfyui_url})")
     else:
         print(f"[Bot] 圖像後端: Cloudflare — {'準備就緒' if _cf_ready() else '已禁用'}")
     print("[Bot] 按 Ctrl+C 停止機器人。")
