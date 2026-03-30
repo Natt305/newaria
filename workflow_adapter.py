@@ -977,22 +977,19 @@ def build_multiref_workflow(
         char_final_neg.append(f"RN{s}_{last_p}")
 
     # ── Spatial merge ────────────────────────────────────────────────────────
-    # contact_pose=True: characters physically interact (hug, touch) — skip
-    # spatial masks so the model can freely generate the interaction, then
-    # fall through to plain ConditioningCombine below.
-    if len(subjects) == 2 and not contact_pose:
+    if len(subjects) == 2:
         # SolidMask nodes build left/right half masks entirely in-graph —
         # no file uploads required.
         #
         #   MB0 (black, full size)
         #   MB1 (white, left half)  ──MaskComposite(add, x=0)──▶  ML (left mask)
-        #   MB2 (white, right half) ──MaskComposite(add, x=half_w)▶ MR (right mask)
+        #   MB2 (white, right half) ──MaskComposite(add, x=right_x)─▶ MR (right mask)
         #
         # 48-pixel overlap at the centre boundary so both conditionings are
-        # active in that zone — produces a natural blend instead of a hard seam.
+        # active in that zone.  Used by both hard and soft spatial paths.
         overlap = 48
-        left_w  = half_w + overlap          # left strip extends overlap px past centre
-        right_x = max(0, half_w - overlap)  # right strip starts overlap px before centre
+        left_w  = half_w + overlap
+        right_x = max(0, half_w - overlap)
         right_w = width - right_x
 
         workflow["MB0"] = {
@@ -1023,82 +1020,103 @@ def build_multiref_workflow(
             "_meta": {"title": "Right-half mask (with centre overlap)"},
         }
 
-        # ── Spatial masks (ConditioningSetMask) ──────────────────────────────
-        # "mask bounds" restricts each character's conditioning to their region.
-        workflow["SM0"] = {
-            "class_type": "ConditioningSetMask",
-            "inputs": {
-                "conditioning":  [char_final_pos[0], 0],
-                "mask":          ["ML", 0],
-                "strength":      1.0,
-                "set_cond_area": "mask bounds",
-            },
-            "_meta": {"title": "Mask char 0 → left half"},
-        }
-        workflow["SM1"] = {
-            "class_type": "ConditioningSetMask",
-            "inputs": {
-                "conditioning":  [char_final_pos[1], 0],
-                "mask":          ["MR", 0],
-                "strength":      1.0,
-                "set_cond_area": "mask bounds",
-            },
-            "_meta": {"title": "Mask char 1 → right half"},
-        }
+        if not contact_pose:
+            # ── Hard spatial masks (default: side-by-side scenes) ─────────────
+            # "mask bounds" mode: each character's conditioning is clipped to
+            # their half.  Gives best feature accuracy for non-contact poses.
+            workflow["SM0"] = {
+                "class_type": "ConditioningSetMask",
+                "inputs": {
+                    "conditioning":  [char_final_pos[0], 0],
+                    "mask":          ["ML", 0],
+                    "strength":      1.0,
+                    "set_cond_area": "mask bounds",
+                },
+                "_meta": {"title": "Hard mask char 0 → left half"},
+            }
+            workflow["SM1"] = {
+                "class_type": "ConditioningSetMask",
+                "inputs": {
+                    "conditioning":  [char_final_pos[1], 0],
+                    "mask":          ["MR", 0],
+                    "strength":      1.0,
+                    "set_cond_area": "mask bounds",
+                },
+                "_meta": {"title": "Hard mask char 1 → right half"},
+            }
+            workflow["RCA0"] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
+                "_meta": {"title": "Combine hard-masked conditionings"},
+            }
+            workflow["RCA"] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["4", 0]},
+                "_meta": {"title": "Add global scene (hard mode)"},
+            }
+            workflow["RCN"] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {
+                    "conditioning_1": [char_final_neg[0], 0],
+                    "conditioning_2": [char_final_neg[1], 0],
+                },
+                "_meta": {"title": "Negative merge"},
+            }
+            final_pos: List = ["RCA", 0]
+            final_neg: List = ["RCN", 0]
+            print("[MultiRef] 2-char hard spatial masks + global scene (side-by-side mode)")
 
-        # ── ConditioningSetTimestepRange ──────────────────────────────────────
-        # Character spatial masks only apply during the LATE denoising phase
-        # (timestep 0.0 → 0.5).  During the EARLY phase (0.5 → 1.0) only the
-        # global scene conditioning "4" is active, so the sampler establishes
-        # pose and composition freely — fixing the "4 characters" duplication
-        # that occurs when spatial masks fight a hugging/contact pose prompt.
-        #
-        # Timeline:
-        #   t=1.0 → 0.5  (early / high-noise):  global "4" only  → pose/layout
-        #   t=0.5 → 0.0  (late  / low-noise):   "4" + SM0 + SM1  → appearance
-        workflow["TR0"] = {
-            "class_type": "ConditioningSetTimestepRange",
-            "inputs": {"conditioning": ["SM0", 0], "start": 0.0, "end": 0.5},
-            "_meta": {"title": "Char 0 mask — late timesteps only"},
-        }
-        workflow["TR1"] = {
-            "class_type": "ConditioningSetTimestepRange",
-            "inputs": {"conditioning": ["SM1", 0], "start": 0.0, "end": 0.5},
-            "_meta": {"title": "Char 1 mask — late timesteps only"},
-        }
-
-        # Merge: global scene (full range) + char0 (late) + char1 (late)
-        workflow["RCA0"] = {
-            "class_type": "ConditioningCombine",
-            "inputs": {
-                "conditioning_1": ["TR0", 0],
-                "conditioning_2": ["TR1", 0],
-            },
-            "_meta": {"title": "Combine late-phase character conditionings"},
-        }
-        workflow["RCA"] = {
-            "class_type": "ConditioningCombine",
-            "inputs": {
-                "conditioning_1": ["RCA0", 0],
-                "conditioning_2": ["4",   0],
-            },
-            "_meta": {"title": "Add global scene (full range)"},
-        }
-        workflow["RCN"] = {
-            "class_type": "ConditioningCombine",
-            "inputs": {
-                "conditioning_1": [char_final_neg[0], 0],
-                "conditioning_2": [char_final_neg[1], 0],
-            },
-            "_meta": {"title": "Negative merge"},
-        }
-        final_pos: List = ["RCA", 0]
-        final_neg: List = ["RCN", 0]
-        print("[MultiRef] 2-char: global scene (full) + spatial masks (late timesteps only)")
+        else:
+            # ── Soft spatial masks (contact_pose: hugging / touching) ─────────
+            # "default" area mode: conditioning is NOT hard-clipped to the mask;
+            # instead the mask acts as a weight so each character's conditioning
+            # bleeds softly across the boundary.  Strength 0.65 keeps enough
+            # spatial bias to prevent feature-blending while allowing arms /
+            # bodies to cross the half-way line naturally.
+            workflow["SM0"] = {
+                "class_type": "ConditioningSetMask",
+                "inputs": {
+                    "conditioning":  [char_final_pos[0], 0],
+                    "mask":          ["ML", 0],
+                    "strength":      0.65,
+                    "set_cond_area": "default",
+                },
+                "_meta": {"title": "Soft mask char 0 → left (contact mode)"},
+            }
+            workflow["SM1"] = {
+                "class_type": "ConditioningSetMask",
+                "inputs": {
+                    "conditioning":  [char_final_pos[1], 0],
+                    "mask":          ["MR", 0],
+                    "strength":      0.65,
+                    "set_cond_area": "default",
+                },
+                "_meta": {"title": "Soft mask char 1 → right (contact mode)"},
+            }
+            workflow["RCA0"] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
+                "_meta": {"title": "Combine soft-masked conditionings"},
+            }
+            workflow["RCA"] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["4", 0]},
+                "_meta": {"title": "Add global scene (contact mode)"},
+            }
+            workflow["RCN"] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {
+                    "conditioning_1": [char_final_neg[0], 0],
+                    "conditioning_2": [char_final_neg[1], 0],
+                },
+                "_meta": {"title": "Negative merge"},
+            }
+            final_pos: List = ["RCA", 0]
+            final_neg: List = ["RCN", 0]
+            print("[MultiRef] 2-char soft spatial masks + global scene (contact-pose mode)")
 
     else:
-        # 1 char, 3+ chars, or 2 chars with contact_pose=True:
-        # plain ConditioningCombine — no spatial split, handles physical interaction
+        # 1 char or 3+ chars: plain ConditioningCombine (no spatial split)
         def _merge(id_list: List[str], prefix: str) -> List:
             if not id_list:
                 return ["5", 0]
@@ -1115,8 +1133,7 @@ def build_multiref_workflow(
                 cur = mid
             return [cur, 0]
 
-        mode_label = "contact-pose (plain combine)" if contact_pose else f"{len(subjects)}-char plain combine"
-        print(f"[MultiRef] {mode_label}: no spatial masks, free character interaction")
+        print(f"[MultiRef] {len(subjects)}-char plain combine (no spatial split)")
         final_pos = _merge(char_final_pos, "CP")
         final_neg = _merge(char_final_neg, "CN")
 
