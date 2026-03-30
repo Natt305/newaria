@@ -882,19 +882,20 @@ def build_multiref_workflow(
         (name, fnames) for name, fnames in subject_filenames.items() if fnames
     ]
 
-    # Build a single combined prompt that explicitly describes ALL characters with
-    # spatial placement so the text conditioning knows about every character upfront.
-    # e.g. "scene. Left character — CharA: [appearance]. Right character — CharB: [appearance]."
-    _SIDE_LABELS = ["Left character", "Right character", "Center character", "Background character"]
-    char_descriptions: List[str] = []
+    # Base prompt: scene description + character name/position anchors ONLY.
+    # Detailed appearance text is intentionally excluded so the reference photos
+    # (ReferenceLatent chains) carry the character's look rather than text prompting
+    # a generic anime interpretation of the description.
+    _SIDE_LABELS = ["left", "right", "center", "background"]
+    name_anchors: List[str] = []
     for s, (char_name, _) in enumerate(subjects):
-        app = subject_appearances.get(char_name, "").strip()
-        if app:
-            label = _SIDE_LABELS[s] if len(subjects) > 1 and s < len(_SIDE_LABELS) else char_name
-            char_descriptions.append(f"{label} — {char_name}: {app}")
+        if len(subjects) > 1 and s < len(_SIDE_LABELS):
+            name_anchors.append(f"{char_name} on the {_SIDE_LABELS[s]}")
+        else:
+            name_anchors.append(char_name)
 
-    if char_descriptions:
-        combined_scene = scene_prompt + ". " + ". ".join(char_descriptions)
+    if name_anchors:
+        combined_scene = scene_prompt + ", " + ", ".join(name_anchors)
     else:
         combined_scene = scene_prompt
     enhanced_scene = combined_scene + _ANATOMY_SUFFIX
