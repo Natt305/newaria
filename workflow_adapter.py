@@ -867,35 +867,41 @@ def build_multiref_workflow(
     Node-ID scheme
     ──────────────
     Fixed:      "1"–"5"    (model loaders + scene text + zero-neg)
-    Per char:   "AT{s}"    CLIPTextEncode  (appearance text, if provided)
-                "AC{s}"    ConditioningCombine  (scene ⊕ appearance)
-    Per photo:  "L{s}_{p}" LoadImage
+    Per char:   "L{s}_{p}" LoadImage
                 "SC{s}_{p}" ImageScaleToTotalPixels
                 "E{s}_{p}"  VAEEncode
-                "RP{s}_{p}" ReferenceLatent  (positive chain)
-                "RN{s}_{p}" ReferenceLatent  (negative chain)
+                "RP{s}_{p}" ReferenceLatent (positive)
+                "RN{s}_{p}" ReferenceLatent (negative)
     Merge:      "CP{k}"    ConditioningCombine  (positive merge, step k)
                 "CN{k}"    ConditioningCombine  (negative merge, step k)
     Output:     "31"–"37", "9"
+
+    Photo-referencing upgrade path
+    ──────────────────────────────
+    If a valid CLIP Vision encoder (e.g. clip-vit-large-patch14.safetensors) is
+    placed in ComfyUI/models/clip_vision/ and COMFYUI_CLIP_VISION env var is set,
+    the workflow automatically upgrades to CLIPVisionEncode + unCLIPConditioning
+    for true image-space conditioning instead of text-keyword approximation.
     """
     subjects: List[Tuple[str, List[str]]] = [
         (name, fnames) for name, fnames in subject_filenames.items() if fnames
     ]
 
-    # Base prompt: scene description + character name/position anchors ONLY.
-    # Detailed appearance text is intentionally excluded so the reference photos
-    # (ReferenceLatent chains) carry the character's look rather than text prompting
-    # a generic anime interpretation of the description.
-    _SIDE_LABELS = ["left", "right", "center", "background"]
-    name_anchors: List[str] = []
-    for s, (char_name, _) in enumerate(subjects):
-        if len(subjects) > 1 and s < len(_SIDE_LABELS):
-            name_anchors.append(f"{char_name} on the {_SIDE_LABELS[s]}")
-        else:
-            name_anchors.append(char_name)
+    # Detect whether a usable CLIP Vision model is configured
+    _clip_vision_name = os.environ.get("COMFYUI_CLIP_VISION", "").strip()
 
-    if name_anchors:
-        combined_scene = scene_prompt + ", " + ", ".join(name_anchors)
+    # Base prompt: combined scene + all character descriptions.
+    # When a CLIP Vision model is present the appearance text becomes redundant
+    # (image features carry the look), but it stays as a safety anchor.
+    _SIDE_LABELS = ["Left character", "Right character", "Center character", "Background character"]
+    char_descriptions: List[str] = []
+    for s, (char_name, _) in enumerate(subjects):
+        app = subject_appearances.get(char_name, "").strip()
+        if app:
+            label = _SIDE_LABELS[s] if len(subjects) > 1 and s < len(_SIDE_LABELS) else char_name
+            char_descriptions.append(f"{label} — {char_name}: {app}")
+    if char_descriptions:
+        combined_scene = scene_prompt + ". " + ". ".join(char_descriptions)
     else:
         combined_scene = scene_prompt
     enhanced_scene = combined_scene + _ANATOMY_SUFFIX
@@ -930,92 +936,123 @@ def build_multiref_workflow(
         },
     }
 
+    # If a CLIP Vision model is available: add the shared CLIPVisionLoader node
+    if _clip_vision_name:
+        workflow["CLV"] = {
+            "class_type": "CLIPVisionLoader",
+            "inputs": {"clip_name": _clip_vision_name},
+            "_meta": {"title": "CLIP Vision Loader"},
+        }
+        print(f"[MultiRef] CLIP Vision model detected ({_clip_vision_name}) — using photo-based unCLIPConditioning")
+    else:
+        print("[MultiRef] No CLIP Vision model set — using ReferenceLatent (text+latent mode). "
+              "For true photo-referencing, place a CLIP Vision encoder in ComfyUI/models/clip_vision/ "
+              "and set COMFYUI_CLIP_VISION env var.")
+
     subject_final_pos: List[str] = []
     subject_final_neg: List[str] = []
 
     for s, (char_name, fnames) in enumerate(subjects):
-        # Both characters' reference chains start from the same combined base ("4").
-        # The text conditioning already describes both characters, so the reference
-        # latents serve purely as visual guides — no separate per-character encoding.
-        chain_pos_start: List = ["4", 0]
-        chain_neg_start: List = ["5", 0]
+        if _clip_vision_name:
+            # ── Photo-based path: CLIPVisionEncode + unCLIPConditioning ─────────
+            # Each photo's visual features are encoded in CLIP image space and
+            # injected directly — no text-keyword approximation.
+            prev_cond: List = ["4", 0]
+            last_uc_id = None
+            for p, img_name in enumerate(fnames):
+                load_id  = f"L{s}_{p}"
+                scale_id = f"SC{s}_{p}"
+                ve_id    = f"VE{s}_{p}"
+                uc_id    = f"UC{s}_{p}"
+                workflow[load_id] = {
+                    "class_type": "LoadImage",
+                    "inputs": {"image": img_name, "upload": "image"},
+                    "_meta": {"title": f"Load — {char_name} ref #{p + 1}"},
+                }
+                workflow[scale_id] = {
+                    "class_type": "ImageScaleToTotalPixels",
+                    "inputs": {"image": [load_id, 0], "upscale_method": "lanczos",
+                               "megapixels": megapixels, "resolution_steps": 64},
+                    "_meta": {"title": f"Scale — {char_name} ref #{p + 1}"},
+                }
+                workflow[ve_id] = {
+                    "class_type": "CLIPVisionEncode",
+                    "inputs": {"clip_vision": ["CLV", 0], "image": [scale_id, 0], "crop": "center"},
+                    "_meta": {"title": f"CLIP Vision Encode — {char_name} #{p + 1}"},
+                }
+                workflow[uc_id] = {
+                    "class_type": "unCLIPConditioning",
+                    "inputs": {"conditioning": prev_cond, "clip_vision_output": [ve_id, 0],
+                               "strength": 1.0, "noise_augmentation": 0.0},
+                    "_meta": {"title": f"unCLIP Cond — {char_name} #{p + 1}"},
+                }
+                prev_cond = [uc_id, 0]
+                last_uc_id = uc_id
+            subject_final_pos.append(last_uc_id)
+            subject_final_neg.append(None)   # negative stays as zero-out
 
-        # Per-reference-image nodes: isolated chain for this character only
-        for p, img_name in enumerate(fnames):
-            load_id  = f"L{s}_{p}"
-            scale_id = f"SC{s}_{p}"
-            enc_id   = f"E{s}_{p}"
-            rpos_id  = f"RP{s}_{p}"
-            rneg_id  = f"RN{s}_{p}"
+        else:
+            # ── Text+latent fallback: ReferenceLatent chains ─────────────────
+            chain_pos_start: List = ["4", 0]
+            chain_neg_start: List = ["5", 0]
+            for p, img_name in enumerate(fnames):
+                load_id  = f"L{s}_{p}"
+                scale_id = f"SC{s}_{p}"
+                enc_id   = f"E{s}_{p}"
+                rpos_id  = f"RP{s}_{p}"
+                rneg_id  = f"RN{s}_{p}"
+                prev_pos: List = chain_pos_start if p == 0 else [f"RP{s}_{p-1}", 0]
+                prev_neg: List = chain_neg_start if p == 0 else [f"RN{s}_{p-1}", 0]
+                workflow[load_id] = {
+                    "class_type": "LoadImage",
+                    "inputs": {"image": img_name, "upload": "image"},
+                    "_meta": {"title": f"Load — {char_name} ref #{p + 1}"},
+                }
+                workflow[scale_id] = {
+                    "class_type": "ImageScaleToTotalPixels",
+                    "inputs": {"image": [load_id, 0], "upscale_method": "lanczos",
+                               "megapixels": megapixels, "resolution_steps": 64},
+                    "_meta": {"title": f"Scale — {char_name} ref #{p + 1}"},
+                }
+                workflow[enc_id] = {
+                    "class_type": "VAEEncode",
+                    "inputs": {"pixels": [scale_id, 0], "vae": ["3", 0]},
+                    "_meta": {"title": f"VAE Encode — {char_name} ref #{p + 1}"},
+                }
+                workflow[rpos_id] = {
+                    "class_type": "ReferenceLatent",
+                    "inputs": {"conditioning": prev_pos, "latent": [enc_id, 0]},
+                    "_meta": {"title": f"ReferenceLatent+ — {char_name} #{p + 1}"},
+                }
+                workflow[rneg_id] = {
+                    "class_type": "ReferenceLatent",
+                    "inputs": {"conditioning": prev_neg, "latent": [enc_id, 0]},
+                    "_meta": {"title": f"ReferenceLatent- — {char_name} #{p + 1}"},
+                }
+            last_p = len(fnames) - 1
+            subject_final_pos.append(f"RP{s}_{last_p}")
+            subject_final_neg.append(f"RN{s}_{last_p}")
 
-            prev_pos: List = chain_pos_start if p == 0 else [f"RP{s}_{p - 1}", 0]
-            prev_neg: List = chain_neg_start if p == 0 else [f"RN{s}_{p - 1}", 0]
-
-            workflow[load_id] = {
-                "class_type": "LoadImage",
-                "inputs": {"image": img_name, "upload": "image"},
-                "_meta": {"title": f"Load — {char_name} ref #{p + 1}"},
-            }
-            workflow[scale_id] = {
-                "class_type": "ImageScaleToTotalPixels",
-                "inputs": {
-                    "image": [load_id, 0],
-                    "upscale_method": "lanczos",
-                    "megapixels": megapixels,
-                    "resolution_steps": 64,
-                },
-                "_meta": {"title": f"Scale — {char_name} ref #{p + 1}"},
-            }
-            workflow[enc_id] = {
-                "class_type": "VAEEncode",
-                "inputs": {"pixels": [scale_id, 0], "vae": ["3", 0]},
-                "_meta": {"title": f"VAE Encode — {char_name} ref #{p + 1}"},
-            }
-            workflow[rpos_id] = {
-                "class_type": "ReferenceLatent",
-                "inputs": {"conditioning": prev_pos, "latent": [enc_id, 0]},
-                "_meta": {"title": f"ReferenceLatent+ — {char_name} #{p + 1}"},
-            }
-            workflow[rneg_id] = {
-                "class_type": "ReferenceLatent",
-                "inputs": {"conditioning": prev_neg, "latent": [enc_id, 0]},
-                "_meta": {"title": f"ReferenceLatent- — {char_name} #{p + 1}"},
-            }
-
-        last_p = len(fnames) - 1
-        subject_final_pos.append(f"RP{s}_{last_p}")
-        subject_final_neg.append(f"RN{s}_{last_p}")
-
-    # Merge all per-character conditioning chains into a single tensor pair
-    if len(subject_final_pos) == 1:
-        final_pos: List = [subject_final_pos[0], 0]
-        final_neg: List = [subject_final_neg[0], 0]
-    else:
-        cur_pos_id = subject_final_pos[0]
-        cur_neg_id = subject_final_neg[0]
-        for k in range(1, len(subject_final_pos)):
-            cp_id = f"CP{k - 1}"
-            cn_id = f"CN{k - 1}"
-            workflow[cp_id] = {
+    # Merge all per-character conditioning chains
+    def _merge(id_list, prefix):
+        valid = [x for x in id_list if x is not None]
+        if not valid:
+            return ["5", 0]
+        if len(valid) == 1:
+            return [valid[0], 0]
+        cur = valid[0]
+        for k in range(1, len(valid)):
+            mid = f"{prefix}{k - 1}"
+            workflow[mid] = {
                 "class_type": "ConditioningCombine",
-                "inputs": {
-                    "conditioning_1": [cur_pos_id, 0],
-                    "conditioning_2": [subject_final_pos[k], 0],
-                },
-                "_meta": {"title": f"Merge Positive — step {k}"},
+                "inputs": {"conditioning_1": [cur, 0], "conditioning_2": [valid[k], 0]},
+                "_meta": {"title": f"Merge — step {k}"},
             }
-            workflow[cn_id] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {
-                    "conditioning_1": [cur_neg_id, 0],
-                    "conditioning_2": [subject_final_neg[k], 0],
-                },
-                "_meta": {"title": f"Merge Negative — step {k}"},
-            }
-            cur_pos_id = cp_id
-            cur_neg_id = cn_id
-        final_pos = [cur_pos_id, 0]
-        final_neg = [cur_neg_id, 0]
+            cur = mid
+        return [cur, 0]
+
+    final_pos = _merge(subject_final_pos, "CP")
+    final_neg = _merge(subject_final_neg, "CN") if any(x for x in subject_final_neg) else ["5", 0]
 
     # Standard FLUX.2 Klein advanced sampler pipeline
     workflow["31"] = {
