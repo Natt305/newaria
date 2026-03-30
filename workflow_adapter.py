@@ -831,6 +831,7 @@ def build_multiref_workflow(
     steps: int = 6,
     width: int = 1280,
     height: int = 720,
+    contact_pose: bool = False,
 ) -> Dict[str, dict]:
     """TRUE multi-character photo-referencing using ClownRegionalConditioning_AB for spatial masking.
 
@@ -976,7 +977,10 @@ def build_multiref_workflow(
         char_final_neg.append(f"RN{s}_{last_p}")
 
     # ── Spatial merge ────────────────────────────────────────────────────────
-    if len(subjects) == 2:
+    # contact_pose=True: characters physically interact (hug, touch) — skip
+    # spatial masks so the model can freely generate the interaction, then
+    # fall through to plain ConditioningCombine below.
+    if len(subjects) == 2 and not contact_pose:
         # SolidMask nodes build left/right half masks entirely in-graph —
         # no file uploads required.
         #
@@ -1019,10 +1023,8 @@ def build_multiref_workflow(
             "_meta": {"title": "Right-half mask (with centre overlap)"},
         }
 
-        # ConditioningSetMask restricts each character's conditioning to their
-        # spatial region.  This is a core ComfyUI node — architecture-agnostic,
-        # works with FLUX's MMDiT conditioning format.
-        #   "mask bounds" mode: sampler only uses the conditioning inside the mask.
+        # ── Spatial masks (ConditioningSetMask) ──────────────────────────────
+        # "mask bounds" restricts each character's conditioning to their region.
         workflow["SM0"] = {
             "class_type": "ConditioningSetMask",
             "inputs": {
@@ -1031,7 +1033,7 @@ def build_multiref_workflow(
                 "strength":      1.0,
                 "set_cond_area": "mask bounds",
             },
-            "_meta": {"title": f"Mask char 0 → left half"},
+            "_meta": {"title": "Mask char 0 → left half"},
         }
         workflow["SM1"] = {
             "class_type": "ConditioningSetMask",
@@ -1041,15 +1043,46 @@ def build_multiref_workflow(
                 "strength":      1.0,
                 "set_cond_area": "mask bounds",
             },
-            "_meta": {"title": f"Mask char 1 → right half"},
+            "_meta": {"title": "Mask char 1 → right half"},
+        }
+
+        # ── ConditioningSetTimestepRange ──────────────────────────────────────
+        # Character spatial masks only apply during the LATE denoising phase
+        # (timestep 0.0 → 0.5).  During the EARLY phase (0.5 → 1.0) only the
+        # global scene conditioning "4" is active, so the sampler establishes
+        # pose and composition freely — fixing the "4 characters" duplication
+        # that occurs when spatial masks fight a hugging/contact pose prompt.
+        #
+        # Timeline:
+        #   t=1.0 → 0.5  (early / high-noise):  global "4" only  → pose/layout
+        #   t=0.5 → 0.0  (late  / low-noise):   "4" + SM0 + SM1  → appearance
+        workflow["TR0"] = {
+            "class_type": "ConditioningSetTimestepRange",
+            "inputs": {"conditioning": ["SM0", 0], "start": 0.0, "end": 0.5},
+            "_meta": {"title": "Char 0 mask — late timesteps only"},
+        }
+        workflow["TR1"] = {
+            "class_type": "ConditioningSetTimestepRange",
+            "inputs": {"conditioning": ["SM1", 0], "start": 0.0, "end": 0.5},
+            "_meta": {"title": "Char 1 mask — late timesteps only"},
+        }
+
+        # Merge: global scene (full range) + char0 (late) + char1 (late)
+        workflow["RCA0"] = {
+            "class_type": "ConditioningCombine",
+            "inputs": {
+                "conditioning_1": ["TR0", 0],
+                "conditioning_2": ["TR1", 0],
+            },
+            "_meta": {"title": "Combine late-phase character conditionings"},
         }
         workflow["RCA"] = {
             "class_type": "ConditioningCombine",
             "inputs": {
-                "conditioning_1": ["SM0", 0],
-                "conditioning_2": ["SM1", 0],
+                "conditioning_1": ["RCA0", 0],
+                "conditioning_2": ["4",   0],
             },
-            "_meta": {"title": "Combine masked conditionings"},
+            "_meta": {"title": "Add global scene (full range)"},
         }
         workflow["RCN"] = {
             "class_type": "ConditioningCombine",
@@ -1061,10 +1094,11 @@ def build_multiref_workflow(
         }
         final_pos: List = ["RCA", 0]
         final_neg: List = ["RCN", 0]
-        print("[MultiRef] 2-char mode: ConditioningSetMask, 48px centre overlap for background cohesion")
+        print("[MultiRef] 2-char: global scene (full) + spatial masks (late timesteps only)")
 
     else:
-        # 1 character or 3+: plain ConditioningCombine (no spatial split)
+        # 1 char, 3+ chars, or 2 chars with contact_pose=True:
+        # plain ConditioningCombine — no spatial split, handles physical interaction
         def _merge(id_list: List[str], prefix: str) -> List:
             if not id_list:
                 return ["5", 0]
@@ -1081,6 +1115,8 @@ def build_multiref_workflow(
                 cur = mid
             return [cur, 0]
 
+        mode_label = "contact-pose (plain combine)" if contact_pose else f"{len(subjects)}-char plain combine"
+        print(f"[MultiRef] {mode_label}: no spatial masks, free character interaction")
         final_pos = _merge(char_final_pos, "CP")
         final_neg = _merge(char_final_neg, "CN")
 
