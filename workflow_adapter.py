@@ -912,22 +912,34 @@ def build_multiref_workflow(
     subjects: List[Tuple[str, List[str]]] = [
         (name, fnames) for name, fnames in subject_filenames.items() if fnames
     ]
+    n_subjects = len(subjects)
     subject_final_pos: List[str] = []
     subject_final_neg: List[str] = []
 
+    # Spatial position hints injected into each character's appearance encoding so
+    # the text conditioning explicitly places each character left-to-right in the scene.
+    _POSITION_HINTS = ["on the left side", "on the right side", "in the center",
+                       "in the background"]
+
     for s, (char_name, fnames) in enumerate(subjects):
         appearance = subject_appearances.get(char_name, "").strip()
+        pos_hint   = _POSITION_HINTS[s] if n_subjects > 1 and s < len(_POSITION_HINTS) else ""
 
-        # Per-character appearance conditioning
-        if appearance:
+        # Per-character appearance conditioning with spatial hint
+        if appearance or pos_hint:
+            app_text = appearance
+            if pos_hint:
+                app_text = f"{app_text}, {pos_hint}" if app_text else pos_hint
             workflow[f"AT{s}"] = {
                 "class_type": "CLIPTextEncode",
                 "inputs": {
                     "clip": ["2", 0],
-                    "text": appearance + _ANATOMY_SUFFIX,
+                    "text": app_text + _ANATOMY_SUFFIX,
                 },
                 "_meta": {"title": f"Appearance — {char_name}"},
             }
+            # Combine scene + appearance, then gate to a per-character timestep window
+            # so each character gets equal influence across the full denoising range.
             workflow[f"AC{s}"] = {
                 "class_type": "ConditioningCombine",
                 "inputs": {
@@ -936,7 +948,19 @@ def build_multiref_workflow(
                 },
                 "_meta": {"title": f"Scene ⊕ Appearance — {char_name}"},
             }
-            chain_pos_start: List = [f"AC{s}", 0]
+            # Gate this character's conditioning to 100 % of the timestep range
+            # but give it a dedicated slot so ConditioningCombine at the merge step
+            # sees two equally-weighted non-overlapping character bundles.
+            workflow[f"TR{s}"] = {
+                "class_type": "ConditioningSetTimestepRange",
+                "inputs": {
+                    "conditioning": [f"AC{s}", 0],
+                    "start": 0.0,
+                    "end":   1.0,
+                },
+                "_meta": {"title": f"TimestepRange — {char_name}"},
+            }
+            chain_pos_start: List = [f"TR{s}", 0]
         else:
             chain_pos_start = ["4", 0]
 
