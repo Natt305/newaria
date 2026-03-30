@@ -832,82 +832,54 @@ def build_multiref_workflow(
     width: int = 1280,
     height: int = 720,
 ) -> Dict[str, dict]:
-    """TRUE multi-character photo-referencing using only built-in ComfyUI nodes.
+    """TRUE multi-character photo-referencing using ClownRegionalConditioning_AB for spatial masking.
 
     Architecture overview
     ─────────────────────
-    1. Shared base:  scene prompt → CLIPTextEncode ("4")
-                     ConditioningZeroOut ("5") for the distilled-model negative
+    For EACH character:
+        CLIPTextEncode (scene + char-specific appearance text)
+        → ReferenceLatent chain (one node per reference photo, positive + negative)
 
-    2. Per character s:
-       a. Encode character appearance text   → CLIPTextEncode ("AT{s}")
-       b. Combine scene + appearance          → ConditioningCombine ("AC{s}")
-          (If no appearance text, start directly from "4".)
-       c. For each reference photo p of that character:
-            LoadImage  →  ImageScaleToTotalPixels  →  VAEEncode
-            →  ReferenceLatent (positive chain "RP{s}_{p}")
-            →  ReferenceLatent (negative chain "RN{s}_{p}")
-          Each chain starts independently from the combined conditioning of step b,
-          so NO cross-character contamination is possible.
+    For 2 characters → ClownRegionalConditioning_AB:
+        Char 0 conditioning locked to left half  (SolidMask + MaskComposite)
+        Char 1 conditioning locked to right half
+        Output: single CONDITIONING fed to CFGGuider
 
-    3. Merge:  all per-character final conditioning tensors are joined left-to-right
-               via ConditioningCombine ("CP{k}" positive / "CN{k}" negative).
+    For 1 character → plain ReferenceLatent chain, no spatial split.
+    For 3+ characters → ConditioningCombine fallback (no spatial masks).
 
-    4. Sample: standard FLUX.2 Klein advanced sampler pipeline
-               (EmptyFlux2LatentImage → Flux2Scheduler → RandomNoise →
-                CFGGuider → SamplerCustomAdvanced → VAEDecode → SaveImage).
-
-    Requirements
-    ────────────
-    • No SAM3, no InpaintCropImproved, no ReferenceChainConditioning.
-    • All nodes are built into ComfyUI core (requires ComfyUI 0.8.2+ for
-      ReferenceLatent, EmptyFlux2LatentImage, Flux2Scheduler).
-    • Works with any FLUX.2 Klein GGUF loaded via UnetLoaderGGUF (city96).
+    Spatial masks are built entirely with ComfyUI nodes (SolidMask → MaskComposite),
+    no file uploads needed.
 
     Node-ID scheme
     ──────────────
-    Fixed:      "1"–"5"    (model loaders + scene text + zero-neg)
-    Per char:   "L{s}_{p}" LoadImage
+    Fixed:      "1"–"3"    model loaders
+                "5"        shared ConditioningZeroOut (negative anchor)
+    Per char s: "TC{s}"    CLIPTextEncode  (scene + char appearance)
+                "L{s}_{p}" LoadImage
                 "SC{s}_{p}" ImageScaleToTotalPixels
                 "E{s}_{p}"  VAEEncode
-                "RP{s}_{p}" ReferenceLatent (positive)
-                "RN{s}_{p}" ReferenceLatent (negative)
-    Merge:      "CP{k}"    ConditioningCombine  (positive merge, step k)
-                "CN{k}"    ConditioningCombine  (negative merge, step k)
+                "RP{s}_{p}" ReferenceLatent positive chain
+                "RN{s}_{p}" ReferenceLatent negative chain
+    2-char masks:"MB0"      SolidMask black base (width × height)
+                "MB1"      SolidMask white left strip (width//2 × height)
+                "MB2"      SolidMask white right strip ((width-width//2) × height)
+                "ML"       MaskComposite → left-half mask
+                "MR"       MaskComposite → right-half mask
+                "RCA"      ClownRegionalConditioning_AB (positive)
+                "RCN"      ConditioningCombine (negative)
+    3+char:     "CP{k}"    ConditioningCombine positive merge
+                "CN{k}"    ConditioningCombine negative merge
     Output:     "31"–"37", "9"
-
-    Photo-referencing upgrade path
-    ──────────────────────────────
-    If a valid CLIP Vision encoder (e.g. clip-vit-large-patch14.safetensors) is
-    placed in ComfyUI/models/clip_vision/ and COMFYUI_CLIP_VISION env var is set,
-    the workflow automatically upgrades to CLIPVisionEncode + unCLIPConditioning
-    for true image-space conditioning instead of text-keyword approximation.
     """
     subjects: List[Tuple[str, List[str]]] = [
         (name, fnames) for name, fnames in subject_filenames.items() if fnames
     ]
 
-    # Detect whether a usable CLIP Vision model is configured
-    _clip_vision_name = os.environ.get("COMFYUI_CLIP_VISION", "").strip()
-
-    # Base prompt: combined scene + all character descriptions.
-    # When a CLIP Vision model is present the appearance text becomes redundant
-    # (image features carry the look), but it stays as a safety anchor.
-    _SIDE_LABELS = ["Left character", "Right character", "Center character", "Background character"]
-    char_descriptions: List[str] = []
-    for s, (char_name, _) in enumerate(subjects):
-        app = subject_appearances.get(char_name, "").strip()
-        if app:
-            label = _SIDE_LABELS[s] if len(subjects) > 1 and s < len(_SIDE_LABELS) else char_name
-            char_descriptions.append(f"{label} — {char_name}: {app}")
-    if char_descriptions:
-        combined_scene = scene_prompt + ". " + ". ".join(char_descriptions)
-    else:
-        combined_scene = scene_prompt
-    enhanced_scene = combined_scene + _ANATOMY_SUFFIX
-
     megapixels = round((width * height) / 1_000_000, 4)
+    half_w = width // 2
 
+    # ── Shared model loader nodes ────────────────────────────────────────────
     workflow: Dict[str, Any] = {
         "1": {
             "class_type": "UnetLoaderGGUF",
@@ -924,135 +896,181 @@ def build_multiref_workflow(
             "inputs": {"vae_name": vae_name},
             "_meta": {"title": "VAE Loader"},
         },
-        "4": {
-            "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": enhanced_scene},
-            "_meta": {"title": "Scene Prompt (all characters)"},
-        },
-        "5": {
-            "class_type": "ConditioningZeroOut",
-            "inputs": {"conditioning": ["4", 0]},
-            "_meta": {"title": "Zero Out (Shared Negative)"},
-        },
     }
 
-    # If a CLIP Vision model is available: add the shared CLIPVisionLoader node
-    if _clip_vision_name:
-        workflow["CLV"] = {
-            "class_type": "CLIPVisionLoader",
-            "inputs": {"clip_name": _clip_vision_name},
-            "_meta": {"title": "CLIP Vision Loader"},
-        }
-        print(f"[MultiRef] CLIP Vision model detected ({_clip_vision_name}) — using photo-based unCLIPConditioning")
-    else:
-        print("[MultiRef] No CLIP Vision model set — using ReferenceLatent (text+latent mode). "
-              "For true photo-referencing, place a CLIP Vision encoder in ComfyUI/models/clip_vision/ "
-              "and set COMFYUI_CLIP_VISION env var.")
-
-    subject_final_pos: List[str] = []
-    subject_final_neg: List[str] = []
+    # ── Per-character conditioning chains ────────────────────────────────────
+    _SIDE_LABELS = ["Left character", "Right character", "Center character", "Background character"]
+    char_final_pos: List[str] = []
+    char_final_neg: List[str] = []
 
     for s, (char_name, fnames) in enumerate(subjects):
-        if _clip_vision_name:
-            # ── Photo-based path: CLIPVisionEncode + unCLIPConditioning ─────────
-            # Each photo's visual features are encoded in CLIP image space and
-            # injected directly — no text-keyword approximation.
-            prev_cond: List = ["4", 0]
-            last_uc_id = None
-            for p, img_name in enumerate(fnames):
-                load_id  = f"L{s}_{p}"
-                scale_id = f"SC{s}_{p}"
-                ve_id    = f"VE{s}_{p}"
-                uc_id    = f"UC{s}_{p}"
-                workflow[load_id] = {
-                    "class_type": "LoadImage",
-                    "inputs": {"image": img_name, "upload": "image"},
-                    "_meta": {"title": f"Load — {char_name} ref #{p + 1}"},
-                }
-                workflow[scale_id] = {
-                    "class_type": "ImageScaleToTotalPixels",
-                    "inputs": {"image": [load_id, 0], "upscale_method": "lanczos",
-                               "megapixels": megapixels, "resolution_steps": 64},
-                    "_meta": {"title": f"Scale — {char_name} ref #{p + 1}"},
-                }
-                workflow[ve_id] = {
-                    "class_type": "CLIPVisionEncode",
-                    "inputs": {"clip_vision": ["CLV", 0], "image": [scale_id, 0], "crop": "center"},
-                    "_meta": {"title": f"CLIP Vision Encode — {char_name} #{p + 1}"},
-                }
-                workflow[uc_id] = {
-                    "class_type": "unCLIPConditioning",
-                    "inputs": {"conditioning": prev_cond, "clip_vision_output": [ve_id, 0],
-                               "strength": 1.0, "noise_augmentation": 0.0},
-                    "_meta": {"title": f"unCLIP Cond — {char_name} #{p + 1}"},
-                }
-                prev_cond = [uc_id, 0]
-                last_uc_id = uc_id
-            subject_final_pos.append(last_uc_id)
-            subject_final_neg.append(None)   # negative stays as zero-out
-
+        # Build a character-specific text prompt:
+        # scene context + spatial label + full appearance description
+        app = subject_appearances.get(char_name, "").strip()
+        if len(subjects) > 1 and s < len(_SIDE_LABELS):
+            label = f"{_SIDE_LABELS[s]} — {char_name}"
         else:
-            # ── Text+latent fallback: ReferenceLatent chains ─────────────────
-            chain_pos_start: List = ["4", 0]
-            chain_neg_start: List = ["5", 0]
-            for p, img_name in enumerate(fnames):
-                load_id  = f"L{s}_{p}"
-                scale_id = f"SC{s}_{p}"
-                enc_id   = f"E{s}_{p}"
-                rpos_id  = f"RP{s}_{p}"
-                rneg_id  = f"RN{s}_{p}"
-                prev_pos: List = chain_pos_start if p == 0 else [f"RP{s}_{p-1}", 0]
-                prev_neg: List = chain_neg_start if p == 0 else [f"RN{s}_{p-1}", 0]
-                workflow[load_id] = {
-                    "class_type": "LoadImage",
-                    "inputs": {"image": img_name, "upload": "image"},
-                    "_meta": {"title": f"Load — {char_name} ref #{p + 1}"},
-                }
-                workflow[scale_id] = {
-                    "class_type": "ImageScaleToTotalPixels",
-                    "inputs": {"image": [load_id, 0], "upscale_method": "lanczos",
-                               "megapixels": megapixels, "resolution_steps": 64},
-                    "_meta": {"title": f"Scale — {char_name} ref #{p + 1}"},
-                }
-                workflow[enc_id] = {
-                    "class_type": "VAEEncode",
-                    "inputs": {"pixels": [scale_id, 0], "vae": ["3", 0]},
-                    "_meta": {"title": f"VAE Encode — {char_name} ref #{p + 1}"},
-                }
-                workflow[rpos_id] = {
-                    "class_type": "ReferenceLatent",
-                    "inputs": {"conditioning": prev_pos, "latent": [enc_id, 0]},
-                    "_meta": {"title": f"ReferenceLatent+ — {char_name} #{p + 1}"},
-                }
-                workflow[rneg_id] = {
-                    "class_type": "ReferenceLatent",
-                    "inputs": {"conditioning": prev_neg, "latent": [enc_id, 0]},
-                    "_meta": {"title": f"ReferenceLatent- — {char_name} #{p + 1}"},
-                }
-            last_p = len(fnames) - 1
-            subject_final_pos.append(f"RP{s}_{last_p}")
-            subject_final_neg.append(f"RN{s}_{last_p}")
+            label = char_name
+        char_text = f"{scene_prompt}. {label}: {app}" if app else f"{scene_prompt}. {label}"
+        char_text += _ANATOMY_SUFFIX
 
-    # Merge all per-character conditioning chains
-    def _merge(id_list, prefix):
-        valid = [x for x in id_list if x is not None]
-        if not valid:
-            return ["5", 0]
-        if len(valid) == 1:
-            return [valid[0], 0]
-        cur = valid[0]
-        for k in range(1, len(valid)):
-            mid = f"{prefix}{k - 1}"
-            workflow[mid] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": [cur, 0], "conditioning_2": [valid[k], 0]},
-                "_meta": {"title": f"Merge — step {k}"},
+        tc_id = f"TC{s}"
+        workflow[tc_id] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": char_text},
+            "_meta": {"title": f"Text — {char_name}"},
+        }
+
+        # Shared zero-out negative (created once, reused per character chain)
+        if s == 0:
+            workflow["5"] = {
+                "class_type": "ConditioningZeroOut",
+                "inputs": {"conditioning": [tc_id, 0]},
+                "_meta": {"title": "Zero Out (Negative anchor)"},
             }
-            cur = mid
-        return [cur, 0]
 
-    final_pos = _merge(subject_final_pos, "CP")
-    final_neg = _merge(subject_final_neg, "CN") if any(x for x in subject_final_neg) else ["5", 0]
+        # ReferenceLatent chains: positive starts from char text, negative from zero-out
+        for p, img_name in enumerate(fnames):
+            load_id  = f"L{s}_{p}"
+            scale_id = f"SC{s}_{p}"
+            enc_id   = f"E{s}_{p}"
+            rpos_id  = f"RP{s}_{p}"
+            rneg_id  = f"RN{s}_{p}"
+            prev_pos: List = [tc_id, 0] if p == 0 else [f"RP{s}_{p-1}", 0]
+            prev_neg: List = ["5", 0]   if p == 0 else [f"RN{s}_{p-1}", 0]
+
+            workflow[load_id] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": img_name, "upload": "image"},
+                "_meta": {"title": f"Load — {char_name} ref #{p + 1}"},
+            }
+            workflow[scale_id] = {
+                "class_type": "ImageScaleToTotalPixels",
+                "inputs": {"image": [load_id, 0], "upscale_method": "lanczos",
+                           "megapixels": megapixels, "resolution_steps": 64},
+                "_meta": {"title": f"Scale — {char_name} ref #{p + 1}"},
+            }
+            workflow[enc_id] = {
+                "class_type": "VAEEncode",
+                "inputs": {"pixels": [scale_id, 0], "vae": ["3", 0]},
+                "_meta": {"title": f"VAE Encode — {char_name} ref #{p + 1}"},
+            }
+            workflow[rpos_id] = {
+                "class_type": "ReferenceLatent",
+                "inputs": {"conditioning": prev_pos, "latent": [enc_id, 0]},
+                "_meta": {"title": f"ReferenceLatent+ — {char_name} #{p + 1}"},
+            }
+            workflow[rneg_id] = {
+                "class_type": "ReferenceLatent",
+                "inputs": {"conditioning": prev_neg, "latent": [enc_id, 0]},
+                "_meta": {"title": f"ReferenceLatent- — {char_name} #{p + 1}"},
+            }
+
+        last_p = len(fnames) - 1
+        char_final_pos.append(f"RP{s}_{last_p}")
+        char_final_neg.append(f"RN{s}_{last_p}")
+
+    # ── Spatial merge ────────────────────────────────────────────────────────
+    if len(subjects) == 2:
+        # SolidMask nodes build left/right half masks entirely in-graph —
+        # no file uploads required.
+        #
+        #   MB0 (black, full size)
+        #   MB1 (white, left half)  ──MaskComposite(add, x=0)──▶  ML (left mask)
+        #   MB2 (white, right half) ──MaskComposite(add, x=half_w)▶ MR (right mask)
+        #
+        workflow["MB0"] = {
+            "class_type": "SolidMask",
+            "inputs": {"value": 0.0, "width": width, "height": height},
+            "_meta": {"title": "Mask base (black)"},
+        }
+        workflow["MB1"] = {
+            "class_type": "SolidMask",
+            "inputs": {"value": 1.0, "width": half_w, "height": height},
+            "_meta": {"title": "Left white strip"},
+        }
+        workflow["MB2"] = {
+            "class_type": "SolidMask",
+            "inputs": {"value": 1.0, "width": width - half_w, "height": height},
+            "_meta": {"title": "Right white strip"},
+        }
+        workflow["ML"] = {
+            "class_type": "MaskComposite",
+            "inputs": {"destination": ["MB0", 0], "source": ["MB1", 0],
+                       "x": 0, "y": 0, "operation": "add"},
+            "_meta": {"title": "Left-half mask"},
+        }
+        workflow["MR"] = {
+            "class_type": "MaskComposite",
+            "inputs": {"destination": ["MB0", 0], "source": ["MB2", 0],
+                       "x": half_w, "y": 0, "operation": "add"},
+            "_meta": {"title": "Right-half mask"},
+        }
+
+        # ConditioningSetMask restricts each character's conditioning to their
+        # spatial region.  This is a core ComfyUI node — architecture-agnostic,
+        # works with FLUX's MMDiT conditioning format.
+        #   "mask bounds" mode: sampler only uses the conditioning inside the mask.
+        workflow["SM0"] = {
+            "class_type": "ConditioningSetMask",
+            "inputs": {
+                "conditioning":  [char_final_pos[0], 0],
+                "mask":          ["ML", 0],
+                "strength":      1.0,
+                "set_cond_area": "mask bounds",
+            },
+            "_meta": {"title": f"Mask char 0 → left half"},
+        }
+        workflow["SM1"] = {
+            "class_type": "ConditioningSetMask",
+            "inputs": {
+                "conditioning":  [char_final_pos[1], 0],
+                "mask":          ["MR", 0],
+                "strength":      1.0,
+                "set_cond_area": "mask bounds",
+            },
+            "_meta": {"title": f"Mask char 1 → right half"},
+        }
+        workflow["RCA"] = {
+            "class_type": "ConditioningCombine",
+            "inputs": {
+                "conditioning_1": ["SM0", 0],
+                "conditioning_2": ["SM1", 0],
+            },
+            "_meta": {"title": "Combine masked conditionings"},
+        }
+        workflow["RCN"] = {
+            "class_type": "ConditioningCombine",
+            "inputs": {
+                "conditioning_1": [char_final_neg[0], 0],
+                "conditioning_2": [char_final_neg[1], 0],
+            },
+            "_meta": {"title": "Negative merge"},
+        }
+        final_pos: List = ["RCA", 0]
+        final_neg: List = ["RCN", 0]
+        print("[MultiRef] 2-char mode: ConditioningSetMask with left/right spatial masks")
+
+    else:
+        # 1 character or 3+: plain ConditioningCombine (no spatial split)
+        def _merge(id_list: List[str], prefix: str) -> List:
+            if not id_list:
+                return ["5", 0]
+            if len(id_list) == 1:
+                return [id_list[0], 0]
+            cur = id_list[0]
+            for k in range(1, len(id_list)):
+                mid = f"{prefix}{k - 1}"
+                workflow[mid] = {
+                    "class_type": "ConditioningCombine",
+                    "inputs": {"conditioning_1": [cur, 0], "conditioning_2": [id_list[k], 0]},
+                    "_meta": {"title": f"Merge — step {k}"},
+                }
+                cur = mid
+            return [cur, 0]
+
+        final_pos = _merge(char_final_pos, "CP")
+        final_neg = _merge(char_final_neg, "CN")
 
     # Standard FLUX.2 Klein advanced sampler pipeline
     workflow["31"] = {
