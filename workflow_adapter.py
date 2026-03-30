@@ -879,7 +879,7 @@ def build_multiref_workflow(
     megapixels = round((width * height) / 1_000_000, 4)
     half_w = width // 2
 
-    # ── Shared model loader nodes ────────────────────────────────────────────
+    # ── Shared model loader nodes + global scene conditioning ────────────────
     workflow: Dict[str, Any] = {
         "1": {
             "class_type": "UnetLoaderGGUF",
@@ -896,6 +896,20 @@ def build_multiref_workflow(
             "inputs": {"vae_name": vae_name},
             "_meta": {"title": "VAE Loader"},
         },
+        # Global scene conditioning — no mask, covers the whole canvas.
+        # Guides the background and ensures a cohesive image regardless of
+        # how many characters are present.
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": scene_prompt + _ANATOMY_SUFFIX},
+            "_meta": {"title": "Global scene prompt"},
+        },
+        # Zero-out negative anchored to the global scene text.
+        "5": {
+            "class_type": "ConditioningZeroOut",
+            "inputs": {"conditioning": ["4", 0]},
+            "_meta": {"title": "Zero Out (Negative anchor)"},
+        },
     }
 
     # ── Per-character conditioning chains ────────────────────────────────────
@@ -904,8 +918,7 @@ def build_multiref_workflow(
     char_final_neg: List[str] = []
 
     for s, (char_name, fnames) in enumerate(subjects):
-        # Build a character-specific text prompt:
-        # scene context + spatial label + full appearance description
+        # Character-specific text: scene context + spatial label + appearance
         app = subject_appearances.get(char_name, "").strip()
         if len(subjects) > 1 and s < len(_SIDE_LABELS):
             label = f"{_SIDE_LABELS[s]} — {char_name}"
@@ -920,14 +933,6 @@ def build_multiref_workflow(
             "inputs": {"clip": ["2", 0], "text": char_text},
             "_meta": {"title": f"Text — {char_name}"},
         }
-
-        # Shared zero-out negative (created once, reused per character chain)
-        if s == 0:
-            workflow["5"] = {
-                "class_type": "ConditioningZeroOut",
-                "inputs": {"conditioning": [tc_id, 0]},
-                "_meta": {"title": "Zero Out (Negative anchor)"},
-            }
 
         # ReferenceLatent chains: positive starts from char text, negative from zero-out
         for p, img_name in enumerate(fnames):
@@ -979,6 +984,13 @@ def build_multiref_workflow(
         #   MB1 (white, left half)  ──MaskComposite(add, x=0)──▶  ML (left mask)
         #   MB2 (white, right half) ──MaskComposite(add, x=half_w)▶ MR (right mask)
         #
+        # 48-pixel overlap at the centre boundary so both conditionings are
+        # active in that zone — produces a natural blend instead of a hard seam.
+        overlap = 48
+        left_w  = half_w + overlap          # left strip extends overlap px past centre
+        right_x = max(0, half_w - overlap)  # right strip starts overlap px before centre
+        right_w = width - right_x
+
         workflow["MB0"] = {
             "class_type": "SolidMask",
             "inputs": {"value": 0.0, "width": width, "height": height},
@@ -986,25 +998,25 @@ def build_multiref_workflow(
         }
         workflow["MB1"] = {
             "class_type": "SolidMask",
-            "inputs": {"value": 1.0, "width": half_w, "height": height},
-            "_meta": {"title": "Left white strip"},
+            "inputs": {"value": 1.0, "width": left_w, "height": height},
+            "_meta": {"title": "Left white strip (+ overlap)"},
         }
         workflow["MB2"] = {
             "class_type": "SolidMask",
-            "inputs": {"value": 1.0, "width": width - half_w, "height": height},
-            "_meta": {"title": "Right white strip"},
+            "inputs": {"value": 1.0, "width": right_w, "height": height},
+            "_meta": {"title": "Right white strip (+ overlap)"},
         }
         workflow["ML"] = {
             "class_type": "MaskComposite",
             "inputs": {"destination": ["MB0", 0], "source": ["MB1", 0],
                        "x": 0, "y": 0, "operation": "add"},
-            "_meta": {"title": "Left-half mask"},
+            "_meta": {"title": "Left-half mask (with centre overlap)"},
         }
         workflow["MR"] = {
             "class_type": "MaskComposite",
             "inputs": {"destination": ["MB0", 0], "source": ["MB2", 0],
-                       "x": half_w, "y": 0, "operation": "add"},
-            "_meta": {"title": "Right-half mask"},
+                       "x": right_x, "y": 0, "operation": "add"},
+            "_meta": {"title": "Right-half mask (with centre overlap)"},
         }
 
         # ConditioningSetMask restricts each character's conditioning to their
@@ -1049,7 +1061,7 @@ def build_multiref_workflow(
         }
         final_pos: List = ["RCA", 0]
         final_neg: List = ["RCN", 0]
-        print("[MultiRef] 2-char mode: ConditioningSetMask with left/right spatial masks")
+        print("[MultiRef] 2-char mode: ConditioningSetMask, 48px centre overlap for background cohesion")
 
     else:
         # 1 character or 3+: plain ConditioningCombine (no spatial split)
