@@ -31,8 +31,9 @@ NINA_APPEARANCE = (
 )
 
 SCENE_PROMPT = (
-    "Mortis and Nina standing together on a rooftop at sunset, "
-    "full body view, anime illustration, dramatic sky background"
+    "Mortis and Nina hugging each other warmly on a rooftop at sunset, "
+    "side by side, arms around each other, full body view, "
+    "anime illustration, dramatic sky background"
 )
 
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
