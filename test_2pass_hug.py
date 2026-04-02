@@ -28,15 +28,15 @@ MORTIS_PATH = "attached_assets/Mortis_Anime_unmasked_1774831761833.webp"
 NINA_PATH   = "attached_assets/圖片_1774831943302.png"
 
 MORTIS_APPEARANCE = (
-    "beautiful anime girl, Mortis, long straight silver-white hair, small red beret, "
-    "bright golden amber eyes, pale skin, black frilled gothic lolita dress with bell skirt, "
-    "white ruffled collar cravat, long black coat over dress, silver cross brooch on chest, "
-    "dark gray opaque tights, red platform mary jane shoes with black straps"
+    "1girl, Mortis, long silver white hair, red beret hat, golden amber eyes, "
+    "pale skin, black gothic military coat, crimson red shorts, gray tights, "
+    "red platform mary jane shoes, cross brooch, elegant gothic lolita aesthetic"
 )
 NINA_APPEARANCE = (
-    "beautiful anime girl, Tokazaki Nina, short brown hair with twin tails, bright blue eyes, "
-    "light skin, white graphic t-shirt under dark navy hooded bomber jacket with white fur collar trim, "
-    "red plaid tartan pleated mini skirt, leather belt, white knee socks, black canvas sneakers"
+    "1girl, Tokazaki Nina (仁菜), short brown hair, small twin tails, blue eyes, "
+    "light skin, white graphic t-shirt, dark navy fur-trim hooded bomber jacket, "
+    "red tartan plaid skirt, leather belt, white socks, black sneakers, "
+    "casual Japanese school girl aesthetic"
 )
 
 # Pass 1: proven side-by-side — ConditioningSetMask hard masks deliver 9.6/10 and 10/10
@@ -114,27 +114,49 @@ def wait_download(pid: str, label: str, save: str) -> bytes:
     print(" TIMEOUT")
     sys.exit(1)
 
-def score(img_bytes: bytes, char: str, appearance: str) -> dict:
+def score(img_bytes: bytes, char: str, appearance: str,
+          ref_bytes: bytes | None = None) -> dict:
+    """Score a generated image for character fidelity.
+
+    When ref_bytes is supplied the vision model can directly compare the
+    generated image against the real reference photo (same method as
+    test_mortis_nina.py), giving much more accurate scores than text-only.
+    """
     if not GROQ_KEY:
         return {}
     from groq import Groq
-    b64 = base64.b64encode(img_bytes).decode()
-    client = Groq(api_key=GROQ_KEY)
-    prompt = (
-        f"Quality-control reviewer. Reference character: {char} — {appearance}\n"
-        f"Score how well the character in the image matches (0–10 each): "
-        f"hair, eyes, outfit, accessories, overall likeness.\n"
-        f"Also note whether the two characters appear to be hugging or touching.\n"
-        f"Reply JSON only: {{\"hair\":N,\"eyes\":N,\"outfit\":N,\"accessories\":N,"
-        f"\"likeness\":N,\"contact\":true/false,\"notes\":\"...\"}}"
-    )
+    b64     = base64.b64encode(img_bytes).decode()
+    client  = Groq(api_key=GROQ_KEY)
+
+    content: list = []
+    if ref_bytes:
+        ref_b64 = base64.b64encode(ref_bytes).decode()
+        content += [
+            {"type": "text",
+             "text": f"REFERENCE PHOTO — {char} (use this as the ground truth appearance):"},
+            {"type": "image_url",
+             "image_url": {"url": f"data:image/png;base64,{ref_b64}"}},
+        ]
+
+    content += [
+        {"type": "text", "text": (
+            f"GENERATED IMAGE — should contain {char}: {appearance}\n"
+            f"Score how well {char} in the generated image matches "
+            f"the reference photo and description (0–10 each): "
+            f"hair, eyes, outfit, accessories, overall likeness.\n"
+            f"Also note whether the two characters appear to be hugging or touching.\n"
+            f"Reply JSON only: {{\"hair\":N,\"eyes\":N,\"outfit\":N,\"accessories\":N,"
+            f"\"likeness\":N,\"contact\":true/false,\"notes\":\"...\"}}"
+        )},
+        {"type": "image_url",
+         "image_url": {"url": f"data:image/png;base64,{b64}"}},
+    ]
+
     resp = client.chat.completions.create(
         model="meta-llama/llama-4-scout-17b-16e-instruct",
-        messages=[{"role": "user", "content": [
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-        ]}],
+        messages=[{"role": "user", "content": content}],
         max_tokens=350,
+        temperature=0.1,
     )
     txt = resp.choices[0].message.content
     m = re.search(r'\{.*\}', txt, re.S)
@@ -182,9 +204,9 @@ pass1_bytes = wait_download(
 )
 
 if GROQ_KEY:
-    print("\n  Pass 1 scores:")
-    m1 = score(pass1_bytes, "Mortis", MORTIS_APPEARANCE)
-    n1 = score(pass1_bytes, "Nina",   NINA_APPEARANCE)
+    print("\n  Pass 1 scores (with reference photos):")
+    m1 = score(pass1_bytes, "Mortis", MORTIS_APPEARANCE, ref_bytes=mortis_raw)
+    n1 = score(pass1_bytes, "Nina",   NINA_APPEARANCE,   ref_bytes=nina_raw)
     print(f"    Mortis {avg_score(m1)}/10 · {m1.get('notes','')[:80]}")
     print(f"    Nina   {avg_score(n1)}/10 · {n1.get('notes','')[:80]}")
 
@@ -218,9 +240,9 @@ pass2_bytes = wait_download(
 )
 
 if GROQ_KEY:
-    print("\n── Vision analysis: img2img result ──")
-    m2 = score(pass2_bytes, "Mortis", MORTIS_APPEARANCE)
-    n2 = score(pass2_bytes, "Nina",   NINA_APPEARANCE)
+    print("\n── Vision analysis: img2img result (with reference photos) ──")
+    m2 = score(pass2_bytes, "Mortis", MORTIS_APPEARANCE, ref_bytes=mortis_raw)
+    n2 = score(pass2_bytes, "Nina",   NINA_APPEARANCE,   ref_bytes=nina_raw)
     print(f"  Mortis  {avg_score(m2)}/10  contact={m2.get('contact')}")
     print(f"    {m2.get('notes','')}")
     print(f"  Nina    {avg_score(n2)}/10  contact={n2.get('contact')}")
