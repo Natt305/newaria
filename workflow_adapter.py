@@ -987,10 +987,10 @@ def build_multiref_workflow(
         #   MB1 (white, left half)  ──MaskComposite(add, x=0)──▶  ML (left mask)
         #   MB2 (white, right half) ──MaskComposite(add, x=right_x)─▶ MR (right mask)
         #
-        # 8-pixel overlap at the centre boundary — just enough to avoid a hard
-        # seam without letting one character's conditioning bleed into the other.
-        # (was 48px which caused Mortis features to bleed into Nina's half)
-        overlap = 8
+        # 0-pixel overlap: completely exclusive regions, no cross-bleeding.
+        # A shared zone always leaks one character's features into the other half,
+        # so the cleanest fix is a strict hard split at the centre line.
+        overlap = 0
         left_w  = half_w + overlap
         right_x = max(0, half_w - overlap)
         right_w = width - right_x
@@ -1082,7 +1082,7 @@ def build_multiref_workflow(
             }
             final_pos: List = ["RCA", 0]
             final_neg: List = ["RCN", 0]
-            print("[MultiRef] 2-char hard spatial masks, no ghost-scene, 8px overlap")
+            print("[MultiRef] 2-char hard spatial masks, no ghost-scene, 0px overlap (hard split)")
 
         else:
             # ── Soft spatial masks (contact_pose: hugging / touching) ─────────
