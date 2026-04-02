@@ -66,3 +66,21 @@ id = "E8ATx-Pjyehp7R2jxQygJ"
 uri = "file://attached_assets/_2pass_p2_4.png"
 type = "image"
 title = "P2 try 5 — seed 1745190561"
+
+[[outputs]]
+id = "Yim-fhWOVPHu-gCqHnnrJ"
+uri = "file://attached_assets/_hug_0.png"
+type = "image"
+title = "Try 1 (seed 1745190556)"
+
+[[outputs]]
+id = "bPTLiDMGSEXRskZjz4O79"
+uri = "file://attached_assets/_hug_1.png"
+type = "image"
+title = "Try 2 (seed 1745190557)"
+
+[[outputs]]
+id = "MjVWrDgw8wBWQ07m10PbV"
+uri = "file://attached_assets/_hug_2.png"
+type = "image"
+title = "Try 3 (seed 1745190558)"

@@ -978,9 +978,10 @@ def build_multiref_workflow(
         char_final_neg.append(f"RN{s}_{last_p}")
 
     # ── Spatial merge ────────────────────────────────────────────────────────
-    # contact_pose=True skips spatial masks entirely so characters can
-    # physically interact — falls through to plain ConditioningCombine below.
-    if len(subjects) == 2 and not contact_pose:
+    # 2-char: always build spatial masks.
+    #   contact_pose=False → hard masks (mask bounds) for side-by-side accuracy
+    #   contact_pose=True  → soft masks (default area) so arms/bodies can cross
+    if len(subjects) == 2:
         # SolidMask nodes build left/right half masks entirely in-graph —
         # no file uploads required.
         #
@@ -1135,9 +1136,24 @@ def build_multiref_workflow(
                 "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
                 "_meta": {"title": "Combine soft-masked conditionings"},
             }
+            # Strip character names from node "4" so the global scene
+            # conditioning only guides background/atmosphere (same fix as
+            # hard-mask path — prevents ghost character pairs).
+            _bg = scene_prompt
+            for _n in subject_appearances.keys():
+                _bg = re.sub(rf'\b{re.escape(_n)}\b', '', _bg, flags=re.IGNORECASE)
+            _bg = re.sub(r'\b(and|,)\b\s*', ' ', _bg)
+            _bg = ' '.join(_bg.split())
+            workflow["4"]["inputs"]["text"] = _bg + _ANATOMY_SUFFIX
+
+            workflow["SC4"] = {
+                "class_type": "ConditioningSetAreaStrength",
+                "inputs": {"conditioning": ["4", 0], "strength": 0.3},
+                "_meta": {"title": "Scene at 0.3 — background anchor (contact mode)"},
+            }
             workflow["RCA"] = {
                 "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["4", 0]},
+                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["SC4", 0]},
                 "_meta": {"title": "Add global scene (contact mode)"},
             }
             workflow["RCN"] = {
@@ -1150,7 +1166,7 @@ def build_multiref_workflow(
             }
             final_pos: List = ["RCA", 0]
             final_neg: List = ["RCN", 0]
-            print("[MultiRef] 2-char soft spatial masks + global scene (contact-pose mode)")
+            print("[MultiRef] 2-char soft spatial masks + bg scene@0.3 (contact-pose mode)")
 
     else:
         # 1 char or 3+ chars: plain ConditioningCombine (no spatial split)
