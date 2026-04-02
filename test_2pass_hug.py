@@ -28,9 +28,10 @@ MORTIS_PATH = "attached_assets/Mortis_Anime_unmasked_1774831761833.webp"
 NINA_PATH   = "attached_assets/圖片_1774831943302.png"
 
 MORTIS_APPEARANCE = (
-    "1girl, Mortis, long pure white hair with silver sheen, red beret hat, golden amber eyes, "
-    "pale skin, black gothic military coat, crimson red shorts, gray tights, "
-    "red platform mary jane shoes, cross brooch, elegant gothic lolita aesthetic"
+    "1girl, Mortis, long pale mint-grey hair, light silver with subtle green tint, "
+    "deep burgundy red beret hat, warm amber eyes, pale skin, "
+    "black gothic military coat, crimson red shorts, dark gray tights, "
+    "dark red platform mary jane shoes, cross brooch with green gem, elegant gothic lolita aesthetic"
 )
 NINA_APPEARANCE = (
     "1girl, Tokazaki Nina (仁菜), short brown hair, small twin tails, blue eyes, "
@@ -154,15 +155,22 @@ def score(img_bytes: bytes, char: str, appearance: str,
          "image_url": {"url": f"data:image/png;base64,{b64}"}},
     ]
 
-    resp = client.chat.completions.create(
-        model="meta-llama/llama-4-scout-17b-16e-instruct",
-        messages=[{"role": "user", "content": content}],
-        max_tokens=350,
-        temperature=0.1,
-    )
-    txt = resp.choices[0].message.content
-    m = re.search(r'\{.*\}', txt, re.S)
-    return json.loads(m.group()) if m else {"raw": txt}
+    for attempt in range(4):
+        try:
+            resp = client.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[{"role": "user", "content": content}],
+                max_tokens=350,
+                temperature=0.1,
+            )
+            txt = resp.choices[0].message.content
+            m = re.search(r'\{.*\}', txt, re.S)
+            return json.loads(m.group()) if m else {"raw": txt}
+        except Exception as e:
+            wait = 2 ** attempt * 3
+            print(f"\n  [score] Groq error (attempt {attempt+1}/4): {e} — retrying in {wait}s")
+            time.sleep(wait)
+    return {"raw": "scoring failed after retries"}
 
 def avg_score(s: dict) -> float:
     keys = ["hair", "eyes", "outfit", "accessories", "likeness"]
