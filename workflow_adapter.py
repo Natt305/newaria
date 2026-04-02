@@ -1578,7 +1578,14 @@ def build_img2img_workflow(
             "_meta": {"title": f"RefLatent- layout — {char_name}"},
         }
 
-        char_final_pos.append([lay_pos_id, 0])
+        # Boost reference weight so photo appearance dominates over text drift
+        ias_id = f"IAS{s}"
+        wf[ias_id] = {
+            "class_type": "ConditioningSetAreaStrength",
+            "inputs": {"conditioning": [lay_pos_id, 0], "strength": 2.0},
+            "_meta": {"title": f"Boost ref strength — {char_name} (img2img)"},
+        }
+        char_final_pos.append([ias_id, 0])
         char_final_neg.append([lay_neg_id, 0])
 
     # ── Merge all character conditionings (plain combine — no spatial masks) ──

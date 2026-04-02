@@ -10,7 +10,7 @@ Two-pass contact-pose test:
 Run: python test_2pass_hug.py [--denoise 0.55] [--steps 8]
 """
 
-import argparse, base64, io, json, os, re, sys, time, uuid
+import argparse, base64, io, json, os, re, shutil, sys, time, uuid
 import requests
 from PIL import Image
 
@@ -55,7 +55,9 @@ WIDTH, HEIGHT = 512, 768
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 ap = argparse.ArgumentParser()
-ap.add_argument("--seed",  type=int, default=-1, help="Pass-1 seed (-1 = random)")
+ap.add_argument("--seed",     type=int, default=-1, help="Pass-1 seed (-1 = random)")
+ap.add_argument("--p2-tries", type=int, default=1,
+                help="How many different seeds to try for Pass 2 (pick best)")
 args = ap.parse_args()
 
 seed = args.seed if args.seed >= 0 else int(uuid.uuid4().int % (2**31))
@@ -216,44 +218,71 @@ print(f"\n  Pass-1 re-uploaded → {pass1_cf}")
 # ── PASS 2: IMG2IMG pose transfer ─────────────────────────────────────────────
 # LoadImage(pass1) → VAEEncode → layout_latent
 # Per char: CLIPTextEncode → ReferenceLatent(photo) → ReferenceLatent(layout)
-# ConditioningCombine (no spatial masks — let chars move together)
+#           → ConditioningSetAreaStrength(2.0) → ConditioningCombine
 # EmptyFlux2LatentImage → Flux2Scheduler → SamplerCustomAdvanced
 #
 # Note: SplitSigmasDenoise is BROKEN for FLUX.2 Klein (distilled, 4-step).
 # The layout ReferenceLatent is the correct img2img approach for this model.
 # ─────────────────────────────────────────────────────────────────────────────
-print(f"\n── PASS 2: IMG2IMG pose transfer (seed={seed+1}) ──")
+print(f"\n── PASS 2: IMG2IMG pose transfer  ({args.p2_tries} tr{'y' if args.p2_tries==1 else 'ies'}) ──")
 print(f"  Input: {pass1_cf}")
-wf2 = build_img2img_workflow(
-    input_image_filename=pass1_cf,
-    scene_prompt=PASS2_PROMPT,
-    subject_filenames={"Mortis": [mortis_cf], "Nina": [nina_cf]},
-    subject_appearances={"Mortis": MORTIS_APPEARANCE, "Nina": NINA_APPEARANCE},
-    unet_name=GGUF, vae_name=VAE, clip_name=CLIP,
-    seed=seed + 1, steps=4,
-    width=WIDTH, height=HEIGHT,
-)
-print(f"  Nodes: {len(wf2)}")
-pass2_bytes = wait_download(
-    submit(wf2), "Pass 2 img2img",
-    "attached_assets/_2pass_p2_hugging.png",
-)
 
-if GROQ_KEY:
-    print("\n── Vision analysis: img2img result (with reference photos) ──")
-    m2 = score(pass2_bytes, "Mortis", MORTIS_APPEARANCE, ref_bytes=mortis_raw)
-    n2 = score(pass2_bytes, "Nina",   NINA_APPEARANCE,   ref_bytes=nina_raw)
+best_p2_bytes  = None
+best_p2_total  = -1.0
+best_p2_seed   = seed + 1
+
+for p2_k in range(args.p2_tries):
+    p2_seed = seed + 1 + p2_k
+    tag = f"[{p2_k+1}/{args.p2_tries}] seed={p2_seed}"
+    print(f"\n  {tag}")
+    wf2 = build_img2img_workflow(
+        input_image_filename=pass1_cf,
+        scene_prompt=PASS2_PROMPT,
+        subject_filenames={"Mortis": [mortis_cf], "Nina": [nina_cf]},
+        subject_appearances={"Mortis": MORTIS_APPEARANCE, "Nina": NINA_APPEARANCE},
+        unet_name=GGUF, vae_name=VAE, clip_name=CLIP,
+        seed=p2_seed, steps=4,
+        width=WIDTH, height=HEIGHT,
+    )
+    p2_bytes = wait_download(
+        submit(wf2), f"Pass 2 {tag}",
+        f"attached_assets/_2pass_p2_{p2_k}.png",
+    )
+
+    if GROQ_KEY:
+        m2 = score(p2_bytes, "Mortis", MORTIS_APPEARANCE, ref_bytes=mortis_raw)
+        n2 = score(p2_bytes, "Nina",   NINA_APPEARANCE,   ref_bytes=nina_raw)
+        total = avg_score(m2) + avg_score(n2)
+        contact = m2.get("contact") or n2.get("contact")
+        print(f"    Mortis {avg_score(m2)}/10 · Nina {avg_score(n2)}/10 · "
+              f"total={total:.1f} · contact={contact}")
+        print(f"      M: {m2.get('notes','')[:75]}")
+        print(f"      N: {n2.get('notes','')[:75]}")
+        if total > best_p2_total:
+            best_p2_total = total
+            best_p2_seed  = p2_seed
+            best_p2_bytes = p2_bytes
+    else:
+        best_p2_bytes = p2_bytes
+
+best_idx = best_p2_seed - (seed + 1)
+shutil.copy(f"attached_assets/_2pass_p2_{best_idx}.png",
+            "attached_assets/_2pass_p2_hugging.png")
+
+print(f"\n  ✓ Best Pass-2: seed={best_p2_seed}  total={best_p2_total:.1f}")
+
+# For multi-try: re-score the winner cleanly; single-try already printed above
+if GROQ_KEY and args.p2_tries > 1:
+    print("\n── Best Pass-2 final scores ──")
+    m2 = score(best_p2_bytes, "Mortis", MORTIS_APPEARANCE, ref_bytes=mortis_raw)
+    n2 = score(best_p2_bytes, "Nina",   NINA_APPEARANCE,   ref_bytes=nina_raw)
     print(f"  Mortis  {avg_score(m2)}/10  contact={m2.get('contact')}")
     print(f"    {m2.get('notes','')}")
     print(f"  Nina    {avg_score(n2)}/10  contact={n2.get('contact')}")
     print(f"    {n2.get('notes','')}")
     if m2.get("contact") or n2.get("contact"):
         print("\n  ✓ CONTACT DETECTED — characters are hugging!")
-    else:
-        print("\n  ✗ No contact detected")
-else:
-    print("  (GROQ_API_KEY not set — skipping vision scoring)")
 
 print("\n══ Done ══")
-print(f"  Pass 1 (hard mask):  attached_assets/_2pass_p1_sidebyside.png")
-print(f"  Pass 2 (img2img):    attached_assets/_2pass_p2_hugging.png")
+print(f"  Pass 1 (hard mask, seed={seed}):        attached_assets/_2pass_p1_sidebyside.png")
+print(f"  Pass 2 (img2img, seed={best_p2_seed}):  attached_assets/_2pass_p2_hugging.png")
