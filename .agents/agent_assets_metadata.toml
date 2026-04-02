@@ -24,3 +24,15 @@ id = "s-Cm5x_q2K3bVbeBq74Ql"
 uri = "file://attached_assets/_test_mortis_nina_output.png"
 type = "image"
 title = "Mortis & 仁菜 — rooftop sunset"
+
+[[outputs]]
+id = "8QcfWANvKQhLixkE--VUt"
+uri = "file://attached_assets/_2pass_p1_sidebyside.png"
+type = "image"
+title = "Pass 1 — Hard Mask Side-by-Side (Mortis 8.8 · Nina 9.0)"
+
+[[outputs]]
+id = "2xomaePu2Z33WGlFvyKG7"
+uri = "file://attached_assets/_2pass_p2_hugging.png"
+type = "image"
+title = "Pass 2 — IMG2IMG Hugging (Mortis 7.2 · Nina 7.6 · Contact ✓)"
