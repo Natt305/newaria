@@ -29,10 +29,10 @@ title = "Mortis & 仁菜 — rooftop sunset"
 id = "8QcfWANvKQhLixkE--VUt"
 uri = "file://attached_assets/_2pass_p1_sidebyside.png"
 type = "image"
-title = "Pass 1 — Hard Mask Side-by-Side (Mortis 8.8 · Nina 9.0)"
+title = "Pass 1 — Hard Mask (Mortis 9.0 · Nina 9.6)"
 
 [[outputs]]
 id = "2xomaePu2Z33WGlFvyKG7"
 uri = "file://attached_assets/_2pass_p2_hugging.png"
 type = "image"
-title = "Pass 2 — IMG2IMG Hugging (Mortis 7.2 · Nina 7.6 · Contact ✓)"
+title = "Pass 2 — IMG2IMG Hugging (Mortis 8.4 · Nina 7.0 · Contact ✓)"
