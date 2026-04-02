@@ -21,14 +21,16 @@ NINA_PATH   = "attached_assets/圖片_1774831943302.png"
 MORTIS_APPEARANCE = (
     "1girl, Mortis, long pale mint-grey hair, light silver with subtle green tint, "
     "deep burgundy red beret hat, warm amber eyes, pale skin, "
-    "black gothic military coat, crimson red shorts, dark gray tights, "
+    "fitted black gothic military long coat (no hoodie, no cape), "
+    "solid plain crimson red shorts (no plaid, no pattern, no skirt), "
+    "dark gray opaque tights, black stockings (no bare legs), "
     "dark red platform mary jane shoes, cross brooch with green gem, elegant gothic lolita aesthetic"
 )
 NINA_APPEARANCE = (
     "1girl, Tokazaki Nina (仁菜), short brown hair, small twin tails, blue eyes, "
     "light skin, white graphic t-shirt, dark navy fur-trim hooded bomber jacket, "
     "red tartan plaid skirt, leather belt, white socks, black sneakers, "
-    "casual Japanese school girl aesthetic"
+    "no beret, no hat, casual Japanese school girl aesthetic"
 )
 
 SCENE_PROMPT = (
