@@ -1026,10 +1026,25 @@ def build_multiref_workflow(
             # ── Hard spatial masks (default: side-by-side scenes) ─────────────
             # "mask bounds" mode: each character's conditioning is clipped to
             # their half.  Gives best feature accuracy for non-contact poses.
+            #
+            # ConditioningSetAreaStrength (strength=2.0) sits between the
+            # ReferenceLatent chain and the mask so the photo reference gets
+            # 2× attention weight vs text, ensuring consistent character
+            # appearance regardless of seed.
+            workflow["AS0"] = {
+                "class_type": "ConditioningSetAreaStrength",
+                "inputs": {"conditioning": [char_final_pos[0], 0], "strength": 2.0},
+                "_meta": {"title": "Boost ref strength — char 0"},
+            }
+            workflow["AS1"] = {
+                "class_type": "ConditioningSetAreaStrength",
+                "inputs": {"conditioning": [char_final_pos[1], 0], "strength": 2.0},
+                "_meta": {"title": "Boost ref strength — char 1"},
+            }
             workflow["SM0"] = {
                 "class_type": "ConditioningSetMask",
                 "inputs": {
-                    "conditioning":  [char_final_pos[0], 0],
+                    "conditioning":  ["AS0", 0],
                     "mask":          ["ML", 0],
                     "strength":      1.0,
                     "set_cond_area": "mask bounds",
@@ -1039,7 +1054,7 @@ def build_multiref_workflow(
             workflow["SM1"] = {
                 "class_type": "ConditioningSetMask",
                 "inputs": {
-                    "conditioning":  [char_final_pos[1], 0],
+                    "conditioning":  ["AS1", 0],
                     "mask":          ["MR", 0],
                     "strength":      1.0,
                     "set_cond_area": "mask bounds",
