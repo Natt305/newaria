@@ -28,15 +28,15 @@ MORTIS_PATH = "attached_assets/Mortis_Anime_unmasked_1774831761833.webp"
 NINA_PATH   = "attached_assets/圖片_1774831943302.png"
 
 MORTIS_APPEARANCE = (
-    "1girl, Mortis, long silver white hair, red beret hat, golden amber eyes, "
-    "pale skin, black gothic military coat, crimson red shorts, gray tights, "
-    "red platform mary jane shoes, cross brooch, elegant gothic lolita aesthetic"
+    "beautiful anime girl, Mortis, long straight silver-white hair, small red beret, "
+    "bright golden amber eyes, pale skin, black frilled gothic lolita dress with bell skirt, "
+    "white ruffled collar cravat, long black coat over dress, silver cross brooch on chest, "
+    "dark gray opaque tights, red platform mary jane shoes with black straps"
 )
 NINA_APPEARANCE = (
-    "1girl, Tokazaki Nina (仁菜), short brown hair, small twin tails, blue eyes, "
-    "light skin, white graphic t-shirt, dark navy fur-trim hooded bomber jacket, "
-    "red tartan plaid skirt, leather belt, white socks, black sneakers, "
-    "casual Japanese school girl aesthetic"
+    "beautiful anime girl, Tokazaki Nina, short brown hair with twin tails, bright blue eyes, "
+    "light skin, white graphic t-shirt under dark navy hooded bomber jacket with white fur collar trim, "
+    "red plaid tartan pleated mini skirt, leather belt, white knee socks, black canvas sneakers"
 )
 
 # Pass 1: proven side-by-side — ConditioningSetMask hard masks deliver 9.6/10 and 10/10
@@ -55,10 +55,12 @@ WIDTH, HEIGHT = 512, 768
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 ap = argparse.ArgumentParser()
-ap.add_argument("--seed", type=int, default=-1, help="seed (-1 = random)")
+ap.add_argument("--seed",  type=int, default=-1, help="Pass-1 seed (-1 = random)")
+ap.add_argument("--sweep", type=int, default=1,
+                help="Run this many different seeds for Pass 1 and pick the best (default 1)")
 args = ap.parse_args()
 
-seed = args.seed if args.seed >= 0 else int(uuid.uuid4().int % (2**31))
+base_seed = args.seed if args.seed >= 0 else int(uuid.uuid4().int % (2**31))
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 def to_png_bytes(path: str) -> bytes:
