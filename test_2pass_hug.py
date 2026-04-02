@@ -42,13 +42,15 @@ NINA_APPEARANCE = (
 
 # Pass 1: proven side-by-side — ConditioningSetMask hard masks deliver 9.6/10 and 10/10
 PASS1_PROMPT = (
-    "Mortis and Nina standing side by side on a rooftop at sunset, "
+    "only two girls, Mortis and Nina standing side by side on a rooftop at sunset, "
+    "exactly two characters, no extra people, "
     "full body view, anime illustration, dramatic sky background"
 )
 # Pass 2: ref-guided pose nudge toward contact / hugging
 PASS2_PROMPT = (
-    "Mortis and Nina hugging each other warmly on a rooftop at sunset, "
-    "arms around each other, leaning close, full body view, "
+    "only two girls, Mortis and Nina, hugging each other warmly on a rooftop at sunset, "
+    "arms wrapped around each other's backs, hands resting gently on back, "
+    "leaning close together, full body view, exactly two characters, no extra people, "
     "anime illustration, dramatic sky background"
 )
 
@@ -59,6 +61,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--seed",     type=int, default=-1, help="Pass-1 seed (-1 = random)")
 ap.add_argument("--p2-tries", type=int, default=1,
                 help="How many different seeds to try for Pass 2 (pick best)")
+ap.add_argument("--no-score", action="store_true",
+                help="Skip Groq scoring (useful when daily token quota is spent)")
 args = ap.parse_args()
 
 seed = args.seed if args.seed >= 0 else int(uuid.uuid4().int % (2**31))
@@ -167,6 +171,11 @@ def score(img_bytes: bytes, char: str, appearance: str,
             m = re.search(r'\{.*\}', txt, re.S)
             return json.loads(m.group()) if m else {"raw": txt}
         except Exception as e:
+            err_str = str(e)
+            # Daily token quota (TPD) — no point retrying, bail immediately
+            if "tokens per day" in err_str or "TPD" in err_str:
+                print(f"\n  [score] Daily token quota reached — skipping score")
+                return {"raw": "quota exceeded"}
             wait = 2 ** attempt * 3
             print(f"\n  [score] Groq error (attempt {attempt+1}/4): {e} — retrying in {wait}s")
             time.sleep(wait)
@@ -213,7 +222,7 @@ pass1_bytes = wait_download(
     "attached_assets/_2pass_p1_sidebyside.png",
 )
 
-if GROQ_KEY:
+if GROQ_KEY and not args.no_score:
     print("\n  Pass 1 scores (with reference photos):")
     m1 = score(pass1_bytes, "Mortis", MORTIS_APPEARANCE, ref_bytes=mortis_raw)
     n1 = score(pass1_bytes, "Nina",   NINA_APPEARANCE,   ref_bytes=nina_raw)
@@ -257,7 +266,7 @@ for p2_k in range(args.p2_tries):
         f"attached_assets/_2pass_p2_{p2_k}.png",
     )
 
-    if GROQ_KEY:
+    if GROQ_KEY and not args.no_score:
         m2 = score(p2_bytes, "Mortis", MORTIS_APPEARANCE, ref_bytes=mortis_raw)
         n2 = score(p2_bytes, "Nina",   NINA_APPEARANCE,   ref_bytes=nina_raw)
         total = avg_score(m2) + avg_score(n2)
@@ -280,7 +289,7 @@ shutil.copy(f"attached_assets/_2pass_p2_{best_idx}.png",
 print(f"\n  ✓ Best Pass-2: seed={best_p2_seed}  total={best_p2_total:.1f}")
 
 # For multi-try: re-score the winner cleanly; single-try already printed above
-if GROQ_KEY and args.p2_tries > 1:
+if GROQ_KEY and not args.no_score and args.p2_tries > 1:
     print("\n── Best Pass-2 final scores ──")
     m2 = score(best_p2_bytes, "Mortis", MORTIS_APPEARANCE, ref_bytes=mortis_raw)
     n2 = score(best_p2_bytes, "Nina",   NINA_APPEARANCE,   ref_bytes=nina_raw)

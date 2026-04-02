@@ -29,10 +29,28 @@ title = "Mortis & 仁菜 — rooftop sunset"
 id = "8QcfWANvKQhLixkE--VUt"
 uri = "file://attached_assets/_2pass_p1_sidebyside.png"
 type = "image"
-title = "Pass 1 — 8px overlap, no ghost scene (Mortis 9.0 · Nina 9.0)"
+title = "Pass 1 — Side-by-side (seed 1745190556)"
 
 [[outputs]]
 id = "2xomaePu2Z33WGlFvyKG7"
 uri = "file://attached_assets/_2pass_p2_hugging.png"
 type = "image"
 title = "Pass 2 — Best of 3 (Mortis 8.0 · Nina 7.4 · Contact ✓)"
+
+[[outputs]]
+id = "elD5GW8gX8Kc2Q5h8t5Mm"
+uri = "file://attached_assets/_2pass_p2_0.png"
+type = "image"
+title = "Pass 2 try 1 (seed 1745190557)"
+
+[[outputs]]
+id = "TcGWJJq92QiP2UKWhSYn8"
+uri = "file://attached_assets/_2pass_p2_1.png"
+type = "image"
+title = "Pass 2 try 2 (seed 1745190558)"
+
+[[outputs]]
+id = "ONHU6GVU6cbSP5MtyJVOr"
+uri = "file://attached_assets/_2pass_p2_2.png"
+type = "image"
+title = "Pass 2 try 3 (seed 1745190559)"
