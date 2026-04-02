@@ -1200,3 +1200,218 @@ def build_multiref_workflow(
         f"appearance_text={[c for c, _ in subjects if subject_appearances.get(c)]}"
     )
     return workflow
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TWO-PASS INPAINT HELPERS (no SAM, no ControlNet)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_layout_workflow(
+    scene_prompt: str,
+    unet_name: str,
+    vae_name: str,
+    clip_name: str,
+    seed: int,
+    steps: int = 4,
+    width: int = 512,
+    height: int = 768,
+) -> Dict[str, dict]:
+    """Pass 1 — generate a layout image from scene text only.
+
+    No character refs, no spatial masks.  The model freely picks a pose
+    (hugging, standing, etc.) driven purely by the scene description.
+    The resulting image is fed into build_inpaint_char_workflow() twice —
+    once per character — to paint in the correct appearance.
+    """
+    return {
+        "1": {"class_type": "UnetLoaderGGUF",
+              "inputs": {"unet_name": unet_name},
+              "_meta": {"title": "UNET Loader (GGUF)"}},
+        "2": {"class_type": "CLIPLoader",
+              "inputs": {"clip_name": clip_name, "type": "flux2"},
+              "_meta": {"title": "CLIP Loader"}},
+        "3": {"class_type": "VAELoader",
+              "inputs": {"vae_name": vae_name},
+              "_meta": {"title": "VAE Loader"}},
+        "4": {"class_type": "CLIPTextEncode",
+              "inputs": {"clip": ["2", 0], "text": scene_prompt + _ANATOMY_SUFFIX},
+              "_meta": {"title": "Scene prompt"}},
+        "5": {"class_type": "ConditioningZeroOut",
+              "inputs": {"conditioning": ["4", 0]},
+              "_meta": {"title": "Zero Out (negative)"}},
+        "31": {"class_type": "EmptyFlux2LatentImage",
+               "inputs": {"width": width, "height": height, "batch_size": 1},
+               "_meta": {"title": "Empty Latent"}},
+        "32": {"class_type": "Flux2Scheduler",
+               "inputs": {"steps": steps, "width": width, "height": height},
+               "_meta": {"title": "Flux2 Scheduler"}},
+        "33": {"class_type": "KSamplerSelect",
+               "inputs": {"sampler_name": "euler"},
+               "_meta": {"title": "Sampler Select"}},
+        "34": {"class_type": "RandomNoise",
+               "inputs": {"noise_seed": seed},
+               "_meta": {"title": "Random Noise"}},
+        "35": {"class_type": "CFGGuider",
+               "inputs": {"model": ["1", 0], "positive": ["4", 0],
+                          "negative": ["5", 0], "cfg": 1.0},
+               "_meta": {"title": "CFG Guider"}},
+        "36": {"class_type": "SamplerCustomAdvanced",
+               "inputs": {"noise": ["34", 0], "guider": ["35", 0],
+                          "sampler": ["33", 0], "sigmas": ["32", 0],
+                          "latent_image": ["31", 0]},
+               "_meta": {"title": "Sampler"}},
+        "37": {"class_type": "VAEDecode",
+               "inputs": {"samples": ["36", 0], "vae": ["3", 0]},
+               "_meta": {"title": "VAE Decode"}},
+        "9":  {"class_type": "SaveImage",
+               "inputs": {"images": ["37", 0], "filename_prefix": "ariabot_layout_"},
+               "_meta": {"title": "Save Layout"}},
+    }
+
+
+def build_inpaint_char_workflow(
+    layout_image_filename: str,
+    char_name: str,
+    char_filenames: List[str],
+    char_appearance: str,
+    scene_prompt: str,
+    side: str,           # "left" or "right"
+    unet_name: str,
+    vae_name: str,
+    clip_name: str,
+    seed: int,
+    steps: int = 6,
+    width: int = 512,
+    height: int = 768,
+    overlap: int = 96,   # px each side overlaps centre — wider for contact poses
+) -> Dict[str, dict]:
+    """Pass 2 — inpaint one character into their half of the layout image.
+
+    Workflow:
+        LoadImage(layout) → VAEEncodeForInpaint(+mask) → SetLatentNoiseMask
+        Character CLIPTextEncode → ReferenceLatent chain
+        CFGGuider → SamplerCustomAdvanced → VAEDecode → SaveImage
+
+    The mask for each character's half includes an `overlap` px zone at the
+    centre so the inpainting blends naturally where arms / bodies cross.
+    """
+    half_w = width // 2
+    if side == "left":
+        # white strip from x=0 to x=half_w+overlap
+        mask_w   = half_w + overlap
+        mask_x   = 0
+    else:
+        # white strip from x=half_w-overlap to x=width
+        mask_w   = (width - half_w) + overlap
+        mask_x   = max(0, half_w - overlap)
+
+    # ── Character text conditioning ─────────────────────────────────────────
+    side_label = "Left character" if side == "left" else "Right character"
+    char_text = f"{scene_prompt}. {side_label} — {char_name}: {char_appearance}" \
+                if char_appearance.strip() else f"{scene_prompt}. {side_label} — {char_name}"
+    char_text += _ANATOMY_SUFFIX
+
+    wf: Dict[str, Any] = {
+        "1": {"class_type": "UnetLoaderGGUF",
+              "inputs": {"unet_name": unet_name},
+              "_meta": {"title": "UNET Loader (GGUF)"}},
+        "2": {"class_type": "CLIPLoader",
+              "inputs": {"clip_name": clip_name, "type": "flux2"},
+              "_meta": {"title": "CLIP Loader"}},
+        "3": {"class_type": "VAELoader",
+              "inputs": {"vae_name": vae_name},
+              "_meta": {"title": "VAE Loader"}},
+        # Load layout image from ComfyUI input dir
+        "LI": {"class_type": "LoadImage",
+               "inputs": {"image": layout_image_filename, "upload": "image"},
+               "_meta": {"title": f"Layout image (pass 1 output)"}},
+        # Build the inpaint mask in-graph
+        "MB0": {"class_type": "SolidMask",
+                "inputs": {"value": 0.0, "width": width, "height": height},
+                "_meta": {"title": "Mask base (black)"}},
+        "MB1": {"class_type": "SolidMask",
+                "inputs": {"value": 1.0, "width": mask_w, "height": height},
+                "_meta": {"title": f"{side} white strip"}},
+        "ML":  {"class_type": "MaskComposite",
+                "inputs": {"destination": ["MB0", 0], "source": ["MB1", 0],
+                           "x": mask_x, "y": 0, "operation": "add"},
+                "_meta": {"title": f"{side} inpaint mask"}},
+        # VAE-encode layout + mask → inpaint latent
+        "VI": {"class_type": "VAEEncodeForInpaint",
+               "inputs": {"pixels": ["LI", 0], "vae": ["3", 0],
+                          "mask": ["ML", 0], "grow_mask_by": 6},
+               "_meta": {"title": "VAE Encode For Inpaint"}},
+        # Mark masked region for denoising
+        "NM": {"class_type": "SetLatentNoiseMask",
+               "inputs": {"samples": ["VI", 0], "mask": ["ML", 0]},
+               "_meta": {"title": "Set Noise Mask"}},
+        # Character text conditioning
+        "TC": {"class_type": "CLIPTextEncode",
+               "inputs": {"clip": ["2", 0], "text": char_text},
+               "_meta": {"title": f"Text — {char_name}"}},
+        "5":  {"class_type": "ConditioningZeroOut",
+               "inputs": {"conditioning": ["TC", 0]},
+               "_meta": {"title": "Zero Out (negative)"}},
+    }
+
+    # ── ReferenceLatent chain (one node per reference photo) ─────────────────
+    prev_pos: List = ["TC", 0]
+    prev_neg: List = ["5",  0]
+    for p, img_name in enumerate(char_filenames):
+        enc_id = f"IE{p}"
+        rl_id  = f"RL{p}"
+        rn_id  = f"RN{p}"
+        wf[enc_id] = {
+            "class_type": "VAEEncode",
+            "inputs": {"pixels": [f"LR{p}", 0], "vae": ["3", 0]},  # placeholder
+            "_meta": {"title": f"VAE Encode ref {p}"},
+        }
+        # LoadImage for each reference photo
+        wf[f"LR{p}"] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": img_name, "upload": "image"},
+            "_meta": {"title": f"Ref photo {p} — {char_name}"},
+        }
+        wf[rl_id] = {
+            "class_type": "ReferenceLatent",
+            "inputs": {"conditioning": prev_pos, "latent": [enc_id, 0]},
+            "_meta": {"title": f"ReferenceLatent + {p}"},
+        }
+        wf[rn_id] = {
+            "class_type": "ReferenceLatent",
+            "inputs": {"conditioning": prev_neg, "latent": [enc_id, 0]},
+            "_meta": {"title": f"ReferenceLatent neg {p}"},
+        }
+        prev_pos = [rl_id, 0]
+        prev_neg = [rn_id, 0]
+
+    # ── Sampler ──────────────────────────────────────────────────────────────
+    wf["32"] = {"class_type": "Flux2Scheduler",
+                "inputs": {"steps": steps, "width": width, "height": height},
+                "_meta": {"title": "Flux2 Scheduler"}}
+    wf["33"] = {"class_type": "KSamplerSelect",
+                "inputs": {"sampler_name": "euler"},
+                "_meta": {"title": "Sampler Select"}}
+    wf["34"] = {"class_type": "RandomNoise",
+                "inputs": {"noise_seed": seed},
+                "_meta": {"title": "Random Noise"}}
+    wf["35"] = {"class_type": "CFGGuider",
+                "inputs": {"model": ["1", 0], "positive": prev_pos,
+                           "negative": prev_neg, "cfg": 1.0},
+                "_meta": {"title": "CFG Guider"}}
+    wf["36"] = {"class_type": "SamplerCustomAdvanced",
+                "inputs": {"noise": ["34", 0], "guider": ["35", 0],
+                           "sampler": ["33", 0], "sigmas": ["32", 0],
+                           "latent_image": ["NM", 0]},
+                "_meta": {"title": "Sampler"}}
+    wf["37"] = {"class_type": "VAEDecode",
+                "inputs": {"samples": ["36", 0], "vae": ["3", 0]},
+                "_meta": {"title": "VAE Decode"}}
+    wf["9"]  = {"class_type": "SaveImage",
+                "inputs": {"images": ["37", 0],
+                           "filename_prefix": f"ariabot_inpaint_{side}_"},
+                "_meta": {"title": f"Save — {char_name} inpainted"}}
+
+    print(f"[Inpaint] Built inpaint workflow — {char_name} ({side}), "
+          f"{len(char_filenames)} ref(s), {steps} steps, overlap={overlap}px")
+    return wf
