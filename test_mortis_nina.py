@@ -19,12 +19,13 @@ MORTIS_PATH = "attached_assets/Mortis_Anime_unmasked_1774831761833.webp"
 NINA_PATH   = "attached_assets/圖片_1774831943302.png"
 
 MORTIS_APPEARANCE = (
-    "1girl, Mortis, long pale mint-grey hair, light silver with subtle green tint, "
-    "deep burgundy red beret hat, warm amber eyes, pale skin, "
-    "fitted black gothic military long coat (no hoodie, no cape), "
-    "solid plain crimson red shorts (no plaid, no pattern, no skirt), "
-    "dark gray opaque tights, black stockings (no bare legs), "
-    "dark red platform mary jane shoes, cross brooch with green gem, elegant gothic lolita aesthetic"
+    "1girl, Mortis, long pale silver-grey hair with subtle mint-green tint, "
+    "deep burgundy red flat beret, warm amber-grey eyes, pale skin, "
+    "black open-front tailcoat with flared hi-lo skirt hem, gold-beige trim and stud details along edges, "
+    "crimson red high-waisted button-front shorts (solid plain, no plaid, no pattern), "
+    "white lace jabot at collar, green gem cross brooch, black wrist cuffs, "
+    "dark gray opaque tights covering legs fully (no bare legs), "
+    "dark red platform mary jane shoes, gothic lolita aristocrat aesthetic"
 )
 NINA_APPEARANCE = (
     "1girl, Tokazaki Nina (仁菜), short brown hair, small twin tails, blue eyes, "
