@@ -88,6 +88,17 @@ Achieves **Mortis 9.6/10, Nina 10.0/10, distinctiveness 8/10** in automated scor
 
 **Only requires:** `ComfyUI-GGUF` (city96) for GGUF model loading. Everything else is ComfyUI core (0.8.2+).
 
+**Two-pass contact-pose workflow** (`test_2pass_hug.py`):
+
+For hugging / touching poses FLUX.2 Klein 4B cannot achieve via hard masks alone (no ControlNet for Klein exists):
+
+1. **Pass 1** — Run the proven `ConditioningSetMask` side-by-side workflow → excellent character fidelity baseline image.
+2. **Pass 2** (`build_img2img_workflow`)  — VAE-encode the Pass-1 image and feed it as an additional `ReferenceLatent` for **every** character's conditioning chain alongside their photo refs. Run a normal full 4-step schedule from `EmptyFlux2LatentImage` with the hugging scene prompt and plain `ConditioningCombine` (no spatial masks). The layout latent anchors composition; the photo refs anchor appearance; the hugging prompt steers pose.
+
+> Note: Standard img2img via `SplitSigmasDenoise` does **not** work with FLUX.2 Klein — it is a distilled 4-step model that must always run the full sigma schedule. The reference-latent layout-anchor approach is the correct substitute.
+
+Results: contact/hugging pose consistently detected by vision model with recognisable character features preserved.
+
 #### `refchain` (opt-in, requires `ComfyUI-ReferenceChain` node pack)
 
 Uses `ReferenceChainConditioning` — one node per character, handles scaling + VAE encoding internally. Falls back to `multiref` automatically if the node is not installed.

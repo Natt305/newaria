@@ -31,9 +31,8 @@ NINA_APPEARANCE = (
 )
 
 SCENE_PROMPT = (
-    "Mortis and Nina hugging each other warmly on a rooftop at sunset, "
-    "side by side, arms around each other, full body view, "
-    "anime illustration, dramatic sky background"
+    "Mortis and Nina standing side by side on a rooftop at sunset, "
+    "full body view, anime illustration, dramatic sky background"
 )
 
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -245,7 +244,7 @@ wf = build_multiref_workflow(
     unet_name=GGUF, vae_name=VAE, clip_name=CLIP,
     seed=int(uuid.uuid4().int % (2**31)),
     steps=4, width=512, height=768,
-    contact_pose=True,
+    contact_pose=False,
 )
 print(f"  Nodes: {len(wf)}")
 clean = {nid: {k: v for k, v in n.items() if k != "_meta"} for nid, n in wf.items()}
