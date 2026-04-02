@@ -1415,3 +1415,209 @@ def build_inpaint_char_workflow(
     print(f"[Inpaint] Built inpaint workflow — {char_name} ({side}), "
           f"{len(char_filenames)} ref(s), {steps} steps, overlap={overlap}px")
     return wf
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TWO-PASS img2img: side-by-side → hugging pose transfer
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_img2img_workflow(
+    input_image_filename: str,
+    scene_prompt: str,
+    subject_filenames: Dict[str, List[str]],
+    subject_appearances: Dict[str, str],
+    unet_name: str,
+    vae_name: str,
+    clip_name: str,
+    seed: int,
+    steps: int = 4,
+    width: int = 512,
+    height: int = 768,
+    layout_ref_weight: float = 1.0,
+) -> Dict[str, dict]:
+    """Pass 2 — reference-guided pose-transfer on top of a proven side-by-side.
+
+    FLUX.2 Klein is a distilled 4-step model that must always run its FULL
+    sigma schedule (σ_max → σ_0).  Standard img2img via SplitSigmasDenoise
+    does NOT work — the model produces pure noise when started mid-schedule.
+
+    Instead, this workflow VAE-encodes the Pass-1 image and feeds it as an
+    additional ReferenceLatent node for EVERY character's conditioning chain.
+    The sampler runs the normal 4-step schedule from scratch, but the model's
+    self-attention is anchored to the Pass-1 composition (characters' positions,
+    lighting, background) while the photo ReferenceLatents preserve appearance.
+
+    The hugging scene prompt + no spatial masks let the model freely redraw the
+    characters closer together.
+
+    Node layout:
+        LoadImage(pass1) → Scale → VAEEncode → layout_latent
+        Per char: CLIPTextEncode → ReferenceLatent(photo) → ReferenceLatent(layout)
+        ConditioningCombine (both chars) → CFGGuider
+        EmptyFlux2LatentImage → Flux2Scheduler → SamplerCustomAdvanced
+        VAEDecode → SaveImage
+    """
+    megapixels = round((width * height) / 1_000_000, 4)
+
+    subjects: List[Tuple[str, List[str]]] = [
+        (name, fnames) for name, fnames in subject_filenames.items() if fnames
+    ]
+
+    wf: Dict[str, Any] = {
+        "1": {"class_type": "UnetLoaderGGUF",
+              "inputs": {"unet_name": unet_name},
+              "_meta": {"title": "UNET Loader (GGUF)"}},
+        "2": {"class_type": "CLIPLoader",
+              "inputs": {"clip_name": clip_name, "type": "flux2"},
+              "_meta": {"title": "CLIP Loader"}},
+        "3": {"class_type": "VAELoader",
+              "inputs": {"vae_name": vae_name},
+              "_meta": {"title": "VAE Loader"}},
+        # Load & encode Pass-1 side-by-side as structural reference
+        "LI": {"class_type": "LoadImage",
+               "inputs": {"image": input_image_filename, "upload": "image"},
+               "_meta": {"title": "Pass-1 image (structural ref)"}},
+        "SI": {"class_type": "ImageScaleToTotalPixels",
+               "inputs": {"image": ["LI", 0], "upscale_method": "lanczos",
+                          "megapixels": megapixels, "resolution_steps": 64},
+               "_meta": {"title": "Scale Pass-1 to target res"}},
+        "VI": {"class_type": "VAEEncode",
+               "inputs": {"pixels": ["SI", 0], "vae": ["3", 0]},
+               "_meta": {"title": "VAE Encode Pass-1 → layout latent"}},
+        # Global scene + negative
+        "4": {"class_type": "CLIPTextEncode",
+              "inputs": {"clip": ["2", 0], "text": scene_prompt + _ANATOMY_SUFFIX},
+              "_meta": {"title": "Global scene prompt"}},
+        "5": {"class_type": "ConditioningZeroOut",
+              "inputs": {"conditioning": ["4", 0]},
+              "_meta": {"title": "Zero Out (negative anchor)"}},
+    }
+
+    # ── Per-character chains: photo refs → layout ref ─────────────────────────
+    char_final_pos: List[Any] = []
+    char_final_neg: List[Any] = []
+
+    for s, (char_name, fnames) in enumerate(subjects):
+        app = subject_appearances.get(char_name, "").strip()
+        char_text = (f"{scene_prompt}. {char_name}: {app}" if app
+                     else f"{scene_prompt}. {char_name}")
+        char_text += _ANATOMY_SUFFIX
+
+        tc_id = f"TC{s}"
+        wf[tc_id] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": char_text},
+            "_meta": {"title": f"Text — {char_name}"},
+        }
+
+        # Photo reference latents (appearance)
+        prev_pos: List = [tc_id, 0]
+        prev_neg: List = ["5",  0]
+        for p, img_name in enumerate(fnames):
+            load_id  = f"L{s}_{p}"
+            scale_id = f"SC{s}_{p}"
+            enc_id   = f"E{s}_{p}"
+            rpos_id  = f"RP{s}_{p}"
+            rneg_id  = f"RN{s}_{p}"
+
+            wf[load_id] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": img_name, "upload": "image"},
+                "_meta": {"title": f"Photo ref — {char_name} #{p + 1}"},
+            }
+            wf[scale_id] = {
+                "class_type": "ImageScaleToTotalPixels",
+                "inputs": {"image": [load_id, 0], "upscale_method": "lanczos",
+                           "megapixels": megapixels, "resolution_steps": 64},
+                "_meta": {"title": f"Scale photo — {char_name} #{p + 1}"},
+            }
+            wf[enc_id] = {
+                "class_type": "VAEEncode",
+                "inputs": {"pixels": [scale_id, 0], "vae": ["3", 0]},
+                "_meta": {"title": f"Encode photo — {char_name} #{p + 1}"},
+            }
+            wf[rpos_id] = {
+                "class_type": "ReferenceLatent",
+                "inputs": {"conditioning": prev_pos, "latent": [enc_id, 0]},
+                "_meta": {"title": f"RefLatent+ photo — {char_name} #{p + 1}"},
+            }
+            wf[rneg_id] = {
+                "class_type": "ReferenceLatent",
+                "inputs": {"conditioning": prev_neg, "latent": [enc_id, 0]},
+                "_meta": {"title": f"RefLatent- photo — {char_name} #{p + 1}"},
+            }
+            prev_pos = [rpos_id, 0]
+            prev_neg = [rneg_id, 0]
+
+        # Layout reference latent (structural hint from Pass 1)
+        lay_pos_id = f"LP{s}"
+        lay_neg_id = f"LN{s}"
+        wf[lay_pos_id] = {
+            "class_type": "ReferenceLatent",
+            "inputs": {"conditioning": prev_pos, "latent": ["VI", 0]},
+            "_meta": {"title": f"RefLatent+ layout — {char_name}"},
+        }
+        wf[lay_neg_id] = {
+            "class_type": "ReferenceLatent",
+            "inputs": {"conditioning": prev_neg, "latent": ["VI", 0]},
+            "_meta": {"title": f"RefLatent- layout — {char_name}"},
+        }
+
+        char_final_pos.append([lay_pos_id, 0])
+        char_final_neg.append([lay_neg_id, 0])
+
+    # ── Merge all character conditionings (plain combine — no spatial masks) ──
+    def _combine(refs: List[Any], prefix: str) -> Any:
+        if len(refs) == 1:
+            return refs[0]
+        cur = refs[0]
+        for k in range(1, len(refs)):
+            mid = f"{prefix}{k}"
+            wf[mid] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {"conditioning_1": cur, "conditioning_2": refs[k]},
+                "_meta": {"title": f"Combine {prefix} {k}"},
+            }
+            cur = [mid, 0]
+        return cur
+
+    final_pos = _combine(char_final_pos, "CP")
+    final_neg = _combine(char_final_neg, "CN")
+
+    # ── Sampler: standard 4-step full-schedule run ────────────────────────────
+    wf["31"] = {"class_type": "EmptyFlux2LatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1},
+                "_meta": {"title": "Empty Latent"}}
+    wf["32"] = {"class_type": "Flux2Scheduler",
+                "inputs": {"steps": steps, "width": width, "height": height},
+                "_meta": {"title": "Flux2 Scheduler"}}
+    wf["33"] = {"class_type": "KSamplerSelect",
+                "inputs": {"sampler_name": "euler"},
+                "_meta": {"title": "KSampler Select"}}
+    wf["34"] = {"class_type": "RandomNoise",
+                "inputs": {"noise_seed": seed},
+                "_meta": {"title": "Random Noise"}}
+    wf["35"] = {"class_type": "CFGGuider",
+                "inputs": {"model": ["1", 0], "positive": final_pos,
+                           "negative": final_neg, "cfg": 1.0},
+                "_meta": {"title": "CFG Guider"}}
+    wf["36"] = {"class_type": "SamplerCustomAdvanced",
+                "inputs": {"noise":        ["34", 0],
+                           "guider":       ["35", 0],
+                           "sampler":      ["33", 0],
+                           "sigmas":       ["32", 0],
+                           "latent_image": ["31", 0]},
+                "_meta": {"title": "Sampler"}}
+    wf["37"] = {"class_type": "VAEDecode",
+                "inputs": {"samples": ["36", 0], "vae": ["3", 0]},
+                "_meta": {"title": "VAE Decode"}}
+    wf["9"]  = {"class_type": "SaveImage",
+                "inputs": {"images": ["37", 0],
+                           "filename_prefix": "ariabot_i2i_"},
+                "_meta": {"title": "Save result"}}
+
+    n_chars = len(subjects)
+    n_photos = sum(len(f) for _, f in subjects)
+    print(f"[Img2Img] Built ref-guided workflow — {n_chars} char(s), "
+          f"{n_photos} photo ref(s) + Pass-1 layout ref, steps={steps}, {width}×{height}")
+    return wf
