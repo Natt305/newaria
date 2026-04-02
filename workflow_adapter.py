@@ -21,6 +21,7 @@ Legacy (kept for reference): AIO per-segment inpainting workflow expander.
 
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 # Anatomy quality suffix — must match _ANATOMY_SUFFIX in comfyui_ai.py.
@@ -1066,6 +1067,17 @@ def build_multiref_workflow(
                 "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
                 "_meta": {"title": "Combine hard-masked conditionings"},
             }
+            # Strip character names from node "4" so the unmasked global
+            # conditioning only guides background/atmosphere, not characters.
+            # Without this, the model regenerates both characters globally on
+            # top of the already-masked per-character conditionings → ghosts.
+            _bg = scene_prompt
+            for _n in subject_appearances.keys():
+                _bg = re.sub(rf'\b{re.escape(_n)}\b', '', _bg, flags=re.IGNORECASE)
+            _bg = re.sub(r'\b(and|,)\b\s*', ' ', _bg)   # clean up orphaned "and" / commas
+            _bg = ' '.join(_bg.split())                   # collapse whitespace
+            workflow["4"]["inputs"]["text"] = _bg + _ANATOMY_SUFFIX
+
             # Scene node covers the full canvas with no mask.  At strength 1.0
             # it spawns ghost characters; throttled to 0.3 it only guides
             # background / atmosphere.
