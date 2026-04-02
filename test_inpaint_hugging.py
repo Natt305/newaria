@@ -104,6 +104,41 @@ def wait_and_download(pid: str, label: str, save_path: str) -> bytes:
     print(" TIMEOUT")
     sys.exit(1)
 
+def composite_halves(
+    left_src: bytes, right_src: bytes,
+    split_x: int, blend_px: int, save_path: str
+) -> bytes:
+    """Paste left half of left_src and right half of right_src into one image.
+
+    A soft gradient blend of `blend_px` width is applied at the seam so the
+    hard cut between independently-inpainted halves looks natural.
+    """
+    import numpy as np
+    left  = Image.open(io.BytesIO(left_src)).convert("RGB")
+    right = Image.open(io.BytesIO(right_src)).convert("RGB")
+    W, H  = left.size
+    L     = np.array(left,  dtype=np.float32)
+    R     = np.array(right, dtype=np.float32)
+
+    # build alpha ramp: 1→left, 0→right over blend_px around split_x
+    alpha = np.zeros((H, W), dtype=np.float32)
+    alpha[:, :split_x] = 1.0
+    if blend_px > 0:
+        x0, x1 = max(0, split_x - blend_px // 2), min(W, split_x + blend_px // 2)
+        ramp = np.linspace(1.0, 0.0, x1 - x0)
+        alpha[:, x0:x1] = ramp[np.newaxis, :]
+
+    a = alpha[:, :, np.newaxis]
+    blended = np.clip(L * a + R * (1 - a), 0, 255).astype(np.uint8)
+    out = Image.fromarray(blended)
+    buf = io.BytesIO()
+    out.save(buf, format="PNG")
+    data = buf.getvalue()
+    with open(save_path, "wb") as f:
+        f.write(data)
+    return data
+
+
 def vision_score(img_bytes: bytes, char_name: str, appearance: str) -> dict:
     if not GROQ_KEY:
         return {"skipped": True}
