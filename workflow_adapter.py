@@ -977,7 +977,9 @@ def build_multiref_workflow(
         char_final_neg.append(f"RN{s}_{last_p}")
 
     # ── Spatial merge ────────────────────────────────────────────────────────
-    if len(subjects) == 2:
+    # contact_pose=True skips spatial masks entirely so characters can
+    # physically interact — falls through to plain ConditioningCombine below.
+    if len(subjects) == 2 and not contact_pose:
         # SolidMask nodes build left/right half masks entirely in-graph —
         # no file uploads required.
         #
