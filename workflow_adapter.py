@@ -987,11 +987,9 @@ def build_multiref_workflow(
         #   MB1 (white, left half)  ──MaskComposite(add, x=0)──▶  ML (left mask)
         #   MB2 (white, right half) ──MaskComposite(add, x=right_x)─▶ MR (right mask)
         #
-        # 16-pixel overlap: wide enough to avoid a hard canvas seam while
-        # staying narrow enough to prevent cross-character bleeding.
-        # (0px paradoxically worsened bleeding — FLUX attention tokens straddle
-        # the centre boundary regardless of pixel-level mask precision.)
-        overlap = 16
+        # 48-pixel overlap at the centre boundary so both conditionings are
+        # active in that zone.  Used by both hard and soft spatial paths.
+        overlap = 48
         left_w  = half_w + overlap
         right_x = max(0, half_w - overlap)
         right_w = width - right_x
@@ -1029,18 +1027,18 @@ def build_multiref_workflow(
             # "mask bounds" mode: each character's conditioning is clipped to
             # their half.  Gives best feature accuracy for non-contact poses.
             #
-            # ConditioningSetAreaStrength (strength=1.3) sits between the
+            # ConditioningSetAreaStrength (strength=2.0) sits between the
             # ReferenceLatent chain and the mask so the photo reference gets
-            # extra attention weight vs text.  Was 2.0 — reduced to 1.3 to
-            # cut cross-character bleeding without losing appearance fidelity.
+            # 2× attention weight vs text, ensuring consistent character
+            # appearance regardless of seed.
             workflow["AS0"] = {
                 "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[0], 0], "strength": 1.3},
+                "inputs": {"conditioning": [char_final_pos[0], 0], "strength": 2.0},
                 "_meta": {"title": "Boost ref strength — char 0"},
             }
             workflow["AS1"] = {
                 "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[1], 0], "strength": 1.3},
+                "inputs": {"conditioning": [char_final_pos[1], 0], "strength": 2.0},
                 "_meta": {"title": "Boost ref strength — char 1"},
             }
             workflow["SM0"] = {
@@ -1068,18 +1066,18 @@ def build_multiref_workflow(
                 "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
                 "_meta": {"title": "Combine hard-masked conditionings"},
             }
-            # Scene node at 0.1 — just enough to anchor the background / sky
-            # composition without spawning ghost character pairs.
-            # At 0.3 it ghosted; dropping to 0.1 keeps atmosphere only.
+            # Scene node covers the full canvas with no mask.  At strength 1.0
+            # it spawns ghost characters; throttled to 0.3 it only guides
+            # background / atmosphere.
             workflow["SC4"] = {
                 "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": ["4", 0], "strength": 0.1},
-                "_meta": {"title": "Scene at 0.1 — background anchor, no ghosts"},
+                "inputs": {"conditioning": ["4", 0], "strength": 0.3},
+                "_meta": {"title": "Scene at 0.3 — background only, no ghost chars"},
             }
             workflow["RCA"] = {
                 "class_type": "ConditioningCombine",
                 "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["SC4", 0]},
-                "_meta": {"title": "Add scene (0.1) to hard-masked chars"},
+                "_meta": {"title": "Add scene (reduced) to hard-masked chars"},
             }
             workflow["RCN"] = {
                 "class_type": "ConditioningCombine",
@@ -1091,7 +1089,7 @@ def build_multiref_workflow(
             }
             final_pos: List = ["RCA", 0]
             final_neg: List = ["RCN", 0]
-            print("[MultiRef] 2-char hard spatial masks, scene@0.1, 16px overlap, strength=1.3")
+            print("[MultiRef] 2-char hard spatial masks + global scene (side-by-side mode)")
 
         else:
             # ── Soft spatial masks (contact_pose: hugging / touching) ─────────
