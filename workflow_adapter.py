@@ -1066,10 +1066,19 @@ def build_multiref_workflow(
                 "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
                 "_meta": {"title": "Combine hard-masked conditionings"},
             }
+            # Scene node covers the full canvas with no mask.  At strength 1.0 it
+            # tells the model to render "Mortis and Nina …" globally, which creates
+            # ghost duplicates on top of the already-masked character conditionings.
+            # Throttle it to 0.3 so it only guides background / atmosphere.
+            workflow["SC4"] = {
+                "class_type": "ConditioningSetAreaStrength",
+                "inputs": {"conditioning": ["4", 0], "strength": 0.3},
+                "_meta": {"title": "Scene at 0.3 — background only, no ghost chars"},
+            }
             workflow["RCA"] = {
                 "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["4", 0]},
-                "_meta": {"title": "Add global scene (hard mode)"},
+                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["SC4", 0]},
+                "_meta": {"title": "Add scene (reduced) to hard-masked chars"},
             }
             workflow["RCN"] = {
                 "class_type": "ConditioningCombine",
