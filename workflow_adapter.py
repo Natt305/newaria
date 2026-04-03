@@ -1106,17 +1106,27 @@ def build_multiref_workflow(
 
         else:
             # ── Soft spatial masks (contact_pose: hugging / touching) ─────────
-            # "default" area mode: conditioning is NOT hard-clipped to the mask;
-            # instead the mask acts as a weight so each character's conditioning
-            # bleeds softly across the boundary.  Strength 0.65 keeps enough
-            # spatial bias to prevent feature-blending while allowing arms /
-            # bodies to cross the half-way line naturally.
+            # ConditioningSetAreaStrength(2.0) first so the photo reference
+            # gets 2× attention weight — same boost as the hard-mask path.
+            # Then ConditioningSetMask in "default" (soft) mode at 0.80:
+            # strong enough to anchor each character to their half while
+            # still letting arms/bodies cross the centre line naturally.
+            workflow["AS0"] = {
+                "class_type": "ConditioningSetAreaStrength",
+                "inputs": {"conditioning": [char_final_pos[0], 0], "strength": 2.0},
+                "_meta": {"title": "Boost ref strength — char 0 (contact)"},
+            }
+            workflow["AS1"] = {
+                "class_type": "ConditioningSetAreaStrength",
+                "inputs": {"conditioning": [char_final_pos[1], 0], "strength": 2.0},
+                "_meta": {"title": "Boost ref strength — char 1 (contact)"},
+            }
             workflow["SM0"] = {
                 "class_type": "ConditioningSetMask",
                 "inputs": {
-                    "conditioning":  [char_final_pos[0], 0],
+                    "conditioning":  ["AS0", 0],
                     "mask":          ["ML", 0],
-                    "strength":      0.65,
+                    "strength":      0.80,
                     "set_cond_area": "default",
                 },
                 "_meta": {"title": "Soft mask char 0 → left (contact mode)"},
@@ -1124,9 +1134,9 @@ def build_multiref_workflow(
             workflow["SM1"] = {
                 "class_type": "ConditioningSetMask",
                 "inputs": {
-                    "conditioning":  [char_final_pos[1], 0],
+                    "conditioning":  ["AS1", 0],
                     "mask":          ["MR", 0],
-                    "strength":      0.65,
+                    "strength":      0.80,
                     "set_cond_area": "default",
                 },
                 "_meta": {"title": "Soft mask char 1 → right (contact mode)"},

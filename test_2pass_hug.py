@@ -52,7 +52,7 @@ SCENE_PROMPT = (
     "anime illustration, dramatic sky background"
 )
 
-WIDTH, HEIGHT = 512, 768
+WIDTH, HEIGHT = 640, 960
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 ap = argparse.ArgumentParser()
