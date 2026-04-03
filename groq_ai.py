@@ -445,31 +445,19 @@ async def enhance_image_prompt(
     ref_block = ""
     if character_context and character_context.strip():
         if has_images:
-            # Reference photos are attached — the vision model reads appearance
-            # directly from them.  The stored text is a secondary supplement only;
-            # it fills in details not clearly visible in the photos.
-            # Neutralise any "HIGHEST PRIORITY" or "Authoritative" inner labels that
-            # bot.py embeds inside the character_context string — those labels are
-            # correct when no photos exist, but contradict photo-primary priority here.
-            _ctx_for_photos = character_context.strip()
-            _ctx_for_photos = _ctx_for_photos.replace(
-                "[Authoritative written appearance description — HIGHEST PRIORITY]",
-                "[Character description — supplemental, photos are primary]",
-            )
-            _ctx_for_photos = _ctx_for_photos.replace(
-                "[Reference photo descriptions — use to fill in any gaps not covered above]",
-                "[Additional photo description notes]",
-            )
+            # Reference photos are attached alongside the bot's verified written description.
+            # The written description is AUTHORITATIVE — it contains the correct anime-style
+            # appearance details (hair colour, outfit, etc.) that override whatever the photos
+            # appear to show (photos may be 3D game models, wrong lighting, or otherwise
+            # misleading).  Use photos only for pose, setting, and details NOT covered by text.
             ref_block += (
-                "\n[CHARACTER APPEARANCE — SUPPLEMENTAL TEXT (photos are primary)]\n"
-                "Reference photos are attached. Read appearance from the photos first.\n"
-                "Use the text below ONLY as a supplement for details not clearly visible in the photos.\n"
-                "Do NOT reproduce this block exhaustively — include just a brief identifying tag "
-                "(character name + one or two signature visual traits, e.g. hair colour + eye colour). "
-                "Spend the rest of the prompt on: scene, environment, lighting, mood, pose, "
-                "and what the character(s) are doing or feeling.\n"
+                "\n[CHARACTER APPEARANCE — AUTHORITATIVE TEXT — OVERRIDES PHOTOS]\n"
+                "The following verified description overrides whatever the reference photos appear to show.\n"
+                "Use the text below for ALL appearance traits it covers (hair colour, eye colour, outfit, etc.).\n"
+                "Use the reference photos ONLY for pose, setting, and details NOT mentioned in this text.\n"
+                "Do NOT let photo colours or clothing override what is explicitly stated here.\n"
                 "EXCEPTION: any ART STYLE line in this block is irrelevant — art style is always 2D anime.\n"
-                f"{_ctx_for_photos}\n"
+                f"{character_context.strip()}\n"
             )
         else:
             # No photos — text is the only appearance source.  Enumerate fully.
@@ -521,23 +509,25 @@ async def enhance_image_prompt(
             "\n[PRIORITY RULING — READ BEFORE EVERYTHING ELSE — MANDATORY OVERRIDES]\n"
             "Reference photos are attached. Priority order (highest first):\n"
             "  1. [SUBJECT REFERENCE] text blocks — absolute authority, override everything\n"
-            "  2. Reference photos — primary source for appearance traits\n"
-            "  3. [CHARACTER APPEARANCE — SUPPLEMENTAL TEXT (photos are primary)] blocks — fill in details NOT clearly "
-            "visible in the photos; do NOT use to override anything already visible in the photos\n"
+            "  2. [CHARACTER APPEARANCE — AUTHORITATIVE TEXT — OVERRIDES PHOTOS] blocks — "
+            "override reference photos for every trait mentioned; photos cannot supersede this text\n"
+            "  3. Reference photos — source for pose, setting, and details NOT covered by text blocks above\n"
             "  4. [SUBJECT APPEARANCE SUPPLEMENT] blocks — gap-filler only; use ONLY for details "
             "not clearly visible in the reference photos; do NOT use to override photo-visible traits\n"
             "  5. Raw prompt appearance words — DISCARD (written without photos, unreliable)\n"
             "\n"
-            "OVERRIDE 1 — COLORS: discard raw prompt colors, but trust [SUBJECT REFERENCE] text.\n"
+            "OVERRIDE 1 — COLORS: discard raw prompt colors; trust [SUBJECT REFERENCE] and "
+            "[CHARACTER APPEARANCE — AUTHORITATIVE TEXT] blocks above all else.\n"
             "The raw image request was written WITHOUT access to reference photos or verified data. "
             "Every color word in the raw prompt (hair color, eye color, skin tone) is a guess — DISCARD them. "
-            "HOWEVER: any color stated in a [SUBJECT REFERENCE] or [CHARACTER APPEARANCE] block above "
-            "is verified and correct — use it exactly as written. "
+            "HOWEVER: any color stated in a [SUBJECT REFERENCE] or [CHARACTER APPEARANCE — AUTHORITATIVE TEXT] block "
+            "is verified and correct — use it exactly as written, even if the reference photo appears to show something different. "
             "Only fall back to reading colors from the reference photos for traits NOT covered by those text blocks.\n"
             "[SUBJECT APPEARANCE SUPPLEMENT] colour mentions are lower-priority hints — prefer the photo reading "
             "if the photo clearly shows that trait.\n"
             "\n"
-            "OVERRIDE 2 — OUTFIT: if a [SUBJECT REFERENCE] block lists the outfit, reproduce it exactly. "
+            "OVERRIDE 2 — OUTFIT: if a [SUBJECT REFERENCE] or [CHARACTER APPEARANCE — AUTHORITATIVE TEXT] block "
+            "lists the outfit, reproduce it exactly. "
             "Only reconstruct outfit from photos when no text description is present.\n"
             "\n"
             "OVERRIDE 3 — ART STYLE: FIXED — DO NOT DERIVE FROM REFERENCE PHOTOS.\n"
