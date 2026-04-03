@@ -1407,8 +1407,9 @@ async def process_chat(
         _chat_poller_task = None
         if _IMAGE_BACKEND in ("local_diffusers", "comfyui"):
             try:
-                _chat_progress_msg = await channel.send(
-                    _format_diffuser_progress("STAGE:loading", bot_name)
+                _chat_progress_msg = await reply_target.reply(
+                    _format_diffuser_progress("STAGE:loading", bot_name),
+                    mention_author=False,
                 )
             except discord.HTTPException:
                 pass
