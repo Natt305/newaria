@@ -803,16 +803,21 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
                 matched_with_desc = [(t, d) for t, d in matched_with_desc if t != title]
                 matched_with_desc.append((title, desc))
 
-    # ── CJK deduplication ────────────────────────────────────────────────────
-    # When multiple KB titles match via the SAME 2-char CJK token in the user
-    # text (e.g. "仁菜" matching both "Nina (仁菜)" and "井芹仁菜"), keep only
-    # the entry for which the token covers the HIGHEST fraction of CJK chars
-    # in the title (tightest match).  Tiebreak: lower KB id wins.
-    # This prevents a 3rd unintended character being generated.
+    # ── CJK deduplication (2-char partial matches only) ──────────────────────
+    # When the SAME 2-char CJK token in the user text triggers matches against
+    # multiple KB titles (e.g. "仁菜" matching both "Nina (仁菜)" and "井芹仁菜"),
+    # keep only the entry where the token covers the HIGHEST fraction of the
+    # title's CJK characters.  This measures how specifically the token identifies
+    # the title: token "仁菜" covers 100% of "Nina (仁菜)" CJK chars (it IS the
+    # entire CJK portion) but only 50% of "井芹仁菜" CJK chars → Nina wins.
+    # Tiebreak: lower KB id (earlier-added character) wins.
+    # Only 2-char tokens are considered; longer exact-title matches are unambiguous.
     _tok_groups: dict = {}
     for _e in title_matched:
         _tok = _find_matching_cjk_token(_e.get("title", "").strip().lower(), match_lower)
-        if _tok:
+        # Only deduplicate on 2-char CJK partial matches — longer tokens (3-char,
+        # full-title exact matches) are specific enough to be unambiguous.
+        if _tok and len(_tok) == 2 and all(ord(c) >= 0x3000 for c in _tok):
             _tok_groups.setdefault(_tok, []).append(_e)
 
     _dedup_drop: set = set()
@@ -829,7 +834,7 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
         _keep = _sorted_grp[0]
         _drop = _sorted_grp[1:]
         _all_t = [_e.get("title", "") for _e in _grp]
-        print(f"[Bot] KB dedup: token '{_tok}' matched {_all_t} — keeping '{_keep.get('title', '')}'")
+        print(f"[Bot] KB dedup: token '{_tok}' matched {_all_t} — keeping tightest: '{_keep.get('title', '')}'")
         for _e in _drop:
             _dedup_drop.add(_e.get("title", "").strip())
 
