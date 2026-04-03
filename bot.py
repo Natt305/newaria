@@ -1759,10 +1759,21 @@ async def on_ready():
     print(f"[Bot] Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"[Bot] Character: {bot_name}")
     print(f"[Bot] Groq: {'enabled' if GROQ_API_KEY else 'MISSING'}")
-    if _IMAGE_BACKEND == "local_diffusers":
+    if _IMAGE_BACKEND == "comfyui":
+        _cu_url  = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
+        _cu_gguf = os.environ.get("COMFYUI_GGUF", "").strip()
+        _cu_vae  = os.environ.get("COMFYUI_VAE",  "").strip()
+        _cu_clip = os.environ.get("COMFYUI_CLIP", "").strip()
+        _cu_missing = [v for v, k in [("COMFYUI_GGUF", _cu_gguf), ("COMFYUI_VAE", _cu_vae), ("COMFYUI_CLIP", _cu_clip)] if not k]
+        if _cu_missing:
+            print(f"[Bot] Image backend: comfyui — MISSING env vars: {_cu_missing}  →  image generation disabled")
+        else:
+            _kb_photo_count = sum(1 for e in database.get_image_entries() if e.get("images"))
+            print(f"[Bot] Image backend: comfyui — ready ({_cu_url})  |  KB photos: {_kb_photo_count} character(s)")
+    elif _IMAGE_BACKEND == "local_diffusers":
         print(f"[Bot] Image backend: local_diffusers — {'ready' if _image_ready() else 'disabled (LOCAL_DIFFUSER_MODEL not set)'}")
     else:
-        print(f"[Bot] Image backend: cloudflare — {'enabled' if _cf_ready() else 'disabled (no key)'}")
+        print(f"[Bot] Image backend: {_IMAGE_BACKEND} — {'enabled' if _cf_ready() else 'disabled (no key)'}")
     print(f"[Bot] Data folder: {database.DATA_DIR}")
     print(f"[Bot]   knowledge_base.db  — KB entries")
     print(f"[Bot]   character.json     — character name & background")
