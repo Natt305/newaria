@@ -1,0 +1,56 @@
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.3.0)/charset_normalizer (3.4.6) doesn't match a supported version!
+  warnings.warn(
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 10 thumbnail(s) at 512x512
+[Bot] 啟動角色: 若葉睦
+[Bot] Groq: 準備就緒
+[Bot] 圖像後端: ComfyUI — 準備就緒 (http://127.0.0.1:8188)
+[Bot] 按 Ctrl+C 停止機器人。
+[2026-04-04 00:44:37] [INFO    ] discord.client: logging in using static token
+[2026-04-04 00:44:39] [INFO    ] discord.gateway: Shard ID None has connected to Gateway (Session ID: c89624db975d7637e52b647f5f3c752a).
+[Bot] Logged in as 若葉睦#8437 (ID: 1484187745382432858)
+[Bot] Character: 若葉睦
+[Bot] Groq: enabled
+[Bot] Image backend: comfyui — ready (http://127.0.0.1:8188)  |  KB photos: 4 character(s)
+[Bot] Data folder: E:\newaria\data
+[Bot]   knowledge_base.db  — KB entries
+[Bot]   character.json     — character name & background
+[Bot] 建議按鈕: 開啟
+[Bot] KB entries (3): ['Nina (仁菜)', 'Mortis', '井芹仁菜']
+[Bot] 長期記憶: 開啟 (近期 50 條 | 深層記憶: 開啟 最多 200 條 | 已儲存 87 條)
+[Bot] 指令權限: 26 條指令受到角色限制
+[Bot] 已同步 34 個斜線指令
+[Groq] llama-3.3-70b-versatile hit daily token limit — skipping until midnight UTC.
+[Groq] Image prompt from marker (already enhanced): 'Ninnna and Mortis performing duet on stage, dim red spotlights, smoky background'
+[Bot] KB title scan: 3 unique subject(s) matched — ['Nina (仁菜)', 'Mortis', '井芹仁菜']
+[Bot] KB image enrichment: 3 text description(s) applied to prompt
+[Bot] Ref images: 1/1 photo(s) loaded for 'Nina (仁菜)' (id=2, full=1)
+[Bot] Ref images: 1/1 photo(s) loaded for 'Mortis' (id=1, full=1)
+[Bot] Ref images: 3/3 photo(s) loaded for '井芹仁菜' (id=13, full=3)
+[Bot] Ref images interleaved: 5 total across 3 subject(s): ['Nina (仁菜)', 'Mortis', '井芹仁菜']
+[Bot] LLM ref images: 3 (1 per subject) — ComfyUI ref images: 5 (full-res) — subjects: ['Nina (仁菜)', 'Mortis', '井芹仁菜']
+[Groq] enhance_image_prompt: using vision model with 3 reference image(s)
+[Groq] subject_supplement (gap-filler) — Nina (仁菜): '1girl, Tokazaki Nina (仁菜), short brown hair, small twin tails, blue eyes, light skin, white graphic '
+[Groq] subject_supplement (gap-filler) — Mortis: '圖片1: HAIR: very pale seafoam mint-green hair, extremely desaturated, almost achromatic, unmistakably'
+[Groq] subject_supplement (gap-filler) — 井芹仁菜: 'HAIR: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey, NOT pure white;'
+[Groq] Skipping daily-exhausted models: ['llama-3.3-70b-versatile']
+[Groq] Skipping daily-exhausted models: ['llama-3.3-70b-versatile']
+[Memory] Stored: '刺 想看仁菜跟mortis'
+[Groq] Prompt enhanced: (left) Nina (仁菜), short brown hair, (center) Mortis, very pale seafoam mint-green hair, (right) 井芹仁菜, dark brown hair. Centered composition with Nina, Mortis, and 井芹仁菜 fully visible in frame, performing a duet on stage with dim red spotlights and a smoky background. Nina wears a white graphic t-shirt under a dark navy fur-trimmed hooded bomber jacket, paired with a red tartan plaid skirt, white socks, and black sneakers. Mortis sports a deep crimson beret, a black open-front sleeveless shoulder cape with gold-braid trim, a deep red and black short-sleeved top, deep red shorts, and off-white stockings. 井芹仁菜 has on a dark navy blue jacket with faux fur-lined hood, a white t-shirt, a dark red and black plaid pleated skirt, white socks with thin blue pinstripes, and black and white sneakers. The scene captures a dynamic pose with expressive and engaging interaction between the characters. clean 2D anime illustration, flat cel-shaded, anime digital art, vivid saturated color palette.
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=False, kb_refs=['Nina (仁菜)', 'Mortis', '井芹仁菜'], ref_images=5, unique_subjects=3, authority_refs=[], supplements=['Nina (仁菜)', 'Mortis', '井芹仁菜'], photo_only=['Nina (仁菜)', 'Mortis', '井芹仁菜'], spatial='(left) Nina (仁菜), (center) Mortis, (right) 井芹仁菜, centered composition, all characters fully visible in frame')
+[Bot] ID anchors injected: ['[Mortis: very pale seafoam mint-green hair, extremely desaturated, almost achromatic,]', '[井芹仁菜: dark brown hair, low saturation, extremely desaturated — NOT silver, NOT grey,]']
+[Bot] Subject appearances: {'Mortis': '圖片1: HAIR: very pale seafoam mint-green hair, extremely desa...', '井芹仁菜': 'HAIR: dark brown hair, low saturation, extremely desaturated...'}
+[Groq] Skipping daily-exhausted models: ['llama-3.3-70b-versatile']
+[ComfyUI] Workflow mode: 'ultimate_inpaint' — refs=5, subject_appearances=['Mortis', '井芹仁菜']
+[ComfyUI] Ultimate: generating initial scene via txt2img pass…
+[ComfyUI] Ultimate: scene image uploaded as 'reference.png'
+[ComfyUI] Only 4 MB torch VRAM free after scene pass (need 2000 MB for SAM) — disabling SAM to prevent OOM crash.
+[UltimateWF] Loaded and expanded Ultimate workflow: 189 nodes
+[ComfyUI] Ultimate Inpaint workflow — 3 character(s): ['Nina (仁菜)', 'Mortis', '井芹仁菜'], scene='reference.png', SAM=off, output=512x512
+[ComfyUI] Queuing ultimate_inpaint job — size=512x512, steps=4, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, [Mortis: very pale seafoam mint-green hair, '
+[ComfyUI] Job queued — prompt_id=4b8fe9e0-2970-4cb6-8180-f2442f966aed
+[ComfyUI] Done — 371402 bytes ('a_00011_.png', type='output')
