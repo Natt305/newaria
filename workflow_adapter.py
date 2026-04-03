@@ -967,215 +967,29 @@ def build_multiref_workflow(
         char_final_pos.append(f"RP{s}_{last_p}")
         char_final_neg.append(f"RN{s}_{last_p}")
 
-    # ── Spatial merge ────────────────────────────────────────────────────────
-    # 2-char: always build spatial masks.
-    #   contact_pose=False → hard masks (mask bounds) for side-by-side accuracy
-    #   contact_pose=True  → soft masks (default area) so arms/bodies can cross
-    if len(subjects) == 2:
-        # SolidMask nodes build left/right half masks entirely in-graph —
-        # no file uploads required.
-        #
-        #   MB0 (black, full size)
-        #   MB1 (white, left half)  ──MaskComposite(add, x=0)──▶  ML (left mask)
-        #   MB2 (white, right half) ──MaskComposite(add, x=right_x)─▶ MR (right mask)
-        #
-        # 48-pixel overlap at the centre boundary so both conditionings are
-        # active in that zone.  Used by both hard and soft spatial paths.
-        overlap = 48
-        left_w  = half_w + overlap
-        right_x = max(0, half_w - overlap)
-        right_w = width - right_x
-
-        workflow["MB0"] = {
-            "class_type": "SolidMask",
-            "inputs": {"value": 0.0, "width": width, "height": height},
-            "_meta": {"title": "Mask base (black)"},
-        }
-        workflow["MB1"] = {
-            "class_type": "SolidMask",
-            "inputs": {"value": 1.0, "width": left_w, "height": height},
-            "_meta": {"title": "Left white strip (+ overlap)"},
-        }
-        workflow["MB2"] = {
-            "class_type": "SolidMask",
-            "inputs": {"value": 1.0, "width": right_w, "height": height},
-            "_meta": {"title": "Right white strip (+ overlap)"},
-        }
-        workflow["ML"] = {
-            "class_type": "MaskComposite",
-            "inputs": {"destination": ["MB0", 0], "source": ["MB1", 0],
-                       "x": 0, "y": 0, "operation": "add"},
-            "_meta": {"title": "Left-half mask (with centre overlap)"},
-        }
-        workflow["MR"] = {
-            "class_type": "MaskComposite",
-            "inputs": {"destination": ["MB0", 0], "source": ["MB2", 0],
-                       "x": right_x, "y": 0, "operation": "add"},
-            "_meta": {"title": "Right-half mask (with centre overlap)"},
-        }
-
-        if not contact_pose:
-            # ── Hard spatial masks (default: side-by-side scenes) ─────────────
-            # "mask bounds" mode: each character's conditioning is clipped to
-            # their half.  Gives best feature accuracy for non-contact poses.
-            #
-            # ConditioningSetAreaStrength (strength=2.0) sits between the
-            # ReferenceLatent chain and the mask so the photo reference gets
-            # 2× attention weight vs text, ensuring consistent character
-            # appearance regardless of seed.
-            workflow["AS0"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[0], 0], "strength": 2.0},
-                "_meta": {"title": "Boost ref strength — char 0"},
-            }
-            workflow["AS1"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[1], 0], "strength": 2.0},
-                "_meta": {"title": "Boost ref strength — char 1"},
-            }
-            workflow["SM0"] = {
-                "class_type": "ConditioningSetMask",
-                "inputs": {
-                    "conditioning":  ["AS0", 0],
-                    "mask":          ["ML", 0],
-                    "strength":      1.0,
-                    "set_cond_area": "mask bounds",
-                },
-                "_meta": {"title": "Hard mask char 0 → left half"},
-            }
-            workflow["SM1"] = {
-                "class_type": "ConditioningSetMask",
-                "inputs": {
-                    "conditioning":  ["AS1", 0],
-                    "mask":          ["MR", 0],
-                    "strength":      1.0,
-                    "set_cond_area": "mask bounds",
-                },
-                "_meta": {"title": "Hard mask char 1 → right half"},
-            }
-            workflow["RCA0"] = {
+    # ── Conditioning merge ────────────────────────────────────────────────────
+    # All character counts: plain ConditioningCombine chain.
+    # The appearance text in each TC{s} node anchors ReferenceLatent features
+    # to the correct character — no spatial zones needed and no ghost copies.
+    def _merge(id_list: List[str], prefix: str) -> List:
+        if not id_list:
+            return ["5", 0]
+        if len(id_list) == 1:
+            return [id_list[0], 0]
+        cur = id_list[0]
+        for k in range(1, len(id_list)):
+            mid = f"{prefix}{k - 1}"
+            workflow[mid] = {
                 "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
-                "_meta": {"title": "Combine hard-masked conditionings"},
+                "inputs": {"conditioning_1": [cur, 0], "conditioning_2": [id_list[k], 0]},
+                "_meta": {"title": f"Merge — step {k}"},
             }
-            # Strip character names from node "4" so the unmasked global
-            # conditioning only guides background/atmosphere, not characters.
-            _bg = scene_prompt
-            for _n in subject_appearances.keys():
-                _bg = re.sub(rf'\b{re.escape(_n)}\b', '', _bg, flags=re.IGNORECASE)
-            _bg = re.sub(r'\b(and|,)\b\s*', ' ', _bg)
-            _bg = ' '.join(_bg.split())
-            workflow["4"]["inputs"]["text"] = _bg + _ANATOMY_SUFFIX
+            cur = mid
+        return [cur, 0]
 
-            workflow["SC4"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": ["4", 0], "strength": 0.3},
-                "_meta": {"title": "Scene at 0.3 — background only, no ghost chars"},
-            }
-            workflow["RCA"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["SC4", 0]},
-                "_meta": {"title": "Add scene (reduced) to hard-masked chars"},
-            }
-            workflow["RCN"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {
-                    "conditioning_1": [char_final_neg[0], 0],
-                    "conditioning_2": [char_final_neg[1], 0],
-                },
-                "_meta": {"title": "Negative merge"},
-            }
-            final_pos: List = ["RCA", 0]
-            final_neg: List = ["RCN", 0]
-            print("[MultiRef] 2-char hard spatial masks + global scene (side-by-side mode)")
-
-        else:
-            # ── Soft spatial masks (contact_pose: hugging / touching) ─────────
-            workflow["AS0"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[0], 0], "strength": 2.0},
-                "_meta": {"title": "Boost ref strength — char 0 (contact)"},
-            }
-            workflow["AS1"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[1], 0], "strength": 2.0},
-                "_meta": {"title": "Boost ref strength — char 1 (contact)"},
-            }
-            workflow["SM0"] = {
-                "class_type": "ConditioningSetMask",
-                "inputs": {
-                    "conditioning":  ["AS0", 0],
-                    "mask":          ["ML", 0],
-                    "strength":      0.80,
-                    "set_cond_area": "default",
-                },
-                "_meta": {"title": "Soft mask char 0 → left (contact mode)"},
-            }
-            workflow["SM1"] = {
-                "class_type": "ConditioningSetMask",
-                "inputs": {
-                    "conditioning":  ["AS1", 0],
-                    "mask":          ["MR", 0],
-                    "strength":      0.80,
-                    "set_cond_area": "default",
-                },
-                "_meta": {"title": "Soft mask char 1 → right (contact mode)"},
-            }
-            workflow["RCA0"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
-                "_meta": {"title": "Combine soft-masked conditionings"},
-            }
-            _bg = scene_prompt
-            for _n in subject_appearances.keys():
-                _bg = re.sub(rf'\b{re.escape(_n)}\b', '', _bg, flags=re.IGNORECASE)
-            _bg = re.sub(r'\b(and|,)\b\s*', ' ', _bg)
-            _bg = ' '.join(_bg.split())
-            workflow["4"]["inputs"]["text"] = _bg + _ANATOMY_SUFFIX
-
-            workflow["SC4"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": ["4", 0], "strength": 0.3},
-                "_meta": {"title": "Scene at 0.3 — background anchor (contact mode)"},
-            }
-            workflow["RCA"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["SC4", 0]},
-                "_meta": {"title": "Add global scene (contact mode)"},
-            }
-            workflow["RCN"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {
-                    "conditioning_1": [char_final_neg[0], 0],
-                    "conditioning_2": [char_final_neg[1], 0],
-                },
-                "_meta": {"title": "Negative merge"},
-            }
-            final_pos: List = ["RCA", 0]
-            final_neg: List = ["RCN", 0]
-            print("[MultiRef] 2-char soft spatial masks + bg scene@0.3 (contact-pose mode)")
-
-    else:
-        # 1 char or 3+ chars: plain ConditioningCombine (no spatial split)
-        def _merge(id_list: List[str], prefix: str) -> List:
-            if not id_list:
-                return ["5", 0]
-            if len(id_list) == 1:
-                return [id_list[0], 0]
-            cur = id_list[0]
-            for k in range(1, len(id_list)):
-                mid = f"{prefix}{k - 1}"
-                workflow[mid] = {
-                    "class_type": "ConditioningCombine",
-                    "inputs": {"conditioning_1": [cur, 0], "conditioning_2": [id_list[k], 0]},
-                    "_meta": {"title": f"Merge — step {k}"},
-                }
-                cur = mid
-            return [cur, 0]
-
-        print(f"[MultiRef] {len(subjects)}-char plain combine (no spatial split)")
-        final_pos = _merge(char_final_pos, "CP")
-        final_neg = _merge(char_final_neg, "CN")
+    print(f"[MultiRef] {len(subjects)}-char plain combine (no ghost zones)")
+    final_pos = _merge(char_final_pos, "CP")
+    final_neg = _merge(char_final_neg, "CN")
 
     # Standard FLUX.2 Klein advanced sampler pipeline
     workflow["31"] = {
