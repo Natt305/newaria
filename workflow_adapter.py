@@ -910,14 +910,11 @@ def build_multiref_workflow(
     char_final_neg: List[str] = []
 
     for s, (char_name, fnames) in enumerate(subjects):
-        # Each character's CLIPTextEncode carries scene + name + full appearance text.
-        # This anchors the paired ReferenceLatent to the correct visual features
-        # (e.g. "silver hair, red beret" → Mortis; "brown twin tails" → Nina).
-        # Without the appearance text the two ReferenceLatents' features blend freely
-        # and the model cannot separate them into distinct characters.
-        app = subject_appearances.get(char_name, "").strip()
-        char_text = f"{scene_prompt}. {char_name}: {app}" if app else f"{scene_prompt}. {char_name}"
-        char_text += _ANATOMY_SUFFIX
+        # Photo-primary: each character's CLIPTextEncode carries scene + name ONLY.
+        # The reference photo does all visual work through the ReferenceLatent chain.
+        # Adding appearance descriptions here overrides the photo and makes generation
+        # text-guided — which produces wrong/blended results independent of the photos.
+        char_text = f"{scene_prompt}. {char_name}" + _ANATOMY_SUFFIX
 
         tc_id = f"TC{s}"
         workflow[tc_id] = {
@@ -1049,7 +1046,7 @@ def build_multiref_workflow(
     print(
         f"[MultiRef] Built multiref workflow — {n_chars} character(s), "
         f"{n_photos} reference photo(s) total, output={width}x{height}, "
-        f"appearance_text={[c for c, _ in subjects if subject_appearances.get(c)]}"
+        f"photo_primary=True, subjects={[c for c, _ in subjects]}"
     )
     return workflow
 
