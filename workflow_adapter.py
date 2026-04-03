@@ -838,13 +838,14 @@ def build_multiref_workflow(
 
     Architecture overview
     ─────────────────────
-    Photo-primary conditioning: each character's CLIPTextEncode carries only the
-    scene prompt + character name.  Visual identity (face, outfit, hair) comes from
-    the uploaded reference photo processed through ReferenceLatent — not from a text
-    description block.  This prevents appearance details from bleeding between chars.
+    Each character's CLIPTextEncode carries scene + name + full appearance description.
+    This anchors the paired ReferenceLatent (uploaded photo) to the correct visual
+    features so the model can separate two characters in a combined conditioning.
+    Without the appearance text the two ReferenceLatents' features blend freely and
+    the model cannot distinguish which face/outfit belongs to which character.
 
     All character counts use the same unified merge path (no spatial splitting):
-        CLIPTextEncode (scene + name) → ReferenceLatent chain → ConditioningCombine
+        CLIPTextEncode (scene + name + appearance) → ReferenceLatent chain → ConditioningCombine
 
     The `contact_pose` parameter is retained for API compatibility but is unused;
     the unified path handles both side-by-side and hugging scenes equally.
@@ -854,7 +855,7 @@ def build_multiref_workflow(
     Fixed:      "1"–"3"    model loaders
                 "4"        global CLIPTextEncode (full scene prompt)
                 "5"        shared ConditioningZeroOut (negative anchor)
-    Per char s: "TC{s}"    CLIPTextEncode  (scene + character name only)
+    Per char s: "TC{s}"    CLIPTextEncode  (scene + name + appearance)
                 "L{s}_{p}" LoadImage
                 "SC{s}_{p}" ImageScaleToTotalPixels
                 "E{s}_{p}"  VAEEncode
@@ -908,10 +909,14 @@ def build_multiref_workflow(
     char_final_neg: List[str] = []
 
     for s, (char_name, fnames) in enumerate(subjects):
-        # Photo-primary: CLIPTextEncode gets scene + character name only.
-        # Appearance details come from the uploaded reference photo via ReferenceLatent,
-        # not from a text description — avoids cross-character appearance bleed.
-        char_text = f"{scene_prompt}. {char_name}" + _ANATOMY_SUFFIX
+        # Each character's CLIPTextEncode carries scene + name + full appearance text.
+        # This anchors the paired ReferenceLatent to the correct visual features
+        # (e.g. "silver hair, red beret" → Mortis; "brown twin tails" → Nina).
+        # Without the appearance text the two ReferenceLatents' features blend freely
+        # and the model cannot separate them into distinct characters.
+        app = subject_appearances.get(char_name, "").strip()
+        char_text = f"{scene_prompt}. {char_name}: {app}" if app else f"{scene_prompt}. {char_name}"
+        char_text += _ANATOMY_SUFFIX
 
         tc_id = f"TC{s}"
         workflow[tc_id] = {
