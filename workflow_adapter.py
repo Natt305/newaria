@@ -879,7 +879,6 @@ def build_multiref_workflow(
     ]
 
     megapixels = round((width * height) / 1_000_000, 4)
-    half_w = width // 2
 
     # ── Shared model loader nodes + global scene conditioning ────────────────
     workflow: Dict[str, Any] = {
@@ -915,19 +914,14 @@ def build_multiref_workflow(
     }
 
     # ── Per-character conditioning chains ────────────────────────────────────
-    _SIDE_LABELS = ["Left character", "Right character", "Center character", "Background character"]
     char_final_pos: List[str] = []
     char_final_neg: List[str] = []
 
     for s, (char_name, fnames) in enumerate(subjects):
-        # Character-specific text: scene context + spatial label + appearance
-        app = subject_appearances.get(char_name, "").strip()
-        if len(subjects) > 1 and s < len(_SIDE_LABELS):
-            label = f"{_SIDE_LABELS[s]} — {char_name}"
-        else:
-            label = char_name
-        char_text = f"{scene_prompt}. {label}: {app}" if app else f"{scene_prompt}. {label}"
-        char_text += _ANATOMY_SUFFIX
+        # Photo-primary: CLIPTextEncode gets scene + character name only.
+        # Appearance details come from the uploaded reference photo via ReferenceLatent,
+        # not from a text description — avoids cross-character appearance bleed.
+        char_text = f"{scene_prompt}. {char_name}" + _ANATOMY_SUFFIX
 
         tc_id = f"TC{s}"
         workflow[tc_id] = {
@@ -977,209 +971,14 @@ def build_multiref_workflow(
         char_final_pos.append(f"RP{s}_{last_p}")
         char_final_neg.append(f"RN{s}_{last_p}")
 
-    # ── Spatial merge ────────────────────────────────────────────────────────
-    # 2-char: always build spatial masks.
-    #   contact_pose=False → hard masks (mask bounds) for side-by-side accuracy
-    #   contact_pose=True  → soft masks (default area) so arms/bodies can cross
-    if len(subjects) == 2:
-        # SolidMask nodes build left/right half masks entirely in-graph —
-        # no file uploads required.
-        #
-        #   MB0 (black, full size)
-        #   MB1 (white, left half)  ──MaskComposite(add, x=0)──▶  ML (left mask)
-        #   MB2 (white, right half) ──MaskComposite(add, x=right_x)─▶ MR (right mask)
-        #
-        # 48-pixel overlap at the centre boundary so both conditionings are
-        # active in that zone.  Used by both hard and soft spatial paths.
-        overlap = 48
-        left_w  = half_w + overlap
-        right_x = max(0, half_w - overlap)
-        right_w = width - right_x
-
-        workflow["MB0"] = {
-            "class_type": "SolidMask",
-            "inputs": {"value": 0.0, "width": width, "height": height},
-            "_meta": {"title": "Mask base (black)"},
-        }
-        workflow["MB1"] = {
-            "class_type": "SolidMask",
-            "inputs": {"value": 1.0, "width": left_w, "height": height},
-            "_meta": {"title": "Left white strip (+ overlap)"},
-        }
-        workflow["MB2"] = {
-            "class_type": "SolidMask",
-            "inputs": {"value": 1.0, "width": right_w, "height": height},
-            "_meta": {"title": "Right white strip (+ overlap)"},
-        }
-        workflow["ML"] = {
-            "class_type": "MaskComposite",
-            "inputs": {"destination": ["MB0", 0], "source": ["MB1", 0],
-                       "x": 0, "y": 0, "operation": "add"},
-            "_meta": {"title": "Left-half mask (with centre overlap)"},
-        }
-        workflow["MR"] = {
-            "class_type": "MaskComposite",
-            "inputs": {"destination": ["MB0", 0], "source": ["MB2", 0],
-                       "x": right_x, "y": 0, "operation": "add"},
-            "_meta": {"title": "Right-half mask (with centre overlap)"},
-        }
-
-        if not contact_pose:
-            # ── Hard spatial masks (default: side-by-side scenes) ─────────────
-            # "mask bounds" mode: each character's conditioning is clipped to
-            # their half.  Gives best feature accuracy for non-contact poses.
-            #
-            # ConditioningSetAreaStrength (strength=2.0) sits between the
-            # ReferenceLatent chain and the mask so the photo reference gets
-            # 2× attention weight vs text, ensuring consistent character
-            # appearance regardless of seed.
-            workflow["AS0"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[0], 0], "strength": 2.0},
-                "_meta": {"title": "Boost ref strength — char 0"},
-            }
-            workflow["AS1"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[1], 0], "strength": 2.0},
-                "_meta": {"title": "Boost ref strength — char 1"},
-            }
-            workflow["SM0"] = {
-                "class_type": "ConditioningSetMask",
-                "inputs": {
-                    "conditioning":  ["AS0", 0],
-                    "mask":          ["ML", 0],
-                    "strength":      1.0,
-                    "set_cond_area": "mask bounds",
-                },
-                "_meta": {"title": "Hard mask char 0 → left half"},
-            }
-            workflow["SM1"] = {
-                "class_type": "ConditioningSetMask",
-                "inputs": {
-                    "conditioning":  ["AS1", 0],
-                    "mask":          ["MR", 0],
-                    "strength":      1.0,
-                    "set_cond_area": "mask bounds",
-                },
-                "_meta": {"title": "Hard mask char 1 → right half"},
-            }
-            workflow["RCA0"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
-                "_meta": {"title": "Combine hard-masked conditionings"},
-            }
-            # Strip character names from node "4" so the unmasked global
-            # conditioning only guides background/atmosphere, not characters.
-            # Without this, the model regenerates both characters globally on
-            # top of the already-masked per-character conditionings → ghosts.
-            _bg = scene_prompt
-            for _n in subject_appearances.keys():
-                _bg = re.sub(rf'\b{re.escape(_n)}\b', '', _bg, flags=re.IGNORECASE)
-            _bg = re.sub(r'\b(and|,)\b\s*', ' ', _bg)   # clean up orphaned "and" / commas
-            _bg = ' '.join(_bg.split())                   # collapse whitespace
-            workflow["4"]["inputs"]["text"] = _bg + _ANATOMY_SUFFIX
-
-            # Scene node covers the full canvas with no mask.  At strength 1.0
-            # it spawns ghost characters; throttled to 0.3 it only guides
-            # background / atmosphere.
-            workflow["SC4"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": ["4", 0], "strength": 0.3},
-                "_meta": {"title": "Scene at 0.3 — background only, no ghost chars"},
-            }
-            workflow["RCA"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["SC4", 0]},
-                "_meta": {"title": "Add scene (reduced) to hard-masked chars"},
-            }
-            workflow["RCN"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {
-                    "conditioning_1": [char_final_neg[0], 0],
-                    "conditioning_2": [char_final_neg[1], 0],
-                },
-                "_meta": {"title": "Negative merge"},
-            }
-            final_pos: List = ["RCA", 0]
-            final_neg: List = ["RCN", 0]
-            print("[MultiRef] 2-char hard spatial masks + global scene (side-by-side mode)")
-
-        else:
-            # ── Soft spatial masks (contact_pose: hugging / touching) ─────────
-            # ConditioningSetAreaStrength(2.0) first so the photo reference
-            # gets 2× attention weight — same boost as the hard-mask path.
-            # Then ConditioningSetMask in "default" (soft) mode at 0.80:
-            # strong enough to anchor each character to their half while
-            # still letting arms/bodies cross the centre line naturally.
-            workflow["AS0"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[0], 0], "strength": 2.0},
-                "_meta": {"title": "Boost ref strength — char 0 (contact)"},
-            }
-            workflow["AS1"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": [char_final_pos[1], 0], "strength": 2.0},
-                "_meta": {"title": "Boost ref strength — char 1 (contact)"},
-            }
-            workflow["SM0"] = {
-                "class_type": "ConditioningSetMask",
-                "inputs": {
-                    "conditioning":  ["AS0", 0],
-                    "mask":          ["ML", 0],
-                    "strength":      0.80,
-                    "set_cond_area": "default",
-                },
-                "_meta": {"title": "Soft mask char 0 → left (contact mode)"},
-            }
-            workflow["SM1"] = {
-                "class_type": "ConditioningSetMask",
-                "inputs": {
-                    "conditioning":  ["AS1", 0],
-                    "mask":          ["MR", 0],
-                    "strength":      0.80,
-                    "set_cond_area": "default",
-                },
-                "_meta": {"title": "Soft mask char 1 → right (contact mode)"},
-            }
-            workflow["RCA0"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["SM0", 0], "conditioning_2": ["SM1", 0]},
-                "_meta": {"title": "Combine soft-masked conditionings"},
-            }
-            # Strip character names from node "4" so the global scene
-            # conditioning only guides background/atmosphere (same fix as
-            # hard-mask path — prevents ghost character pairs).
-            _bg = scene_prompt
-            for _n in subject_appearances.keys():
-                _bg = re.sub(rf'\b{re.escape(_n)}\b', '', _bg, flags=re.IGNORECASE)
-            _bg = re.sub(r'\b(and|,)\b\s*', ' ', _bg)
-            _bg = ' '.join(_bg.split())
-            workflow["4"]["inputs"]["text"] = _bg + _ANATOMY_SUFFIX
-
-            workflow["SC4"] = {
-                "class_type": "ConditioningSetAreaStrength",
-                "inputs": {"conditioning": ["4", 0], "strength": 0.3},
-                "_meta": {"title": "Scene at 0.3 — background anchor (contact mode)"},
-            }
-            workflow["RCA"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {"conditioning_1": ["RCA0", 0], "conditioning_2": ["SC4", 0]},
-                "_meta": {"title": "Add global scene (contact mode)"},
-            }
-            workflow["RCN"] = {
-                "class_type": "ConditioningCombine",
-                "inputs": {
-                    "conditioning_1": [char_final_neg[0], 0],
-                    "conditioning_2": [char_final_neg[1], 0],
-                },
-                "_meta": {"title": "Negative merge"},
-            }
-            final_pos: List = ["RCA", 0]
-            final_neg: List = ["RCN", 0]
-            print("[MultiRef] 2-char soft spatial masks + bg scene@0.3 (contact-pose mode)")
-
-    else:
-        # 1 char or 3+ chars: plain ConditioningCombine (no spatial split)
+    # ── Conditioning merge ────────────────────────────────────────────────────
+    # All character counts: plain ConditioningCombine — no spatial masks.
+    # Spatial masking (ConditioningSetMask) was removed because left/right zone
+    # splitting caused the model to hallucinate a second copy of whichever
+    # character it knew best to fill the unmatched zone.
+    # The reference photo (ReferenceLatent) already carries all visual identity;
+    # letting the model choose composition freely gives cleaner multi-char results.
+    if True:  # unified path — kept as block so diff is readable
         def _merge(id_list: List[str], prefix: str) -> List:
             if not id_list:
                 return ["5", 0]
