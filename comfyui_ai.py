@@ -730,6 +730,10 @@ def _run_generate(
             f"[ComfyUI] Workflow mode: '{_workflow_mode or 'default'}' — "
             f"refs={len(refs)}, subject_appearances={list((subject_appearances or {}).keys())}"
         )
+        print(
+            f"[ComfyUI] Models — GGUF: {gguf_path!r}, VAE: {vae_name!r}, CLIP: {clip_name!r}"
+        )
+        print(f"[ComfyUI] Prompt: {prompt[:200]!r}")
 
         if custom_workflow_path and os.path.exists(custom_workflow_path):
             with open(custom_workflow_path, "r", encoding="utf-8") as f:

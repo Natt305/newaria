@@ -703,6 +703,39 @@ def _title_matches(title_lower: str, match_lower: str) -> bool:
     return False
 
 
+def _find_matching_cjk_token(title_lower: str, match_lower: str) -> str:
+    """Return the CJK substring of title_lower that first appears in match_lower.
+
+    Mirrors _title_matches search order so the returned token is the same one
+    that caused the match.  Returns the full title if it matched exactly (check a),
+    or the shortest/leftmost matching CJK substring (check b), or '' if no match.
+    """
+    if title_lower in match_lower:
+        return title_lower
+    has_cjk = any(ord(ch) >= 0x3000 for ch in title_lower)
+    if has_cjk and len(title_lower) > 2:
+        for length in range(2, len(title_lower)):
+            for start in range(len(title_lower) - length + 1):
+                token = title_lower[start:start + length]
+                if token in match_lower:
+                    return token
+    return ""
+
+
+def _cjk_token_coverage(title: str, token: str) -> float:
+    """Fraction of a title's CJK characters that are covered by token.
+
+    Used to rank ambiguous matches: a token that covers ALL of a title's CJK
+    portion is a more specific match than one that covers only part of it.
+    Example: token "仁菜" covers 100% of "Nina (仁菜)" CJK chars but only 50%
+    of "井芹仁菜" CJK chars → "Nina (仁菜)" is the tighter match.
+    """
+    cjk_in_title = [ch for ch in title if ord(ch) >= 0x3000]
+    if not cjk_in_title:
+        return 0.0
+    return len(token) / len(cjk_in_title)
+
+
 async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -> tuple:
     """Enrich a generation prompt with KB image details ONLY when the image's
     title is explicitly mentioned in the prompt (e.g. saved photo of 'Alice',
@@ -769,6 +802,42 @@ async def _enrich_image_prompt_with_kb(image_prompt: str, hint_text: str = "") -
                 subject_references[title] = desc
                 matched_with_desc = [(t, d) for t, d in matched_with_desc if t != title]
                 matched_with_desc.append((title, desc))
+
+    # ── CJK deduplication ────────────────────────────────────────────────────
+    # When multiple KB titles match via the SAME 2-char CJK token in the user
+    # text (e.g. "仁菜" matching both "Nina (仁菜)" and "井芹仁菜"), keep only
+    # the entry for which the token covers the HIGHEST fraction of CJK chars
+    # in the title (tightest match).  Tiebreak: lower KB id wins.
+    # This prevents a 3rd unintended character being generated.
+    _tok_groups: dict = {}
+    for _e in title_matched:
+        _tok = _find_matching_cjk_token(_e.get("title", "").strip().lower(), match_lower)
+        if _tok:
+            _tok_groups.setdefault(_tok, []).append(_e)
+
+    _dedup_drop: set = set()
+    for _tok, _grp in _tok_groups.items():
+        if len(_grp) <= 1:
+            continue
+        _sorted_grp = sorted(
+            _grp,
+            key=lambda _e: (
+                -_cjk_token_coverage(_e.get("title", "").strip(), _tok),
+                _e.get("id", 999999),
+            ),
+        )
+        _keep = _sorted_grp[0]
+        _drop = _sorted_grp[1:]
+        _all_t = [_e.get("title", "") for _e in _grp]
+        print(f"[Bot] KB dedup: token '{_tok}' matched {_all_t} — keeping '{_keep.get('title', '')}'")
+        for _e in _drop:
+            _dedup_drop.add(_e.get("title", "").strip())
+
+    if _dedup_drop:
+        title_matched = [_e for _e in title_matched if _e.get("title", "").strip() not in _dedup_drop]
+        _kept_t = {_e.get("title", "").strip() for _e in title_matched}
+        subject_references = {t: d for t, d in subject_references.items() if t in _kept_t}
+        matched_with_desc = [(t, d) for t, d in matched_with_desc if t in _kept_t]
 
     print(f"[Bot] KB title scan: {len(title_matched)} unique subject(s) matched — {[e.get('title') for e in title_matched]}")
 
