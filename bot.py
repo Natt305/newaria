@@ -1469,24 +1469,7 @@ async def process_chat(
                         if _id_data[_sa_name]["outfit"]:
                             _sa_parts.append(_id_data[_sa_name]["outfit"])
                         _subject_appearances[_sa_name] = ", ".join(_sa_parts)
-                print(f"[Bot] Subject appearances (id_anchors): { {k: v[:60]+'...' if len(v)>60 else v for k, v in _subject_appearances.items()} }")
-
-        # ── Direct KB supplement fallback for TC-node appearance text ─────────
-        # Even when _id_data parsing failed (no HAIR:/OUTFIT: headers in the KB
-        # appearance_description, which is a flat comma-separated string), every
-        # character with a reference photo still needs its full appearance text
-        # in the corresponding CLIPTextEncode TC node inside build_multiref_workflow.
-        # Without this, TC nodes only contain the scene prompt with no character
-        # description, so ReferenceLatent features blend freely across subjects
-        # and the model generates ghost duplicates of the same character.
-        for _sa_name in _unique_ref_labels:
-            if _sa_name not in _subject_appearances:
-                _sa_text = (_kb_supplements or {}).get(_sa_name, "").strip()
-                if _sa_text:
-                    _subject_appearances[_sa_name] = _sa_text
-                    print(f"[Bot] Subject appearance (KB fallback) — {_sa_name}: {_sa_text[:80]}...")
-        if _subject_appearances:
-            print(f"[Bot] Subject appearances (final): { {k: v[:60]+'...' if len(v)>60 else v for k, v in _subject_appearances.items()} }")
+                print(f"[Bot] Subject appearances: { {k: v[:60]+'...' if len(v)>60 else v for k, v in _subject_appearances.items()} }")
 
         # Prepend a compact Flux-friendly style prefix so Flux anchors on style
         # early (left-to-right token weighting).  Keep it short — the enriched
