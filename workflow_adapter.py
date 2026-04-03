@@ -910,11 +910,32 @@ def build_multiref_workflow(
     char_final_neg: List[str] = []
 
     for s, (char_name, fnames) in enumerate(subjects):
-        # Photo-primary: each character's CLIPTextEncode carries scene + name ONLY.
-        # The reference photo does all visual work through the ReferenceLatent chain.
-        # Adding appearance descriptions here overrides the photo and makes generation
-        # text-guided — which produces wrong/blended results independent of the photos.
-        char_text = f"{scene_prompt}. {char_name}" + _ANATOMY_SUFFIX
+        # Short key-anchor: scene + name + first 2 distinctive features ONLY.
+        # This disambiguates which ReferenceLatent photo belongs to which character
+        # slot (so they don't blend) without describing full appearance (which would
+        # override the photo and make generation text-guided instead of photo-guided).
+        # Rule: skip leading "1girl" / name tokens; take first 2 real visual features.
+        app_full = subject_appearances.get(char_name, "").strip()
+        _anchor = ""
+        if app_full:
+            _skip = {char_name.lower(), "1girl", "1 girl"}
+            # also skip the full-name variant stored in parentheses e.g. "tokazaki nina"
+            _skip.add(char_name.split("(")[0].strip().lower())
+            _features = []
+            for _tok in app_full.split(","):
+                _tok_clean = _tok.strip()
+                if not _tok_clean:
+                    continue
+                if _tok_clean.lower() in _skip:
+                    continue
+                if any(_tok_clean.lower().startswith(s) for s in _skip):
+                    continue
+                _features.append(_tok_clean)
+                if len(_features) == 2:
+                    break
+            _anchor = ", ".join(_features)
+        char_text = (f"{scene_prompt}. {char_name}, {_anchor}" if _anchor
+                     else f"{scene_prompt}. {char_name}") + _ANATOMY_SUFFIX
 
         tc_id = f"TC{s}"
         workflow[tc_id] = {
