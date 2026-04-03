@@ -1042,11 +1042,12 @@ async def process_chat(
         # Photos are loaded into _per_subj_buckets {label: [thumb, ...]} and
         # the interleaving happens below, after all subjects are collected.
         _MAX_REFS_PER_SUBJECT = 3  # up to 3 reference photos per subject
-        _per_subj_buckets: dict = {}   # {label: [(bytes, mime), ...]}
-        _bucket_order: list = []       # insertion order for interleaving
+        _per_subj_buckets: dict = {}        # {label: [(thumb_bytes, mime), ...]} — LLM only
+        _comfyui_full_buckets: dict = {}    # {label: [(full_png_bytes, "image/png"), ...]} — ComfyUI
+        _bucket_order: list = []            # insertion order for interleaving
 
         def _load_kb_photos(kb_entry, label_override=None):
-            """Load up to _MAX_REFS_PER_SUBJECT thumbnails for a KB entry."""
+            """Load thumbnails (LLM) and full-res PNG images (ComfyUI) for a KB entry."""
             entry_id = kb_entry.get("id")
             label = label_override or kb_entry.get("title", "?")
             if not entry_id:
@@ -1061,36 +1062,47 @@ async def process_chat(
                 return
             indices = list(range(1, img_count + 1))
             random.shuffle(indices)
-            loaded = []
+            loaded_thumb = []
+            loaded_full = []
             for idx in indices:
-                if len(loaded) >= _MAX_REFS_PER_SUBJECT:
+                if len(loaded_thumb) >= _MAX_REFS_PER_SUBJECT:
                     break
                 thumb = database.get_kb_image_thumb(entry_id, idx)
                 if thumb:
-                    loaded.append(thumb)
-            if loaded:
-                _per_subj_buckets[label] = loaded
+                    loaded_thumb.append(thumb)
+                full = database.get_kb_image_full(entry_id, idx)
+                if full:
+                    loaded_full.append(full)
+            if loaded_thumb:
+                _per_subj_buckets[label] = loaded_thumb
+                _comfyui_full_buckets[label] = loaded_full
                 _bucket_order.append(label)
-                print(f"[Bot] Ref images: {len(loaded)}/{img_count} photo(s) loaded for {label!r} (id={entry_id})")
+                print(f"[Bot] Ref images: {len(loaded_thumb)}/{img_count} photo(s) loaded for {label!r} (id={entry_id}, full={len(loaded_full)})")
             else:
                 print(f"[Bot] Ref images: {label!r} (id={entry_id}) thumbnails unreadable — skipping")
 
         def _load_bot_photos(label):
-            """Load up to _MAX_REFS_PER_SUBJECT bot character thumbnails."""
+            """Load thumbnails (LLM) and full-res images (ComfyUI) for bot character."""
             if label in _per_subj_buckets:
                 return
             char_count = database.get_character_image_count()
-            loaded = []
+            loaded_thumb = []
+            loaded_full = []
             for i in range(1, char_count + 1):
-                if len(loaded) >= _MAX_REFS_PER_SUBJECT:
+                if len(loaded_thumb) >= _MAX_REFS_PER_SUBJECT:
                     break
                 thumb = database.get_character_image_thumb(i)
                 if thumb:
-                    loaded.append(thumb)
-            if loaded:
-                _per_subj_buckets[label] = loaded
+                    loaded_thumb.append(thumb)
+                full = database.get_character_image(i)
+                if full:
+                    full_bytes, full_mime = full
+                    loaded_full.append((full_bytes, full_mime))
+            if loaded_thumb:
+                _per_subj_buckets[label] = loaded_thumb
+                _comfyui_full_buckets[label] = loaded_full
                 _bucket_order.append(label)
-                print(f"[Bot] Ref images: {len(loaded)}/{char_count} bot photo(s) loaded for {label!r}")
+                print(f"[Bot] Ref images: {len(loaded_thumb)}/{char_count} bot photo(s) loaded for {label!r} (full={len(loaded_full)})")
             else:
                 print(f"[Bot] Ref images: no bot photos found for {label!r}")
 
@@ -1164,10 +1176,25 @@ async def process_chat(
             _all_subject_titles.append(bot_name)
         _n_unique_subjects = len(_all_subject_titles)
 
-        # _comfyui_ref_images — _ref_images is already interleaved round-robin,
-        # so pass it directly to ComfyUI's ReferenceLatent chain.
-        _comfyui_ref_images: list = list(_ref_images)
-        print(f"[Bot] LLM ref images: {len(_llm_ref_images)} (1 per subject) — ComfyUI ref images: {len(_comfyui_ref_images)} — subjects: {_all_subject_titles}")
+        # _comfyui_ref_images — full-resolution PNG images for ComfyUI's ReferenceLatent
+        # chain, interleaved round-robin across all subjects (same order as _ref_images).
+        # Full images preserve detail that 512×512 JPEG thumbnails lose, which matters
+        # for FLUX.2's ReferenceLatent VAE encoding.
+        _comfyui_ref_images: list = []
+        _comfyui_ref_labels: list = []
+        if _comfyui_full_buckets:
+            _max_full = max(len(v) for v in _comfyui_full_buckets.values())
+            for _slot in range(_max_full):
+                for _lbl in _bucket_order:
+                    _fbucket = _comfyui_full_buckets.get(_lbl, [])
+                    if _slot < len(_fbucket):
+                        _comfyui_ref_images.append(_fbucket[_slot])
+                        _comfyui_ref_labels.append(_lbl)
+        # Fall back to thumbnail list if no full images could be loaded
+        if not _comfyui_ref_images and _ref_images:
+            _comfyui_ref_images = list(_ref_images)
+            _comfyui_ref_labels = list(_ref_labels)
+        print(f"[Bot] LLM ref images: {len(_llm_ref_images)} (1 per subject) — ComfyUI ref images: {len(_comfyui_ref_images)} (full-res) — subjects: {_all_subject_titles}")
         _ref_image_for_gen = None
         _spatial_prefix = ""
         if _IMAGE_BACKEND == "comfyui" and _comfyui_ref_images:
@@ -1344,13 +1371,31 @@ async def process_chat(
                 _col_note = " (hair collision detected)" if _has_collision else ""
                 print(f"[Bot] ID anchors injected{_col_note}: {_id_anchors}")
 
-                # Build per-character appearance strings for the AIO workflow's
-                # per-segment inpainting pass.  Format: "hair, outfit" per subject.
-                for _sa_name, _sa_data in _id_data.items():
-                    _sa_parts = [_sa_data["hair"]]
-                    if _sa_data["outfit"]:
-                        _sa_parts.append(_sa_data["outfit"])
-                    _subject_appearances[_sa_name] = ", ".join(_sa_parts)
+                # Build per-character FULL appearance descriptions for build_multiref_workflow.
+                # ComfyUI's per-character CLIPTextEncode needs the complete stored appearance
+                # text (not a short snippet) so ReferenceLatent has rich text guidance.
+                # Source priority:
+                #   KB characters with photos → full appearance_description from KB supplements
+                #   Bot's own character       → char_images_ctx (vision-generated) or looks field
+                #   Fallback                  → parsed hair + outfit snippet
+                for _sa_name in _id_data:
+                    if _sa_name in (_kb_supplements or {}) and _kb_supplements[_sa_name].strip():
+                        _subject_appearances[_sa_name] = _kb_supplements[_sa_name].strip()
+                    elif _sa_name == bot_name:
+                        _src = (char_images_ctx or looks or "").strip()
+                        if _src:
+                            _subject_appearances[_sa_name] = _src
+                        else:
+                            _sa_parts = [_id_data[_sa_name]["hair"]]
+                            if _id_data[_sa_name]["outfit"]:
+                                _sa_parts.append(_id_data[_sa_name]["outfit"])
+                            _subject_appearances[_sa_name] = ", ".join(_sa_parts)
+                    else:
+                        _sa_parts = [_id_data[_sa_name]["hair"]]
+                        if _id_data[_sa_name]["outfit"]:
+                            _sa_parts.append(_id_data[_sa_name]["outfit"])
+                        _subject_appearances[_sa_name] = ", ".join(_sa_parts)
+                print(f"[Bot] Subject appearances: { {k: v[:60]+'...' if len(v)>60 else v for k, v in _subject_appearances.items()} }")
 
         # Prepend a compact Flux-friendly style prefix so Flux anchors on style
         # early (left-to-right token weighting).  Keep it short — the enriched
@@ -1397,7 +1442,7 @@ async def process_chat(
                         enriched_prompt,
                         _ref_image_for_gen,
                         reference_images=_comfyui_ref_images or None,
-                        reference_subjects=_ref_labels if _comfyui_ref_images else None,
+                        reference_subjects=_comfyui_ref_labels if _comfyui_ref_images else None,
                         subject_appearances=_subject_appearances or None,
                         on_progress=_chat_on_progress if _IMAGE_BACKEND in ("local_diffusers", "comfyui") else None,
                         steps_override=(

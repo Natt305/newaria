@@ -604,6 +604,39 @@ def get_kb_image_thumb(entry_id: int, image_index: int = 1) -> Optional[tuple]:
         return f.read(), "image/jpeg"
 
 
+def get_kb_image_full(entry_id: int, image_index: int = 1) -> Optional[tuple]:
+    """Return (png_bytes, 'image/png') for a KB image entry at full resolution, or None.
+    image_index is 1-based. Converts to PNG (handles WebP, JPEG, GIF, etc.) so the
+    caller can pass directly to ComfyUI without further conversion."""
+    meta = _get_meta_with_images(entry_id)
+    if not meta:
+        return None
+    images = meta.get("images", [])
+    if image_index < 1 or image_index > len(images):
+        return None
+    img_info = images[image_index - 1]
+    filename = img_info.get("filename")
+    if not filename:
+        return None
+    path = os.path.join(IMAGES_DIR, filename)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        raw = f.read()
+    try:
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(raw)).convert("RGBA")
+        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+        bg.paste(img, mask=img.split()[3])
+        buf = _io.BytesIO()
+        bg.convert("RGB").save(buf, format="PNG")
+        return buf.getvalue(), "image/png"
+    except Exception as e:
+        print(f"[DB] Full image PNG conversion failed for entry #{entry_id} img {image_index}: {e}")
+        return raw, img_info.get("mime", "image/png")
+
+
 def add_image_to_entry(entry_id: int, image_bytes: bytes, mime_type: str) -> tuple:
     """Append an image to an existing image KB entry. Returns (success, message)."""
     meta = _get_meta_with_images(entry_id)
