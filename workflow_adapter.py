@@ -834,44 +834,34 @@ def build_multiref_workflow(
     height: int = 720,
     contact_pose: bool = False,
 ) -> Dict[str, dict]:
-    """TRUE multi-character photo-referencing using ClownRegionalConditioning_AB for spatial masking.
+    """Multi-character photo-referencing via ReferenceLatent + ConditioningCombine.
 
     Architecture overview
     ─────────────────────
-    For EACH character:
-        CLIPTextEncode (scene + char-specific appearance text)
-        → ReferenceLatent chain (one node per reference photo, positive + negative)
+    Photo-primary conditioning: each character's CLIPTextEncode carries only the
+    scene prompt + character name.  Visual identity (face, outfit, hair) comes from
+    the uploaded reference photo processed through ReferenceLatent — not from a text
+    description block.  This prevents appearance details from bleeding between chars.
 
-    For 2 characters → ClownRegionalConditioning_AB:
-        Char 0 conditioning locked to left half  (SolidMask + MaskComposite)
-        Char 1 conditioning locked to right half
-        Output: single CONDITIONING fed to CFGGuider
+    All character counts use the same unified merge path (no spatial splitting):
+        CLIPTextEncode (scene + name) → ReferenceLatent chain → ConditioningCombine
 
-    For 1 character → plain ReferenceLatent chain, no spatial split.
-    For 3+ characters → ConditioningCombine fallback (no spatial masks).
-
-    Spatial masks are built entirely with ComfyUI nodes (SolidMask → MaskComposite),
-    no file uploads needed.
+    The `contact_pose` parameter is retained for API compatibility but is unused;
+    the unified path handles both side-by-side and hugging scenes equally.
 
     Node-ID scheme
     ──────────────
     Fixed:      "1"–"3"    model loaders
+                "4"        global CLIPTextEncode (full scene prompt)
                 "5"        shared ConditioningZeroOut (negative anchor)
-    Per char s: "TC{s}"    CLIPTextEncode  (scene + char appearance)
+    Per char s: "TC{s}"    CLIPTextEncode  (scene + character name only)
                 "L{s}_{p}" LoadImage
                 "SC{s}_{p}" ImageScaleToTotalPixels
                 "E{s}_{p}"  VAEEncode
                 "RP{s}_{p}" ReferenceLatent positive chain
                 "RN{s}_{p}" ReferenceLatent negative chain
-    2-char masks:"MB0"      SolidMask black base (width × height)
-                "MB1"      SolidMask white left strip (width//2 × height)
-                "MB2"      SolidMask white right strip ((width-width//2) × height)
-                "ML"       MaskComposite → left-half mask
-                "MR"       MaskComposite → right-half mask
-                "RCA"      ClownRegionalConditioning_AB (positive)
-                "RCN"      ConditioningCombine (negative)
-    3+char:     "CP{k}"    ConditioningCombine positive merge
-                "CN{k}"    ConditioningCombine negative merge
+    Merge:      "CP{k}"    ConditioningCombine positive merge (2+ chars)
+                "CN{k}"    ConditioningCombine negative merge (2+ chars)
     Output:     "31"–"37", "9"
     """
     subjects: List[Tuple[str, List[str]]] = [
@@ -972,32 +962,28 @@ def build_multiref_workflow(
         char_final_neg.append(f"RN{s}_{last_p}")
 
     # ── Conditioning merge ────────────────────────────────────────────────────
-    # All character counts: plain ConditioningCombine — no spatial masks.
-    # Spatial masking (ConditioningSetMask) was removed because left/right zone
-    # splitting caused the model to hallucinate a second copy of whichever
-    # character it knew best to fill the unmatched zone.
-    # The reference photo (ReferenceLatent) already carries all visual identity;
-    # letting the model choose composition freely gives cleaner multi-char results.
-    if True:  # unified path — kept as block so diff is readable
-        def _merge(id_list: List[str], prefix: str) -> List:
-            if not id_list:
-                return ["5", 0]
-            if len(id_list) == 1:
-                return [id_list[0], 0]
-            cur = id_list[0]
-            for k in range(1, len(id_list)):
-                mid = f"{prefix}{k - 1}"
-                workflow[mid] = {
-                    "class_type": "ConditioningCombine",
-                    "inputs": {"conditioning_1": [cur, 0], "conditioning_2": [id_list[k], 0]},
-                    "_meta": {"title": f"Merge — step {k}"},
-                }
-                cur = mid
-            return [cur, 0]
+    # Unified path for all character counts: plain ConditioningCombine chain.
+    # No spatial masks — the reference photo (ReferenceLatent) carries all
+    # visual identity; the model chooses composition freely without zone forcing.
+    def _merge(id_list: List[str], prefix: str) -> List:
+        if not id_list:
+            return ["5", 0]
+        if len(id_list) == 1:
+            return [id_list[0], 0]
+        cur = id_list[0]
+        for k in range(1, len(id_list)):
+            mid = f"{prefix}{k - 1}"
+            workflow[mid] = {
+                "class_type": "ConditioningCombine",
+                "inputs": {"conditioning_1": [cur, 0], "conditioning_2": [id_list[k], 0]},
+                "_meta": {"title": f"Merge — step {k}"},
+            }
+            cur = mid
+        return [cur, 0]
 
-        print(f"[MultiRef] {len(subjects)}-char plain combine (no spatial split)")
-        final_pos = _merge(char_final_pos, "CP")
-        final_neg = _merge(char_final_neg, "CN")
+    print(f"[MultiRef] {len(subjects)}-char plain combine (no spatial split)")
+    final_pos = _merge(char_final_pos, "CP")
+    final_neg = _merge(char_final_neg, "CN")
 
     # Standard FLUX.2 Klein advanced sampler pipeline
     workflow["31"] = {
