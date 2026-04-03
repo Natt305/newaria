@@ -1247,7 +1247,7 @@ async def process_chat(
         #   char_images_ctx  — bot's own character images (Aria etc.)
         _subject_appearances: dict = {}  # {name -> "hair phrase, outfit piece"} for AIO workflow
 
-        if _IMAGE_BACKEND == "comfyui" and _n_unique_subjects >= 2:
+        if _IMAGE_BACKEND == "comfyui" and _comfyui_ref_images:
             # ── Step 1: collect HAIR + OUTFIT for every photo-based participant ──
             _id_data: dict = {}  # {label: {"hair": str, "outfit": str}}
 

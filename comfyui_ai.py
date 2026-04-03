@@ -998,18 +998,29 @@ def _run_generate(
                     (unique_subjects[0] if unique_subjects else "unknown")
                 )
 
-                # ── Multi-character routing ───────────────────────────────────────
+                # ── Workflow routing ──────────────────────────────────────────────
                 # Mode selection:
                 #   default / "multiref" → build_multiref_workflow  (primary, no deps)
-                #   "refchain"           → ReferenceChainConditioning (custom node pack)
-                #                         falls back to multiref if node not installed
-                # Single-subject always uses the flat native ReferenceLatent chain.
+                #   "refchain"           → ReferenceChainConditioning (custom node pack,
+                #                         multi-subject only; falls back to multiref)
+                # build_multiref_workflow is used for ALL subject counts (1 or more).
                 _used_multiref = False
                 _used_refchain = False
 
+                # Detect contact/hugging pose so 2-char scenes use soft spatial masks
+                # (contact_pose=True) instead of hard masks — lets arms cross the
+                # centre line naturally while still anchoring each character to their half.
+                _CONTACT_KW = (
+                    "hug", "hugging", "embracing", "embrace",
+                    "holding each other", "arms around", "arms wrapped",
+                    "cuddling", "snuggling", "leaning on", "resting on",
+                    "leaning against",
+                )
+                _contact_pose = any(kw in prompt.lower() for kw in _CONTACT_KW)
+
                 if n_subjects >= 2 and len(subject_uploaded) >= 2:
                     if _workflow_mode == "refchain":
-                        # ── opt-in ReferenceChainConditioning path ─────────────────
+                        # ── opt-in ReferenceChainConditioning path (multi only) ────
                         try:
                             from workflow_adapter import build_refchain_workflow
                             _rc_check = _requests.get(
@@ -1042,6 +1053,7 @@ def _run_generate(
                                     steps=steps,
                                     width=width,
                                     height=height,
+                                    contact_pose=_contact_pose,
                                 )
                                 _per_char = {n: len(fs) for n, fs in subject_uploaded.items() if fs}
                                 print(
@@ -1056,41 +1068,49 @@ def _run_generate(
                         except Exception as _rc_exc:
                             print(f"[ComfyUI] ReferenceChain path failed ({_rc_exc}) — using multiref instead.")
 
-                    if not _used_refchain:
-                        # ── PRIMARY: build_multiref_workflow ───────────────────────
-                        # True multi-character photo-referencing:
-                        #   • Per-character isolated ReferenceLatent chains
-                        #   • Per-character appearance text conditioning
-                        #   • ConditioningCombine merge at the end
-                        #   • Only built-in ComfyUI nodes (no SAM3, no custom packs)
-                        try:
-                            from workflow_adapter import build_multiref_workflow as _bmr
-                            workflow = _bmr(
-                                scene_prompt=prompt,
-                                subject_filenames=dict(subject_uploaded),
-                                subject_appearances=subject_appearances or {},
-                                unet_name=gguf_path,
-                                vae_name=vae_name,
-                                clip_name=clip_name,
-                                seed=seed,
-                                steps=steps,
-                                width=width,
-                                height=height,
-                            )
-                            _used_multiref = True
-                            # Pre-build flat-chain fallback for auto-retry on node errors
-                            _refchain_fallback_wf = _build_per_subject_ref_workflow(
-                                prompt, gguf_path, vae_name, clip_name, steps, seed,
-                                [list(v) for v in subject_uploaded.values() if v],
-                                width=width, height=height,
-                            )
-                        except Exception as _mr_exc:
-                            print(f"[ComfyUI] Multiref build failed ({_mr_exc}) — falling back to flat chain.")
+                if not _used_refchain and len(subject_uploaded) >= 1:
+                    # ── PRIMARY: build_multiref_workflow (1 or more subjects) ──────
+                    # Native FLUX.2 Klein ReferenceLatent conditioning:
+                    #   • Per-character CLIPTextEncode (scene + appearance text)
+                    #   • Per-character isolated ReferenceLatent chain
+                    #   • 2-char: ConditioningSetMask spatial split
+                    #       hard masks (side-by-side) or soft masks (contact_pose)
+                    #   • 1/3+ char: ConditioningCombine (no spatial split)
+                    #   • Only built-in ComfyUI nodes — no custom packs required
+                    try:
+                        from workflow_adapter import build_multiref_workflow as _bmr
+                        workflow = _bmr(
+                            scene_prompt=prompt,
+                            subject_filenames=dict(subject_uploaded),
+                            subject_appearances=subject_appearances or {},
+                            unet_name=gguf_path,
+                            vae_name=vae_name,
+                            clip_name=clip_name,
+                            seed=seed,
+                            steps=steps,
+                            width=width,
+                            height=height,
+                            contact_pose=_contact_pose,
+                        )
+                        _used_multiref = True
+                        _contact_note = " contact-pose" if _contact_pose else ""
+                        print(
+                            f"[ComfyUI] Multiref{_contact_note} workflow — {subject_label}, "
+                            f"output={width}x{height}"
+                        )
+                        # Pre-build flat-chain fallback for auto-retry on node errors
+                        _refchain_fallback_wf = _build_per_subject_ref_workflow(
+                            prompt, gguf_path, vae_name, clip_name, steps, seed,
+                            [list(v) for v in subject_uploaded.values() if v],
+                            width=width, height=height,
+                        )
+                    except Exception as _mr_exc:
+                        print(f"[ComfyUI] Multiref build failed ({_mr_exc}) — falling back to flat chain.")
 
                 if not _used_multiref and not _used_refchain:
-                    # Single subject or multiref build failed — flat native chain.
+                    # Multiref build failed — flat native ReferenceLatent chain fallback.
                     print(
-                        f"[ComfyUI] Flat-chain reference mode — {subject_label}, "
+                        f"[ComfyUI] Flat-chain reference mode (fallback) — {subject_label}, "
                         f"{len(uploaded_names)} image(s) total, output={width}x{height}"
                     )
                     workflow = _build_reference_workflow(
