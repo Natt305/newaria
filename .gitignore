@@ -10,6 +10,12 @@ dist/
 build/
 .eggs/
 data/
+# Allow KB entry files (JSONs + photos) so local instances get character photos via git pull
+!data/knowledge/
+!data/knowledge/images/
+!data/knowledge/images/*.json
+!data/knowledge/images/*.png
+!data/knowledge/images/*.jpg
 *.db
 *.sqlite3
 venv/
