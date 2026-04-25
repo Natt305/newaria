@@ -256,26 +256,29 @@ async def _call_lmstudio(
     """Make a single chat completion request using LM Studio's OpenAI-compatible endpoint.
 
     Reasoning-style models (e.g. Qwen 3) emit a `<think>...</think>` block before
-    the actual answer. Both closed and unclosed think blocks are stripped so the
-    user only sees the final reply. Callers should normally inject `/no_think`
-    into the system prompt (see `_apply_no_think`) so this function doesn't
-    need extra token headroom for reasoning.
+    the actual answer. When thinking is disabled (the default), a closed empty
+    think block is prefilled as a partial assistant message so the model skips
+    the reasoning phase entirely. Both closed and unclosed think blocks are also
+    stripped from any content that slips through.
     """
     url = f"{_base_url()}/v1/chat/completions"
+    # When thinking is disabled we use the Qwen3 "budget=0" prefill trick:
+    # append a closed, empty <think> block as a partial assistant message so
+    # the model believes it has already reasoned and jumps straight to the
+    # answer. This works at the model/template level regardless of which LM
+    # Studio version is installed (no UI toggle required).
+    if not _thinking_enabled() and messages and messages[-1].get("role") != "assistant":
+        outgoing = list(messages) + [{"role": "assistant", "content": "<think>\n</think>\n\n"}]
+    else:
+        outgoing = messages
     payload = {
         "model": model,
-        "messages": messages,
+        "messages": outgoing,
         "stream": False,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
-    # Belt-and-braces server-side disable of qwen3 thinking. Some LM Studio
-    # versions strip `<think>...</think>` server-side and put it in a separate
-    # `reasoning_content` field, in which case the `/no_think` directive in the
-    # system prompt has no effect. Passing `chat_template_kwargs.enable_thinking`
-    # tells the chat template itself to skip the reasoning phase.
-    if not _thinking_enabled():
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
     est = _estimate_tokens(messages)
     sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
     print(f"[LMStudio] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total | max_tokens={max_tokens}")
