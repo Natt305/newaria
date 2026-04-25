@@ -93,6 +93,57 @@ _IMAGE_MARKER_RE = re.compile(
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 _THINK_RE_UNCLOSED = re.compile(r"<think>.*", re.DOTALL)
 
+# ChatML reply format produced by hauhaucs-aggressive fine-tunes.
+# The model wraps every reply in <reply>...</reply>, prefixes dialogue with
+# an optional "[Speaking style]" header and "CharacterName: " prefix, tags
+# the spoken text with an emotion like <cold>...</cold>, and adds an action
+# description inside <subtext>...</subtext>.
+_CR_WRAPPER_RE = re.compile(r"<reply>(.*?)</reply>", re.S)
+_CR_WRAPPER_OPEN_RE = re.compile(r"<reply>", re.S)
+_CR_STYLE_HEADER_RE = re.compile(r"^\[Speaking style[^\]]*\]\s*\n?", re.MULTILINE)
+_CR_SUBTEXT_RE = re.compile(r"<subtext>(.*?)</subtext>", re.S | re.I)
+_CR_EMOTION_RE = re.compile(
+    r"<(cold|warm|neutral|angry|sad|happy|excited|shy|confused|serious|playful|"
+    r"smug|tsundere|soft|fierce|teasing|gentle|tired|formal|casual|bitter|sharp|"
+    r"blunt|quiet|loud|tender|bored|cocky|proud|worried|cheerful|sarcastic|aloof|"
+    r"clingy|nostalgic|wistful|bold|wry|dry|deadpan|dark|sweet|flat|cold|hot|"
+    r"indifferent|distant|close|intense|calm|wild|pained|broken|hollow|raw|"
+    r"resigned|defiant|guilty|righteous|curious|amused|embarrassed|flustered|"
+    r"cheeky|petty|sincere|hollow|empty|heavy|light|bittersweet)>(.*?)</\1>",
+    re.S | re.I,
+)
+_CR_NAME_PREFIX_RE = re.compile(r"^[A-Z][A-Za-z]{1,24}(?: [A-Z][A-Za-z]{1,24})?: ", re.MULTILINE)
+_CR_CLOSE_TAG_RE = re.compile(r"</[a-z_][a-z0-9_-]*>", re.I)
+
+
+def _parse_reply_format(text: str) -> str:
+    """Parse hauhaucs-aggressive ChatML reply format into clean Discord text.
+
+    Extracts the content of <reply>...</reply>, removes [Speaking style]
+    headers and "CharacterName: " prefixes, strips emotion wrapper tags while
+    keeping their text, and converts <subtext>...</subtext> to Discord italics.
+    Returns the original text unchanged if no ChatML structure is detected.
+    """
+    m = _CR_WRAPPER_RE.search(text)
+    if m:
+        text = m.group(1).strip()
+    else:
+        text = _CR_WRAPPER_OPEN_RE.sub("", text)
+
+    text = _CR_STYLE_HEADER_RE.sub("", text)
+
+    def _subtext(match: re.Match) -> str:
+        inner = match.group(1).strip()
+        return f"\n*{inner}*" if inner else ""
+
+    text = _CR_SUBTEXT_RE.sub(_subtext, text)
+    text = _CR_EMOTION_RE.sub(r"\2", text)
+    text = _CR_NAME_PREFIX_RE.sub("", text)
+    text = _CR_CLOSE_TAG_RE.sub("", text)
+    text = text.strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text
+
 _BREAKS_CHARACTER_RE = re.compile(
     r"(大型語言模型|語言模型|language model|large language model|"
     r"我是\s*(gemma|llama|mistral|qwen|phi|claude|gpt|chatgpt|bard|gemini|deepseek|kimi|copilot)\b|"
@@ -489,6 +540,8 @@ async def chat(
             else:
                 print("[LMStudio] Retry succeeded — character restored")
             text = retry_text
+
+    text = _parse_reply_format(text)
 
     marker_match = _IMAGE_MARKER_RE.search(text)
     if marker_match:
