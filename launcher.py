@@ -94,9 +94,12 @@ def main():
         lm_base_url = os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234")
         lm_model = os.environ.get("LMSTUDIO_MODEL", "qwen3.5-9b-uncensored-hauhaucs-aggressive")
         lm_vision_model = os.environ.get("LMSTUDIO_VISION_MODEL", "").strip() or lm_model
+        lm_thinking_raw = os.environ.get("LMSTUDIO_THINKING", "off").strip().lower()
+        lm_thinking_on = lm_thinking_raw in ("on", "true", "1", "yes", "y")
         print(f"[AI] Backend: LM Studio @ {lm_base_url}")
         print(f"[AI] Chat model:   {lm_model}")
         print(f"[AI] Vision model: {lm_vision_model}")
+        print(f"[AI] Thinking:     {'on (slower, deeper reasoning)' if lm_thinking_on else 'off (snappy roleplay mode — set LMSTUDIO_THINKING=on to enable)'}")
         print(f"[AI] Endpoint: {lm_base_url}/v1/chat/completions")
     else:
         if not os.environ.get("GROQ_API_KEY"):

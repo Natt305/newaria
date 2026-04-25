@@ -68,6 +68,23 @@ LMSTUDIO_BASE_URL=http://localhost:1234
 # 預設 / Default: qwen3.5-9b-uncensored-hauhaucs-aggressive
 LMSTUDIO_MODEL=
 
+# 視覺模型（留空時自動沿用 LMSTUDIO_MODEL，因為預設 Qwen 3.5 模型本身支援多模態）
+# Vision model (leave blank to reuse LMSTUDIO_MODEL — the default Qwen 3.5
+# model is itself vision-capable)
+LMSTUDIO_VISION_MODEL=
+
+# 思考模式 / Thinking mode
+#   off（預設） — 在系統提示加入 /no_think，模型直接回覆，不進入推理階段。
+#                角色扮演沉浸感最佳，反應最快。
+#   on          — 允許模型使用 <think>...</think> 進行推理。較慢但回答更深入。
+#
+#   off (default) — Appends /no_think to the system prompt so the model replies
+#                   directly without a reasoning phase. Best for snappy
+#                   roleplay immersion.
+#   on            — Allow the model to use <think>...</think> for reasoning.
+#                   Slower but deeper answers.
+LMSTUDIO_THINKING=off
+
 # ================================================================
 #  Cloudflare 圖像生成（可選）
 # ================================================================

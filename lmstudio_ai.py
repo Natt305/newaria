@@ -176,6 +176,28 @@ def _vision_model() -> str:
     return os.environ.get("LMSTUDIO_VISION_MODEL", "").strip() or _model()
 
 
+def _thinking_enabled() -> bool:
+    """Whether the model should be allowed to use its <think>...</think> phase.
+
+    Off by default: this is a roleplay chatbot, and the reasoning phase adds
+    latency, eats the token budget, and breaks immersion. Set
+    LMSTUDIO_THINKING=on (or true/1/yes) to re-enable for debugging or
+    quality-sensitive tasks.
+    """
+    val = os.environ.get("LMSTUDIO_THINKING", "off").strip().lower()
+    return val in ("on", "true", "1", "yes", "y")
+
+
+def _apply_no_think(system_prompt: str) -> str:
+    """Append the qwen3 `/no_think` directive to the system prompt when thinking
+    is disabled. The directive is a no-op for non-qwen3 models, so this is safe
+    to apply unconditionally when thinking is off."""
+    if _thinking_enabled():
+        return system_prompt
+    base = system_prompt.strip() if system_prompt else ""
+    return (base + "\n\n/no_think").strip() if base else "/no_think"
+
+
 def is_self_referential_image(prompt: str) -> bool:
     return bool(_SELF_REF_RE.search(prompt))
 
@@ -229,16 +251,15 @@ async def _call_lmstudio(
     messages: list,
     model: str,
     temperature: float = 0.8,
-    max_tokens: int = 4096,
+    max_tokens: int = 1024,
 ) -> Optional[str]:
     """Make a single chat completion request using LM Studio's OpenAI-compatible endpoint.
 
     Reasoning-style models (e.g. Qwen 3) emit a `<think>...</think>` block before
     the actual answer. Both closed and unclosed think blocks are stripped so the
-    user only sees the final reply. `max_tokens` defaults to 4096 because
-    reasoning models routinely spend 500-2000 tokens inside `<think>` and need
-    headroom to produce the actual answer afterwards — too low a budget shows up
-    as empty replies (everything got eaten by truncated thinking).
+    user only sees the final reply. Callers should normally inject `/no_think`
+    into the system prompt (see `_apply_no_think`) so this function doesn't
+    need extra token headroom for reasoning.
     """
     url = f"{_base_url()}/v1/chat/completions"
     payload = {
@@ -313,7 +334,7 @@ async def chat(
     system_prompt: str = "",
     model: str = "",
     context_images: Optional[list] = None,
-    max_tokens: int = 4096,
+    max_tokens: int = 1024,
 ) -> tuple[str, Optional[str], bool]:
     """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker).
 
@@ -321,6 +342,10 @@ async def chat(
     content into the last user message. When provided, the vision model is used
     automatically (defaults to the same model since the Qwen 3.5 default is multimodal).
     prompt_from_marker=True means the image prompt came from the [IMAGE: ...] tag.
+
+    By default the qwen3 reasoning phase is disabled (`/no_think` is appended to
+    the system prompt) for snappy roleplay replies. Set LMSTUDIO_THINKING=on to
+    re-enable it.
     """
     # Pick the model: explicit > vision (when images attached) > default chat
     if model:
@@ -330,9 +355,11 @@ async def chat(
     else:
         active_model = _model()
 
+    effective_system = _apply_no_think(system_prompt)
+
     lm_messages = []
-    if system_prompt:
-        lm_messages.append({"role": "system", "content": system_prompt})
+    if effective_system:
+        lm_messages.append({"role": "system", "content": effective_system})
 
     recent = messages[-20:]
     if context_images:
@@ -363,20 +390,29 @@ async def chat(
     if text is None:
         return "I'm having trouble connecting to LM Studio right now. Please make sure LM Studio is running and the ngrok tunnel is active.", None, False
 
-    # Reasoning models (Qwen 3) sometimes spend the entire token budget inside
-    # <think>...</think> and never produce the final answer, leaving the bot
-    # with an empty string. Retry once with `/no_think` appended to disable the
-    # reasoning phase — qwen3 honours this directive in the system prompt.
+    # Empty-response safety net. When thinking is enabled, the model can spend
+    # the whole token budget inside <think>...</think> and never produce the
+    # final answer — retry once with `/no_think` to bypass reasoning. When
+    # thinking is already off, the first call already had `/no_think`, so a
+    # retry wouldn't help; just give up cleanly so bot.py renders its "…"
+    # placeholder rather than a stale string.
     if not text.strip():
-        print("[LMStudio] First call produced empty answer (likely all in <think>) — retrying with /no_think")
-        no_think_system = (system_prompt + "\n\n/no_think").strip() if system_prompt else "/no_think"
-        retry_messages = [{"role": "system", "content": no_think_system}] + lm_messages[1:] if lm_messages and lm_messages[0]["role"] == "system" else [{"role": "system", "content": no_think_system}] + lm_messages
-        retry_text = await _call_lmstudio(retry_messages, model=active_model, max_tokens=max_tokens)
-        if retry_text and retry_text.strip():
-            print("[LMStudio] /no_think retry produced an answer")
-            text = retry_text
+        if _thinking_enabled():
+            print("[LMStudio] Empty answer (likely all in <think>) — retrying with /no_think")
+            no_think_system = (system_prompt + "\n\n/no_think").strip() if system_prompt else "/no_think"
+            if lm_messages and lm_messages[0]["role"] == "system":
+                retry_messages = [{"role": "system", "content": no_think_system}] + lm_messages[1:]
+            else:
+                retry_messages = [{"role": "system", "content": no_think_system}] + lm_messages
+            retry_text = await _call_lmstudio(retry_messages, model=active_model, max_tokens=max_tokens)
+            if retry_text and retry_text.strip():
+                print("[LMStudio] /no_think retry produced an answer")
+                text = retry_text
+            else:
+                print("[LMStudio] /no_think retry also empty — giving up")
+                return "", None, False
         else:
-            print("[LMStudio] /no_think retry also empty — giving up")
+            print("[LMStudio] Empty answer with thinking already off — giving up")
             return "", None, False
 
     if _BREAKS_CHARACTER_RE.search(text):
@@ -457,15 +493,19 @@ async def understand_image(
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{mime_type};base64,{b64}"
 
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": data_url}},
-                {"type": "text", "text": question},
-            ],
-        }
-    ]
+    # Apply /no_think via a tiny system message so the model goes straight to
+    # describing the image instead of burning tokens on reasoning.
+    system_msg = _apply_no_think("")
+    messages = []
+    if system_msg:
+        messages.append({"role": "system", "content": system_msg})
+    messages.append({
+        "role": "user",
+        "content": [
+            {"type": "image_url", "image_url": {"url": data_url}},
+            {"type": "text", "text": question},
+        ],
+    })
 
     try:
         text = await _call_lmstudio(messages, model=model, temperature=0.5, max_tokens=2048)
