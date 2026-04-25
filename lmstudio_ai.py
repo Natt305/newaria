@@ -142,6 +142,13 @@ def _parse_reply_format(text: str) -> str:
     text = _CR_CLOSE_TAG_RE.sub("", text)
     text = text.strip()
     text = re.sub(r"\n{3,}", "\n\n", text)
+    paragraphs = []
+    for para in text.split("\n\n"):
+        stripped = para.strip()
+        if stripped and not stripped.startswith("*"):
+            para = f"**{stripped}**"
+        paragraphs.append(para)
+    text = "\n\n".join(paragraphs)
     return text
 
 _BREAKS_CHARACTER_RE = re.compile(
