@@ -269,6 +269,13 @@ async def _call_lmstudio(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    # Belt-and-braces server-side disable of qwen3 thinking. Some LM Studio
+    # versions strip `<think>...</think>` server-side and put it in a separate
+    # `reasoning_content` field, in which case the `/no_think` directive in the
+    # system prompt has no effect. Passing `chat_template_kwargs.enable_thinking`
+    # tells the chat template itself to skip the reasoning phase.
+    if not _thinking_enabled():
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     est = _estimate_tokens(messages)
     sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
     print(f"[LMStudio] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total | max_tokens={max_tokens}")
@@ -286,7 +293,12 @@ async def _call_lmstudio(
                 if not choices:
                     print("[LMStudio] No choices in response")
                     return None
-                raw_content = choices[0].get("message", {}).get("content") or ""
+                message_obj = choices[0].get("message", {}) or {}
+                raw_content = message_obj.get("content") or ""
+                # Some LM Studio versions split qwen3 reasoning into a separate
+                # `reasoning_content` field while leaving `content` empty. Read
+                # both so we can fall back if needed.
+                reasoning_content = message_obj.get("reasoning_content") or ""
                 # Strip both closed <think>...</think> and any trailing unclosed
                 # <think>... that got cut off by the token limit.
                 content = _THINK_RE.sub("", raw_content)
@@ -297,12 +309,22 @@ async def _call_lmstudio(
                 finish_reason = choices[0].get("finish_reason", "?")
                 print(f"[LMStudio] Response: finish_reason={finish_reason} | prompt_tokens={prompt_tokens} | completion_tokens={completion_tokens}")
                 if not content:
-                    # Distinguish "model only produced thinking" from "model returned literally nothing"
                     raw_len = len(raw_content)
-                    if "<think>" in raw_content:
-                        print(f"[LMStudio] Empty after stripping <think> (raw was {raw_len}ch, finish_reason={finish_reason}) — caller may retry without thinking")
-                    else:
-                        print(f"[LMStudio] Empty response from model (raw was {raw_len}ch, finish_reason={finish_reason})")
+                    msg_keys = list(message_obj.keys())
+                    print(f"[LMStudio] Empty content. Raw content len={raw_len}, message keys={msg_keys}")
+                    if reasoning_content:
+                        # Server put the whole answer in reasoning_content. We
+                        # can't always tell where reasoning ends and the reply
+                        # begins, so use the last non-empty paragraph as the
+                        # best guess for the actual answer.
+                        rc_paragraphs = [p.strip() for p in reasoning_content.split("\n\n") if p.strip()]
+                        salvaged = rc_paragraphs[-1] if rc_paragraphs else reasoning_content.strip()
+                        print(f"[LMStudio] Salvaging from reasoning_content ({len(reasoning_content)}ch): {salvaged[:200]!r}")
+                        return salvaged
+                    if raw_content:
+                        # `content` had text but it was all inside <think>. Show
+                        # a snippet so the user can see what the model produced.
+                        print(f"[LMStudio] Raw content snippet (was all <think>): {raw_content[:300]!r}")
                     return ""
                 print(f"[LMStudio] Response text: {content[:200]!r}")
                 return content
