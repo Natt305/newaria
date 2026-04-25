@@ -229,9 +229,17 @@ async def _call_lmstudio(
     messages: list,
     model: str,
     temperature: float = 0.8,
-    max_tokens: int = 1024,
+    max_tokens: int = 4096,
 ) -> Optional[str]:
-    """Make a single chat completion request using LM Studio's OpenAI-compatible endpoint."""
+    """Make a single chat completion request using LM Studio's OpenAI-compatible endpoint.
+
+    Reasoning-style models (e.g. Qwen 3) emit a `<think>...</think>` block before
+    the actual answer. Both closed and unclosed think blocks are stripped so the
+    user only sees the final reply. `max_tokens` defaults to 4096 because
+    reasoning models routinely spend 500-2000 tokens inside `<think>` and need
+    headroom to produce the actual answer afterwards — too low a budget shows up
+    as empty replies (everything got eaten by truncated thinking).
+    """
     url = f"{_base_url()}/v1/chat/completions"
     payload = {
         "model": model,
@@ -242,12 +250,12 @@ async def _call_lmstudio(
     }
     est = _estimate_tokens(messages)
     sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
-    print(f"[LMStudio] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total")
+    print(f"[LMStudio] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total | max_tokens={max_tokens}")
     if messages and messages[0]["role"] == "system":
         print(f"[LMStudio] System prompt start: {messages[0]['content'][:200]!r}")
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=180)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
                     print(f"[LMStudio] HTTP {resp.status}: {body[:500]}")
@@ -257,13 +265,24 @@ async def _call_lmstudio(
                 if not choices:
                     print("[LMStudio] No choices in response")
                     return None
-                content = choices[0].get("message", {}).get("content") or ""
-                content = _THINK_RE.sub("", content).strip()
+                raw_content = choices[0].get("message", {}).get("content") or ""
+                # Strip both closed <think>...</think> and any trailing unclosed
+                # <think>... that got cut off by the token limit.
+                content = _THINK_RE.sub("", raw_content)
+                content = _THINK_RE_UNCLOSED.sub("", content).strip()
                 usage = data.get("usage", {})
                 prompt_tokens = usage.get("prompt_tokens", "?")
                 completion_tokens = usage.get("completion_tokens", "?")
                 finish_reason = choices[0].get("finish_reason", "?")
                 print(f"[LMStudio] Response: finish_reason={finish_reason} | prompt_tokens={prompt_tokens} | completion_tokens={completion_tokens}")
+                if not content:
+                    # Distinguish "model only produced thinking" from "model returned literally nothing"
+                    raw_len = len(raw_content)
+                    if "<think>" in raw_content:
+                        print(f"[LMStudio] Empty after stripping <think> (raw was {raw_len}ch, finish_reason={finish_reason}) — caller may retry without thinking")
+                    else:
+                        print(f"[LMStudio] Empty response from model (raw was {raw_len}ch, finish_reason={finish_reason})")
+                    return ""
                 print(f"[LMStudio] Response text: {content[:200]!r}")
                 return content
     except aiohttp.ClientConnectorError:
@@ -294,7 +313,7 @@ async def chat(
     system_prompt: str = "",
     model: str = "",
     context_images: Optional[list] = None,
-    max_tokens: int = 1024,
+    max_tokens: int = 4096,
 ) -> tuple[str, Optional[str], bool]:
     """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker).
 
@@ -343,6 +362,22 @@ async def chat(
 
     if text is None:
         return "I'm having trouble connecting to LM Studio right now. Please make sure LM Studio is running and the ngrok tunnel is active.", None, False
+
+    # Reasoning models (Qwen 3) sometimes spend the entire token budget inside
+    # <think>...</think> and never produce the final answer, leaving the bot
+    # with an empty string. Retry once with `/no_think` appended to disable the
+    # reasoning phase — qwen3 honours this directive in the system prompt.
+    if not text.strip():
+        print("[LMStudio] First call produced empty answer (likely all in <think>) — retrying with /no_think")
+        no_think_system = (system_prompt + "\n\n/no_think").strip() if system_prompt else "/no_think"
+        retry_messages = [{"role": "system", "content": no_think_system}] + lm_messages[1:] if lm_messages and lm_messages[0]["role"] == "system" else [{"role": "system", "content": no_think_system}] + lm_messages
+        retry_text = await _call_lmstudio(retry_messages, model=active_model, max_tokens=max_tokens)
+        if retry_text and retry_text.strip():
+            print("[LMStudio] /no_think retry produced an answer")
+            text = retry_text
+        else:
+            print("[LMStudio] /no_think retry also empty — giving up")
+            return "", None, False
 
     if _BREAKS_CHARACTER_RE.search(text):
         print("[LMStudio] Character break detected — retrying with laser-focused identity prompt")
@@ -433,8 +468,8 @@ async def understand_image(
     ]
 
     try:
-        text = await _call_lmstudio(messages, model=model, temperature=0.5, max_tokens=1024)
-        if text:
+        text = await _call_lmstudio(messages, model=model, temperature=0.5, max_tokens=2048)
+        if text and text.strip():
             print(f"[LMStudio Vision] Success with model: {model}")
             return text
         print(f"[LMStudio Vision] Empty response from {model} — model may not be vision-capable")
