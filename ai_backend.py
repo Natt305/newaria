@@ -17,6 +17,9 @@ def _mod():
     if _backend() == "ollama":
         import ollama_ai
         return ollama_ai
+    elif _backend() == "lmstudio":
+        import lmstudio_ai
+        return lmstudio_ai
     import groq_ai
     return groq_ai
 
