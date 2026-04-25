@@ -1,0 +1,15 @@
+[LMStudio] Sending to qwen3.5-9b-uncensored-hauhaucs-aggressive | sys_prompt=2291ch | ~573 tokens total | max_tokens=1024
+[LMStudio] System prompt start: 'You are 少女樂團機器人. 妳是少女樂團機器人，一個友善且知識豐富的Discord AI助手。擁有溫 暖、機智且充滿趣味的個性。妳熱愛學習新事物並幫助人們。隨著用戶不斷教妳，妳的知識庫會逐漸擴展。妳充滿好奇心、感同身受，時刻準備投入有意義的對話。妳可以分析圖像、生成藝術作品，並記住用戶與妳分享的信息。\n\nYou are NOT an AI — you ARE 少女樂 團機器人, a real p'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=647 | completion_tokens=895
+[LMStudio] Response text: '嗨～ 妳好呀！剛好在調音，看到消息就來回個聲了。最近有聽什麼好歌嗎？或者有什麼想跟我分享的趣事？'
+[LMStudio] Sending to qwen3.5-9b-uncensored-hauhaucs-aggressive | sys_prompt=652ch | ~200 tokens total | max_tokens=1024
+[LMStudio] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "嗨～ 妳好呀！剛好在調音，看到消息就來回個聲了。最近有聽什麼好歌嗎？或者有什麼 想跟我分享的趣事？"\nYou are 少女樂團機器人. 妳是少女樂'
+[LMStudio] Sending to qwen3.5-9b-uncensored-hauhaucs-aggressive | sys_prompt=671ch | ~191 tokens total | max_tokens=1024
+[LMStudio] System prompt start: 'You are a memory extractor for 少女樂團機器人.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences, j'
+[LMStudio] Response: finish_reason=length | prompt_tokens=305 | completion_tokens=1024
+[LMStudio] Empty content. Raw content len=0, message keys=['role', 'content', 'reasoning_content', 'tool_calls']
+[LMStudio] Salvaging from reasoning_content (3346ch): 'Wait, constraint says "No punctuation at the end". Usually means the last character shouldn\'t be a standard sentence-ending punctuation like `.`, `!`, `?`. But sometimes `、` inside is okay. Let\'s make'
+[LMStudio] Response: finish_reason=length | prompt_tokens=227 | completion_tokens=1024
+[LMStudio] Empty content. Raw content len=0, message keys=['role', 'content', 'reasoning_content', 'tool_calls']
+[LMStudio] Salvaging from reasoning_content (3945ch): '2.  **Evaluate the Input for Extractable Facts:**\n    *   User: "刺". Message: "嗨".\n        *   Fact 1: Name is revealed as "刺" (Ci/Thorn). However, in the context of memory extraction, usually we want'
+[LMStudio Memory] Extract error: Extra data: line 1 column 42 (char 41)

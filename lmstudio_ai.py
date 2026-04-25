@@ -310,20 +310,23 @@ async def _call_lmstudio(
                 print(f"[LMStudio] Response: finish_reason={finish_reason} | prompt_tokens={prompt_tokens} | completion_tokens={completion_tokens}")
                 if not content:
                     raw_len = len(raw_content)
+                    rc_len = len(reasoning_content)
                     msg_keys = list(message_obj.keys())
-                    print(f"[LMStudio] Empty content. Raw content len={raw_len}, message keys={msg_keys}")
-                    if reasoning_content:
-                        # Server put the whole answer in reasoning_content. We
-                        # can't always tell where reasoning ends and the reply
-                        # begins, so use the last non-empty paragraph as the
-                        # best guess for the actual answer.
-                        rc_paragraphs = [p.strip() for p in reasoning_content.split("\n\n") if p.strip()]
-                        salvaged = rc_paragraphs[-1] if rc_paragraphs else reasoning_content.strip()
-                        print(f"[LMStudio] Salvaging from reasoning_content ({len(reasoning_content)}ch): {salvaged[:200]!r}")
-                        return salvaged
+                    print(f"[LMStudio] Empty content. Raw content len={raw_len}, reasoning_content len={rc_len}, message keys={msg_keys}")
+                    if reasoning_content and finish_reason == "length":
+                        # Reasoning was cut off mid-thought — the salvaged text
+                        # would just be more reasoning, not a real answer (and
+                        # for utility callers like memory/suggestions it would
+                        # break downstream JSON parsing). Surface a clear note
+                        # for the operator and return empty so the caller can
+                        # fall back cleanly.
+                        print(f"[LMStudio] Reasoning ran out of tokens (finish_reason=length, {rc_len}ch in reasoning_content). Bump max_tokens or disable reasoning in LM Studio's UI for this model.")
+                    elif reasoning_content:
+                        # Reasoning finished cleanly but produced no answer.
+                        # Show a snippet so the operator can see what happened.
+                        print(f"[LMStudio] Reasoning completed but no final answer. Reasoning tail: {reasoning_content.strip()[-200:]!r}")
                     if raw_content:
-                        # `content` had text but it was all inside <think>. Show
-                        # a snippet so the user can see what the model produced.
+                        # `content` had text but it was all inside <think>.
                         print(f"[LMStudio] Raw content snippet (was all <think>): {raw_content[:300]!r}")
                     return ""
                 print(f"[LMStudio] Response text: {content[:200]!r}")
@@ -561,7 +564,10 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     messages = [{"role": "user", "content": f"Extract memorable facts:\n\n{exchange[:1500]}"}]
 
     try:
-        text, *_ = await chat(messages, system_prompt=system)
+        # Larger budget than chat() default — qwen3 reasoning often needs
+        # 2-3K tokens before producing the JSON output. Falls back gracefully
+        # to [] when LM Studio still hides everything in reasoning_content.
+        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096)
         if not text:
             return []
         start = text.find("[")
@@ -782,7 +788,7 @@ async def generate_image_comment(
 
     messages = [{"role": "user", "content": msg}]
     try:
-        text, *_ = await chat(messages, system_prompt=system)
+        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096)
         if text and len(text.strip()) > 2:
             return text.strip()
     except Exception as e:
@@ -828,7 +834,9 @@ async def generate_suggestions(
     messages = [{"role": "user", "content": prompt}]
 
     try:
-        text, *_ = await chat(messages, system_prompt=system)
+        # Suggestions need a bigger budget than chat() default since the model
+        # reasons about language matching and tone before producing JSON.
+        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096)
         if not text:
             return []
         start = text.find("[")
