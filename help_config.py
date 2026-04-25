@@ -70,13 +70,6 @@ ADMIN_HELP_SECTIONS: List[Tuple[str, str]] = [
         "`/clearmemory all:True` — 清除所有人的記憶 (需管理員)",
     ),
     (
-        "🎭 敘事模式",
-        "`/narrative` 或 `!narrative` — 切換此頻道的 Narrative Mode\n"
-        "　開啟後：對話加粗引號、氛圍描寫、微表情細節、感官文字。\n"
-        "　圖像生成同步加入電影構圖與戲劇光影。\n"
-        "　再次輸入即可關閉，設定僅限當前頻道。",
-    ),
-    (
         "💬 建議按鈕",
         "`/suggestions` — 開啟或關閉回覆下方的建議按鈕\n"
         "`/setsuggestionprompt <提示詞>` — 自訂建議生成提示詞 (覆蓋預設)\n"

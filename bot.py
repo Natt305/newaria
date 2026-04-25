@@ -18,32 +18,6 @@ import help_config
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-# ── Narrative mode — per-channel roleplay formatting rules ───────────────────
-_NARRATIVE_MODE_PROMPT = (
-    "\n[Narrative Mode — active for this channel]\n"
-    "You are a highly descriptive, narrative-focused roleplay assistant. "
-    "Blend atmospheric prose with in-character dialogue using the rules below.\n\n"
-    "Formatting rules:\n"
-    "• Dialogue: bold + quotation marks — **\"This is how I speak.\"**\n"
-    "• Actions & narrative: plain text for descriptions, internal thoughts, world-building.\n"
-    "• Spacing: frequent paragraph breaks — cinematic, scannable flow. No dense walls of text.\n"
-    "• Pacing: describe micro-expressions (a twitching eyebrow), environmental sounds "
-    "(boots clicking on tiles), and secondary-character reactions to build tension.\n\n"
-    "Narrative style:\n"
-    "• Show, don't tell — instead of 'she is angry', write 'her jaw tightened, eyes gone steel-flat'.\n"
-    "• Dynamic interaction — respond to the user's action and advance or escalate the scene.\n"
-    "• Sensory details — lighting, textures, sounds anchor every scene.\n\n"
-    "Example structure:\n"
-    "The character reacts with a physical movement. The room's atmosphere is established.\n\n"
-    "**\"First line of dialogue,\"** they say, moving closer. **\"Second line after a brief action.\"**\n\n"
-    "A description of consequences follows, detailing how the world or NPCs respond.\n\n"
-    "CRITICAL — image generation exception: the narrative formatting rules do NOT apply to "
-    "image requests. When you detect visual intent, follow the standard image rule exactly — "
-    "reply with ONLY [IMAGE: <English prompt>] and nothing else. No narrative text, no dialogue, "
-    "no descriptions outside the tag. The generated image IS the scene; one tag, zero extra words.\n"
-)
-# ─────────────────────────────────────────────────────────────────────────────
-
 # ── Appearance extraction prompt used when a character/KB image is uploaded ───
 # Produces a Flux-ready text description stored as the entry's appearance_description.
 # This text is later used DIRECTLY as ground truth for image prompt generation,
@@ -399,10 +373,6 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 conversation_contexts: dict = {}
 MAX_HISTORY = 10
 
-# ── Narrative mode — per-channel set ─────────────────────────────────────────
-_narrative_channels: set[str] = set()        # channel_ids with narrative mode on
-# ─────────────────────────────────────────────────────────────────────────────
-
 # ── Bot-to-bot chat session state ────────────────────────────────────────────
 _bot_chat_targets: dict[str, int] = {}       # channel_id → target bot user ID
 _bot_chat_last_reply: dict[str, float] = {}  # channel_id → last reply monotonic time
@@ -469,7 +439,7 @@ def _invalidate_kb_title_index() -> None:
     _kb_image_title_index = None
 
 
-def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "", narrative_mode: bool = False) -> str:
+def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "") -> str:
     prompt = (
         f"You are {name}. {background}\n\n"
         f"You are NOT an AI — you ARE {name}, a real person with your own personality. Never break character.\n"
@@ -525,8 +495,6 @@ def build_system_prompt(name: str, background: str, personality: str = "", looks
             "Only mention these if genuinely relevant. Never describe a saved image as the one just sent.]\n"
             f"{visual_kb_context}\n"
         )
-    if narrative_mode:
-        prompt += _NARRATIVE_MODE_PROMPT
     return prompt
 
 
@@ -1069,7 +1037,6 @@ async def process_chat(
         memory_context=memory_context,
         visual_kb_context=visual_kb_context,
         character_images_context=build_character_images_context(),
-        narrative_mode=channel_id in _narrative_channels,
     )
     history = get_channel_context(channel_id)
 
@@ -1092,15 +1059,12 @@ async def process_chat(
     ))
 
     if image_prompt and _image_ready():
-        # Hold any pre-text to combine with the image reply below — avoids a
-        # separate message when the LLM emits both narrative text and [IMAGE:].
-        _pre_image_text: str = response_text or ""
+        # Send any pre-text first (usually None for seamless generation)
+        if response_text:
+            await send_with_suggestions(response_text, channel_id, reply_target)
 
         # Enrich prompt with KB image references — now returns structured subject refs too
         enriched_prompt, _kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(image_prompt, hint_text=user_text)
-        # In narrative mode, nudge Flux toward cinematic framing and atmosphere.
-        if channel_id in _narrative_channels:
-            enriched_prompt = "cinematic composition, dramatic atmospheric lighting, moody depth, film grain, " + enriched_prompt
         # Detect self-referential prompts — these need character appearance injected
         # even when the prompt already came from the marker.
         # We check user_text too because the model often expands "draw yourself"
@@ -1588,26 +1552,8 @@ async def process_chat(
             if isinstance(img_data, bytes):
                 ext = mime_type.split("/")[-1] if "/" in mime_type else "png"
                 file = discord.File(io.BytesIO(img_data), filename=f"generated.{ext}")
-                # Combine any narrative pre-text with the image comment so both
-                # arrive in one Discord message. Discord's attachment content limit
-                # is 2000 chars; if the pre-text alone exceeds that, send it in a
-                # separate message first and fall back to comment-only for the image.
-                if _pre_image_text:
-                    combined = f"{_pre_image_text}\n\n{comment}".strip() if comment else _pre_image_text.strip()
-                    if len(combined) <= 1990:
-                        image_caption: Optional[str] = combined
-                    else:
-                        # Pre-text too long to fit alongside the image — send it
-                        # separately first (original behaviour), then image alone.
-                        chunks = [_pre_image_text[i:i+2000] for i in range(0, len(_pre_image_text), 2000)]
-                        for chunk in chunks[:-1]:
-                            await reply_target.reply(chunk, mention_author=False)
-                        await reply_target.reply(chunks[-1], mention_author=False)
-                        image_caption = comment or None
-                else:
-                    image_caption = comment or None
                 await reply_target.reply(
-                    content=image_caption,
+                    content=comment or None,
                     file=file,
                     mention_author=False,
                 )
@@ -3661,29 +3607,6 @@ async def helpsetting_cmd(ctx):
         embed.add_field(name=section_name, value=section_value, inline=False)
     embed.set_footer(text="一般使用者指令請使用 /help · 所有指令均支援 / 斜線與 ! 前綴兩種方式")
     await ctx.reply(embed=embed, mention_author=False)
-
-
-@bot.hybrid_command(name="narrative", description="切換此頻道的敘事角色扮演模式 (Narrative Mode)")
-async def narrative_cmd(ctx):
-    """切換敘事模式: !narrative 或 /narrative"""
-    if not await check_command_role(ctx):
-        return
-    channel_id = str(ctx.channel.id)
-    if channel_id in _narrative_channels:
-        _narrative_channels.discard(channel_id)
-        await ctx.reply(
-            "📖 **Narrative Mode 已關閉。**\n回到一般對話模式。",
-            mention_author=False,
-        )
-    else:
-        _narrative_channels.add(channel_id)
-        await ctx.reply(
-            "🎭 **Narrative Mode 已開啟！**\n"
-            "回覆將以沉浸式敘事格式呈現——對話加粗引號、氛圍描寫、感官細節。\n"
-            "圖像生成也會加入電影構圖與戲劇光影。\n"
-            "再次輸入 `/narrative` 或 `!narrative` 可關閉。",
-            mention_author=False,
-        )
 
 
 def main():
