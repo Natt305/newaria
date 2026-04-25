@@ -8,8 +8,8 @@ DISCORD_BOT_TOKEN=
 
 # ================================================================
 #  AI 後端設定 / AI Backend Configuration
-#  選擇 "groq" 或 "ollama"（預設為 groq）
-#  Choose "groq" or "ollama" (default: groq)
+#  選擇 "groq"、"ollama" 或 "lmstudio"（預設為 groq）
+#  Choose "groq", "ollama", or "lmstudio" (default: groq)
 # ================================================================
 AI_BACKEND=groq
 
@@ -49,6 +49,24 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma3:12b
 # 視覺模型，用於圖片理解（預設 gemma3:12b，支援多模態）
 OLLAMA_VISION_MODEL=gemma3:12b
+
+# --- LM Studio 設定（AI_BACKEND=lmstudio 時使用）---
+# ================================================================
+#  ⚠ 注意：若使用 ngrok 將本機 LM Studio 暴露到網路，每次重新啟動 ngrok 隧道後
+#  URL 都會改變，需手動更新 LMSTUDIO_BASE_URL。
+#
+#  NOTE: If you expose LM Studio via ngrok, the tunnel URL changes every time
+#  ngrok restarts. Update LMSTUDIO_BASE_URL here whenever the tunnel is restarted.
+# ================================================================
+# LM Studio 伺服器位址（本機直連預設為 http://localhost:1234；
+# 使用 ngrok 時填入 ngrok 產生的 https URL，例如 https://xxxx.ngrok-free.app）
+# LM Studio server URL (local default: http://localhost:1234;
+# when using ngrok, paste the https URL here, e.g. https://xxxx.ngrok-free.app)
+LMSTUDIO_BASE_URL=http://localhost:1234
+# 文字模型識別碼（與 LM Studio 中載入的模型名稱相符）
+# Model identifier — must match the model loaded in LM Studio
+# 預設 / Default: qwen3.5-9b-uncensored-hauhaucs-aggressive
+LMSTUDIO_MODEL=
 
 # ================================================================
 #  Cloudflare 圖像生成（可選）
