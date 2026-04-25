@@ -36,7 +36,11 @@ _NARRATIVE_MODE_PROMPT = (
     "Example structure:\n"
     "The character reacts with a physical movement. The room's atmosphere is established.\n\n"
     "**\"First line of dialogue,\"** they say, moving closer. **\"Second line after a brief action.\"**\n\n"
-    "A description of consequences follows, detailing how the world or NPCs respond.\n"
+    "A description of consequences follows, detailing how the world or NPCs respond.\n\n"
+    "CRITICAL — image generation exception: the narrative formatting rules do NOT apply to "
+    "image requests. When you detect visual intent, follow the standard image rule exactly — "
+    "reply with ONLY [IMAGE: <English prompt>] and nothing else. No narrative text, no dialogue, "
+    "no descriptions outside the tag. The generated image IS the scene; one tag, zero extra words.\n"
 )
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1088,9 +1092,9 @@ async def process_chat(
     ))
 
     if image_prompt and _image_ready():
-        # Send any pre-text first (usually None for seamless generation)
-        if response_text:
-            await send_with_suggestions(response_text, channel_id, reply_target)
+        # Hold any pre-text to combine with the image reply below — avoids a
+        # separate message when the LLM emits both narrative text and [IMAGE:].
+        _pre_image_text: str = response_text or ""
 
         # Enrich prompt with KB image references — now returns structured subject refs too
         enriched_prompt, _kb_matches, _kb_subject_refs = await _enrich_image_prompt_with_kb(image_prompt, hint_text=user_text)
@@ -1584,8 +1588,26 @@ async def process_chat(
             if isinstance(img_data, bytes):
                 ext = mime_type.split("/")[-1] if "/" in mime_type else "png"
                 file = discord.File(io.BytesIO(img_data), filename=f"generated.{ext}")
+                # Combine any narrative pre-text with the image comment so both
+                # arrive in one Discord message. Discord's attachment content limit
+                # is 2000 chars; if the pre-text alone exceeds that, send it in a
+                # separate message first and fall back to comment-only for the image.
+                if _pre_image_text:
+                    combined = f"{_pre_image_text}\n\n{comment}".strip() if comment else _pre_image_text.strip()
+                    if len(combined) <= 1990:
+                        image_caption: Optional[str] = combined
+                    else:
+                        # Pre-text too long to fit alongside the image — send it
+                        # separately first (original behaviour), then image alone.
+                        chunks = [_pre_image_text[i:i+2000] for i in range(0, len(_pre_image_text), 2000)]
+                        for chunk in chunks[:-1]:
+                            await reply_target.reply(chunk, mention_author=False)
+                        await reply_target.reply(chunks[-1], mention_author=False)
+                        image_caption = comment or None
+                else:
+                    image_caption = comment or None
                 await reply_target.reply(
-                    content=comment or None,
+                    content=image_caption,
                     file=file,
                     mention_author=False,
                 )
