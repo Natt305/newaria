@@ -93,10 +93,11 @@ def main():
     elif backend == "lmstudio":
         lm_base_url = os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234")
         lm_model = os.environ.get("LMSTUDIO_MODEL", "qwen3.5-9b-uncensored-hauhaucs-aggressive")
+        lm_vision_model = os.environ.get("LMSTUDIO_VISION_MODEL", "").strip() or lm_model
         print(f"[AI] Backend: LM Studio @ {lm_base_url}")
-        print(f"[AI] Model: {lm_model}")
+        print(f"[AI] Chat model:   {lm_model}")
+        print(f"[AI] Vision model: {lm_vision_model}")
         print(f"[AI] Endpoint: {lm_base_url}/v1/chat/completions")
-        print(f"[AI] Note: Vision (image understanding) is not supported via LM Studio backend.")
     else:
         if not os.environ.get("GROQ_API_KEY"):
             print("[Warning] GROQ_API_KEY is not set. Text chat will be unavailable.")

@@ -132,6 +132,32 @@ _NEGATION_RE = re.compile(
     re.I,
 )
 
+# Phrases that indicate the response is a refusal, apology, or connection-error
+# message rather than a usable image prompt. Used by enhance_image_prompt() to
+# avoid passing error text downstream to the image generator.
+_REFUSAL_PHRASES: tuple[str, ...] = (
+    "i'm sorry",
+    "i am sorry",
+    "i cannot",
+    "i can't",
+    "i am unable",
+    "i'm unable",
+    "unable to view",
+    "unable to see",
+    "cannot view",
+    "can't view",
+    "without being able to view",
+    "without being able to see",
+    "without access to the",
+    "no image was provided",
+    "no reference image",
+    "don't have access to",
+    "do not have access to",
+    "cannot access the image",
+    # LM Studio connection failure (returned by chat() when _call_lmstudio fails)
+    "having trouble connecting to lm studio",
+)
+
 
 def _base_url() -> str:
     return os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234").rstrip("/")
@@ -139,6 +165,15 @@ def _base_url() -> str:
 
 def _model() -> str:
     return os.environ.get("LMSTUDIO_MODEL", DEFAULT_MODEL)
+
+
+def _vision_model() -> str:
+    """Return the configured vision model.
+
+    LMSTUDIO_VISION_MODEL takes precedence; otherwise we reuse LMSTUDIO_MODEL
+    because the default Qwen 3.5 model is itself vision-capable.
+    """
+    return os.environ.get("LMSTUDIO_VISION_MODEL", "").strip() or _model()
 
 
 def is_self_referential_image(prompt: str) -> bool:
@@ -263,21 +298,46 @@ async def chat(
 ) -> tuple[str, Optional[str], bool]:
     """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker).
 
-    Vision (context_images) is not supported by this backend — returns a graceful error message.
+    context_images: optional list of (bytes, mime_type) tuples injected as visual
+    content into the last user message. When provided, the vision model is used
+    automatically (defaults to the same model since the Qwen 3.5 default is multimodal).
     prompt_from_marker=True means the image prompt came from the [IMAGE: ...] tag.
     """
-    if context_images:
-        print("[LMStudio] Vision not supported — ignoring context_images")
-
-    active_model = model if model else _model()
+    # Pick the model: explicit > vision (when images attached) > default chat
+    if model:
+        active_model = model
+    elif context_images:
+        active_model = _vision_model()
+    else:
+        active_model = _model()
 
     lm_messages = []
     if system_prompt:
         lm_messages.append({"role": "system", "content": system_prompt})
 
     recent = messages[-20:]
-    plain_recent = _strip_multimodal(recent)
-    lm_messages.extend(plain_recent)
+    if context_images:
+        # Inject images as multimodal content into the last user message
+        for i, msg in enumerate(recent):
+            content = msg["content"]
+            if isinstance(content, list):
+                # Already multimodal — flatten text parts
+                text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+                content = " ".join(text_parts)
+            if i == len(recent) - 1 and msg["role"] == "user":
+                image_parts = []
+                for img_bytes, img_mime in context_images:
+                    b64 = base64.b64encode(img_bytes).decode("utf-8")
+                    data_url = f"data:{img_mime};base64,{b64}"
+                    image_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+                image_parts.append({"type": "text", "text": content if isinstance(content, str) else str(content)})
+                lm_messages.append({"role": msg["role"], "content": image_parts})
+            else:
+                lm_messages.append({"role": msg["role"], "content": content})
+        print(f"[LMStudio] Using vision model {active_model} with {len(context_images)} reference image(s)")
+    else:
+        plain_recent = _strip_multimodal(recent)
+        lm_messages.extend(plain_recent)
 
     text = await _call_lmstudio(lm_messages, model=active_model, max_tokens=max_tokens)
 
@@ -352,9 +412,36 @@ async def understand_image(
     mime_type: str,
     question: str = "Describe this image in detail.",
 ) -> Optional[str]:
-    """Vision is not supported by LM Studio in this backend configuration."""
-    print("[LMStudio] understand_image called — vision not supported, returning None")
-    return None
+    """Analyze an image using LM Studio's vision-capable model.
+
+    Sends a multimodal user message (image_url + text) to /v1/chat/completions.
+    Returns the description string on success, or None on failure (e.g. the
+    loaded model isn't actually multimodal, or the server is unreachable).
+    """
+    model = _vision_model()
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{mime_type};base64,{b64}"
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": question},
+            ],
+        }
+    ]
+
+    try:
+        text = await _call_lmstudio(messages, model=model, temperature=0.5, max_tokens=1024)
+        if text:
+            print(f"[LMStudio Vision] Success with model: {model}")
+            return text
+        print(f"[LMStudio Vision] Empty response from {model} — model may not be vision-capable")
+        return None
+    except Exception as e:
+        print(f"[LMStudio Vision] Error: {e}")
+        return None
 
 
 async def extract_memories(exchange: str, bot_name: str) -> list:
@@ -403,26 +490,41 @@ async def enhance_image_prompt(
 ) -> str:
     """Translate and expand a raw prompt into a rich English image-generation prompt.
 
-    reference_images are not supported (vision not available); text-only path is used.
+    When reference_images are provided, they are passed through chat() as
+    context_images so the vision model can read appearance directly from the
+    photos — significantly improving accuracy for traits like eye color and
+    hair tone.
     """
     import re as _re_artstrip
     _art_style_line_re = _re_artstrip.compile(r"(?m)^ART STYLE[:\s][^\n]*\n?", _re_artstrip.IGNORECASE)
     if character_context:
         character_context = _art_style_line_re.sub("", character_context)
 
+    has_images = bool(reference_images)
+
     char_block = ""
     if character_context and character_context.strip():
-        char_block = (
-            f"\n[CHARACTER APPEARANCE — VERIFIED GROUND TRUTH]\n"
-            f"The following contains confirmed, factual appearance details for the character. "
-            f"You MUST use ALL of these physical traits in your output. Do NOT invent, alter, or substitute any of them.\n"
-            f"Eye color, hair color, hairstyle, skin tone, AND OUTFIT described here are FINAL — "
-            f"they override anything conflicting in the raw prompt or your own assumptions. "
-            f"If an outfit is described here, reproduce it in full detail in the output. "
-            f"Do NOT summarize, omit, or replace any garment piece listed.\n"
-            f"EXCEPTION: any ART STYLE line in this block is irrelevant — the art style is always fixed as 2D anime.\n"
-            f"{character_context.strip()}\n"
-        )
+        if has_images:
+            # Photos are primary appearance source; text supplements only
+            char_block = (
+                f"\n[CHARACTER APPEARANCE — SUPPLEMENTAL TEXT (photos are primary)]\n"
+                f"Reference photos are attached. Read appearance from the photos first.\n"
+                f"Use the text below ONLY as a supplement for details not clearly visible in the photos.\n"
+                f"EXCEPTION: any ART STYLE line in this block is irrelevant — art style is always fixed as 2D anime.\n"
+                f"{character_context.strip()}\n"
+            )
+        else:
+            char_block = (
+                f"\n[CHARACTER APPEARANCE — VERIFIED GROUND TRUTH]\n"
+                f"The following contains confirmed, factual appearance details for the character. "
+                f"You MUST use ALL of these physical traits in your output. Do NOT invent, alter, or substitute any of them.\n"
+                f"Eye color, hair color, hairstyle, skin tone, AND OUTFIT described here are FINAL — "
+                f"they override anything conflicting in the raw prompt or your own assumptions. "
+                f"If an outfit is described here, reproduce it in full detail in the output. "
+                f"Do NOT summarize, omit, or replace any garment piece listed.\n"
+                f"EXCEPTION: any ART STYLE line in this block is irrelevant — the art style is always fixed as 2D anime.\n"
+                f"{character_context.strip()}\n"
+            )
 
     ref_block = ""
     if subject_references:
@@ -435,10 +537,37 @@ async def enhance_image_prompt(
             + "\n".join(lines) + "\n"
         )
 
+    image_note = ""
+    if has_images:
+        image_note = (
+            "\n[REFERENCE PHOTOS ATTACHED — PRIORITY ORDER]\n"
+            "Reference photos are attached. Priority order (highest first):\n"
+            "  1. Verified text descriptions for named subjects (above) — absolute authority\n"
+            "  2. Reference photos — primary source for appearance traits not covered by text\n"
+            "  3. Raw prompt appearance words — DISCARD (written without photos, unreliable)\n"
+            "OVERRIDE — COLORS: discard raw prompt color words for hair, eyes, and skin. "
+            "Read these from the photos (or use the verified text if present).\n"
+            "OVERRIDE — ART STYLE: FIXED — DO NOT DERIVE FROM REFERENCE PHOTOS. "
+            "Even if the reference looks like a 3D model, game render, or photograph, "
+            "the output prompt must always describe clean 2D anime illustration style.\n"
+        )
+        if reference_image_labels:
+            _photo_map_lines = "\n".join(
+                f"  Photo {i + 1} = {lbl}"
+                for i, lbl in enumerate(reference_image_labels)
+            )
+            image_note += (
+                "\n[REFERENCE PHOTO ORDER]\n"
+                "The attached photos are provided in this exact order:\n"
+                f"{_photo_map_lines}\n"
+                "When reading appearance for a character, use ONLY their assigned photo number.\n"
+            )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
         "rewrite it as a single, rich English prompt for an AI image model.\n"
+        f"{image_note}"
         f"{char_block}"
         f"{ref_block}"
         "Rules:\n"
@@ -462,7 +591,10 @@ async def enhance_image_prompt(
                 f"{_sdesc.strip()}\n"
                 f"[END OF '{_sname}' APPEARANCE]"
             )
-    if character_context and character_context.strip():
+    if character_context and character_context.strip() and not has_images:
+        # When photos are attached, the supplemental text block in the system
+        # prompt is enough — avoid re-stating it as a "MANDATORY COPY EXACTLY"
+        # block, which would conflict with the photos-are-primary directive.
         _char_snippets.append(
             f"[MANDATORY CHARACTER APPEARANCE — COPY EVERY DETAIL EXACTLY]\n"
             f"{character_context.strip()}\n"
@@ -478,17 +610,30 @@ async def enhance_image_prompt(
     else:
         user_content = f"Image request: {raw_prompt}"
 
+    if has_images:
+        print(f"[LMStudio] enhance_image_prompt: using vision model with {len(reference_images)} reference image(s)")
+
     messages_list = [{"role": "user", "content": user_content}]
     try:
         enhanced, *_ = await chat(
             messages_list,
             system_prompt=system,
+            context_images=reference_images if has_images else None,
             max_tokens=8192,
         )
         if enhanced:
             enhanced = _THINK_RE.sub("", enhanced)
             enhanced = _THINK_RE_UNCLOSED.sub("", enhanced).strip()
             if len(enhanced) > 5:
+                # Detect refusals and connection errors: when the vision call
+                # fails (e.g. model isn't multimodal, LM Studio unreachable),
+                # chat() returns either an apology from the model or the
+                # "having trouble connecting" error string. Either would poison
+                # the image prompt if passed downstream — fall back to raw.
+                lower = enhanced.lower()
+                if any(phrase in lower for phrase in _REFUSAL_PHRASES):
+                    print("[LMStudio] Enhancement returned a refusal/error — discarding, using raw prompt")
+                    return raw_prompt
                 print(f"[LMStudio] Prompt enhanced: {enhanced[:200]}")
                 return enhanced
     except Exception as e:
