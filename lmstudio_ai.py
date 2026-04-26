@@ -1200,10 +1200,25 @@ async def chat(
     # must be true for the corresponding recovery to run, so an operator
     # can kill the entire subsystem with a single LMSTUDIO_LANG_ENFORCE=off
     # without having to also flip the three sub-gates.
-    repetition_retry_on = lang_enforce_master and _env_bool("LMSTUDIO_REPETITION_RETRY", True)
+    #
+    # We also AND-in `enforce_user_lang` itself: utility callers (memory
+    # extraction, suggestion generation, image-prompt enhancement, image
+    # comments) pass `enforce_user_lang=False` because their wrapper
+    # prompts / output expectations are bespoke. Letting the post-gen
+    # retries fire on those paths could (e.g.) trigger a "use Traditional
+    # Chinese" retry on an output the caller actually wanted Simplified
+    # for, or burn an extra round-trip on a JSON-extraction call that
+    # never had a degeneration risk in the first place.
+    repetition_retry_on = (
+        enforce_user_lang and lang_enforce_master and _env_bool("LMSTUDIO_REPETITION_RETRY", True)
+    )
     repetition_salvage_min = max(1, _env_int("LMSTUDIO_REPETITION_SALVAGE_MIN", 50))
-    lang_mismatch_retry_on = lang_enforce_master and _env_bool("LMSTUDIO_LANG_MISMATCH_RETRY", True)
-    simplified_check_on = lang_enforce_master and _env_bool("LMSTUDIO_SIMPLIFIED_CHECK", True)
+    lang_mismatch_retry_on = (
+        enforce_user_lang and lang_enforce_master and _env_bool("LMSTUDIO_LANG_MISMATCH_RETRY", True)
+    )
+    simplified_check_on = (
+        enforce_user_lang and lang_enforce_master and _env_bool("LMSTUDIO_SIMPLIFIED_CHECK", True)
+    )
 
     # 1. Repetition loop. Truncate at the first repetition; if the salvaged
     #    prefix is too short to be a usable reply, retry once with stricter
