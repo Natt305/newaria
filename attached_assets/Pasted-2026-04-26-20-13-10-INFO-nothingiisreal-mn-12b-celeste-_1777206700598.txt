@@ -1,0 +1,99 @@
+2026-04-26 20:13:10  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 0.0%
+2026-04-26 20:13:10 [DEBUG]
+ slot update_slots: id  0 | task 14126 | n_tokens = 512, memory_seq_rm [512, end)
+2026-04-26 20:13:10 [DEBUG]
+ slot init_sampler: id  0 | task 14126 | init sampler, took 0.13 ms, tokens: text = 629, total = 629
+slot update_slots: id  0 | task 14126 | prompt processing done, n_tokens = 629, batch.n_tokens = 117
+slot update_slots: id  3 | task 14125 | new prompt, n_ctx_slot = 4096, n_keep = 503, task.n_tokens = 503
+slot update_slots: id  3 | task 14125 | n_tokens = 359, memory_seq_rm [359, end)
+slot init_sampler: id  3 | task 14125 | init sampler, took 0.11 ms, tokens: text = 503, total = 503
+slot update_slots: id  3 | task 14125 | prompt processing done, n_tokens = 503, batch.n_tokens = 261
+2026-04-26 20:13:10  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 0.0%
+2026-04-26 20:13:10  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 81.4%
+2026-04-26 20:13:11  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 100.0%
+2026-04-26 20:13:11  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 100.0%
+2026-04-26 20:13:11 [DEBUG]
+ slot print_timing: id  3 | task 14125 | 
+prompt eval time =    1536.73 ms /   144 tokens (   10.67 ms per token,    93.71 tokens per second)
+       eval time =     121.00 ms /     3 tokens (   40.33 ms per token,    24.79 tokens per second)
+      total time =    1657.73 ms /   147 tokens
+slot      release: id  3 | task 14125 | stop processing: n_tokens = 505, truncated = 0
+2026-04-26 20:13:11 [DEBUG]
+ LlamaV4: server assigned slot 3 to task 14125
+2026-04-26 20:13:11  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Model generated tool calls:  []
+2026-04-26 20:13:11  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Generated prediction:  {
+  "id": "chatcmpl-1s43hnkge7sgaio6scovf6",
+  "object": "chat.completion",
+  "created": 1777205589,
+  "model": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "[]\n[]",
+        "reasoning_content": "",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 503,
+    "completion_tokens": 3,
+    "total_tokens": 506,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf"
+}
+2026-04-26 20:15:13  [INFO]
+ [LM STUDIO SERVER] Client disconnected. Stopping generation... (If the model is busy processing the prompt, it will finish first.)
+2026-04-26 20:15:13 [DEBUG]
+ slot      release: id  0 | task 14126 | stop processing: n_tokens = 3068, truncated = 0
+srv  update_slots: all slots are idle
+2026-04-26 20:15:13 [DEBUG]
+ srv          stop: cancel task, id_task = 14126
+srv  update_slots: all slots are idle
+2026-04-26 20:15:13  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Model generated tool calls:  []
+2026-04-26 20:15:13  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Generated prediction:  {
+  "id": "chatcmpl-g1vspvkr3wsyrnfke3kydg",
+  "object": "chat.completion",
+  "created": 1777205589,
+  "model": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "**[1]** \"高级执行官？我还真不怕你的身份，你还是乖乖听话比较好\"\n\n*She scoffed in disbelief, her chest heaving with anger.* **\"你这是在玩火自焚！等我脱身后你会后悔的！\"**\n\n**[2]** \"别_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing_xing",
+        "reasoning_content": "",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf"
+}
