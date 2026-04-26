@@ -138,11 +138,18 @@ LMSTUDIO_THINKING=off
 # need them. Accepts 1/0, on/off, true/false, yes/no, enable/disable
 # (case-insensitive).
 #
-#   LMSTUDIO_LANG_ENFORCE         全域開關，關掉等於同時關掉 (1)+(2)+(3)
-#                                 並停止注入 user_lang 偵測的覆蓋指令。
-#                                 Master switch — off disables (1)+(2)+(3)
-#                                 below AND stops injecting the user_lang
-#                                 directive into the system prompt.
+#   LMSTUDIO_LANG_ENFORCE         事後品質防護的「主開關」。雖然名稱中
+#                                 有 LANG，但它涵蓋的範圍 = (1)+(2)+(3)，
+#                                 也就是會同時停掉 token 迴圈截斷重試、
+#                                 英文/中文不符重試、簡體字偵測重試，並
+#                                 停止注入 user_lang 偵測的覆蓋指令。
+#                                 Master switch for the response-recovery
+#                                 subsystem. Despite the LANG_ENFORCE name
+#                                 it is broader than language: off disables
+#                                 (1)+(2)+(3) below AND stops injecting
+#                                 the user_lang directive into the system
+#                                 prompt — i.e. it turns off ALL post-
+#                                 generation quality recovery in one knob.
 #   LMSTUDIO_REPETITION_RETRY     (1) Mistral 風格 token 迴圈截斷+重試。
 #                                 Off = 連截斷都不做，原文直送。
 #                                 The repetition-loop retry path.
