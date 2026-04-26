@@ -1188,16 +1188,32 @@ async def chat(
                 )
                 if retry_text and retry_text.strip():
                     rep_idx2 = _detect_repetition_loop(retry_text)
-                    if rep_idx2 is not None:
-                        retry_salvage = retry_text[:rep_idx2].rstrip()
-                        print(f"[LMStudio] Retry also looped — keeping longer of the two prefixes")
-                        text = retry_salvage if len(retry_salvage) > len(salvaged) else salvaged
-                    else:
+                    if rep_idx2 is None:
                         text = retry_text
+                    else:
+                        retry_salvage = retry_text[:rep_idx2].rstrip()
+                        best = retry_salvage if len(retry_salvage) > len(salvaged) else salvaged
+                        if len(best) >= 50:
+                            print("[LMStudio] Retry also looped — keeping longer of the two prefixes")
+                            text = best
+                        else:
+                            # Both attempts produced garbage and even the
+                            # longer salvage is unusably short. Return the
+                            # standard user-facing failure message rather
+                            # than ship degenerate text — matches how the
+                            # transport-failure path behaves and lets the
+                            # bot present a coherent error to the user.
+                            print(
+                                f"[LMStudio] Repetition recovery failed (best salvage {len(best)}ch) "
+                                f"— returning user-facing failure message"
+                            )
+                            return _FAILED_REPLY_MESSAGE, None, False, False
                 else:
-                    # Retry produced nothing usable — fall back to whatever
-                    # salvage we have so the user at least gets a partial reply.
-                    text = salvaged or text
+                    # Retry call returned nothing AND the original salvage
+                    # was already too short (<50 chars). Surface the
+                    # standard failure message instead of a torn fragment.
+                    print("[LMStudio] Repetition retry returned no text — returning user-facing failure message")
+                    return _FAILED_REPLY_MESSAGE, None, False, False
 
     # 2. Language mismatch — user wrote English but the reply went Chinese
     #    (the most common failure with mid-conversation language drift).

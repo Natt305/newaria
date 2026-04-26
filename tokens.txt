@@ -92,14 +92,18 @@ LMSTUDIO_THINKING=off
 # (例如 nothingiisreal/mn-12b-celeste-v1.9-gguf) 在長篇對話中陷入 token 迴圈，
 # 例如 `_xing_xing_xing…`。留空時使用內建預設（依模型族群自動切換）：
 #   Mistral Nemo (Celeste 等)：top_p=0.9 min_p=0.05 rep_penalty=1.08
-#                              freq_penalty=0.3 presence_penalty=0.0
-#   Qwen 系列                ：top_p=0.95 min_p=0.0 rep_penalty=1.0
-#                              freq_penalty=0.0 presence_penalty=0.0
+#                              freq_penalty=0.3 presence_penalty=0.0(已省略)
+#   Qwen 系列                 ：全部中性（不送任何採樣參數，由 LM Studio
+#                              app 端的預設決定，行為與本次修改前一致）。
 #
 # These tune the LM Studio sampler. Defaults are model-aware (strong anti-
-# repetition for Mistral Nemo Celeste, neutral for Qwen). Override here if
-# the bot still loops or feels too repetitive on your machine. Recommended
-# tweak for very stubborn loops on Celeste:
+# repetition for Mistral Nemo Celeste; fully neutral for Qwen — when no
+# env var is set, the request carries NO sampling keys at all and Qwen's
+# in-app defaults apply unchanged). Neutral / no-op values are dropped
+# from the payload so they cannot perturb a model. Override here if the
+# bot still loops or feels too repetitive on your machine; an env-set
+# value is always honored, even when it equals the neutral value.
+# Recommended tweak for very stubborn loops on Celeste:
 #   LMSTUDIO_REPETITION_PENALTY=1.12
 #   LMSTUDIO_FREQUENCY_PENALTY=0.4
 # LMSTUDIO_TEMPERATURE=
