@@ -1898,11 +1898,8 @@ async def on_ready():
                     f"engine={_diag.get('engine', '?')}: "
                     f"{len(_disabled_packs)} ({_packs_str})"
                 )
-            # Spec-format VRAM banner for the boot probe (separate from the
-            # `[ComfyUI] Diagnose: VRAM: ...` line that diagnose() itself
-            # prints — that one keeps the Diagnose: prefix for consistency
-            # with the rest of diagnose()'s console output, this one is the
-            # operator-facing boot summary that mirrors start.bat's banner).
+            # Spec-format VRAM banner for the boot probe — mirrors the
+            # operator-facing summary printed by start.bat.
             _vram_free_mb = _diag.get("vram_free_mb")
             _vram_total_mb = _diag.get("vram_total_mb")
             if _vram_free_mb is not None and _vram_total_mb is not None:

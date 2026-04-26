@@ -2072,7 +2072,7 @@ def diagnose() -> dict:
             if isinstance(_total, (int, float)) and _total > 0:
                 result["vram_total_mb"] = int(_total) // (1024 * 1024)
         if result["vram_free_mb"] is not None and result["vram_total_mb"] is not None:
-            print(f"[ComfyUI] Diagnose: VRAM: {result['vram_free_mb']} MB free "
+            print(f"[ComfyUI] VRAM: {result['vram_free_mb']} MB free "
                   f"/ {result['vram_total_mb']} MB total")
     except Exception as exc:
         print(f"[ComfyUI] Diagnose: could not parse VRAM from /system_stats "
