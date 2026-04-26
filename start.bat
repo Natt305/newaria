@@ -51,10 +51,23 @@ if exist "!COMFY_EXTRA_PATHS_FILE!" (
 )
 
 rem --- Auto-detect GPU VRAM via nvidia-smi to pick the right ComfyUI memory
-rem     mode. Maps detected GB to a flag using ComfyUI's own thresholds:
-rem        >= 23 GB  -> --highvram     (24 GB cards: keep everything cached)
-rem        >=  7 GB  -> --normalvram   (8/12/16 GB: aggressive eviction)
-rem         <  7 GB  -> --lowvram      (UNET splitting needed; 2-3x slower)
+rem     mode. The CONCEPTUAL mapping is:
+rem        >= 24 GB cards  -> --highvram     (keep everything cached)
+rem        12-23 GB cards  -> --normalvram   (aggressive eviction)
+rem         8-11 GB cards  -> --normalvram   (same)
+rem         <  8 GB cards  -> --lowvram      (UNET splitting; 2-3x slower)
+rem     But nvidia-smi reports the BIOS-reported total in MiB minus a small
+rem     reserved chunk (~20-30 MiB/GiB for ECC/firmware), so a "16 GB" card
+rem     reports ~16380 MiB which integer-divides to 15 GiB; a "24 GB" card
+rem     reports ~24564 MiB -> 23 GiB; an "8 GB" card reports ~8188 MiB -> 7
+rem     GiB. To map those rounded-down GiB values back to the conceptual
+rem     buckets above, the if-chain uses the OFF-BY-ONE-LOWER boundaries
+rem     23/7 (instead of 24/8). Net effect:
+rem        24 GB cards -> --highvram
+rem        16 GB cards -> --normalvram
+rem        12 GB cards -> --normalvram
+rem         8 GB cards -> --normalvram
+rem         6 GB cards -> --lowvram
 rem     If nvidia-smi is missing or fails (non-NVIDIA card, weird driver
 rem     state), pass no flag and let ComfyUI fall back to its built-in auto. ---
 set "COMFY_VRAM_ARG="
@@ -72,7 +85,7 @@ if !_COMFY_VRAM_GB! GEQ 23 (
     set "COMFY_VRAM_ARG=--lowvram"
 )
 if defined COMFY_VRAM_ARG (
-    echo [ComfyUI] Detected GPU VRAM: !COMFY_VRAM_MB! MB -^> !COMFY_VRAM_ARG!
+    echo [ComfyUI] Detected GPU VRAM: !COMFY_VRAM_MB! MB ^(bucket=!_COMFY_VRAM_GB! GiB^) -^> !COMFY_VRAM_ARG!
 ) else (
     echo [ComfyUI] Could not detect GPU VRAM ^(nvidia-smi missing/failed^) — ComfyUI will use its built-in auto memory mode.
 )

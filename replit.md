@@ -152,14 +152,19 @@ Common misconception worth correcting: **`Qwen2.5-VL-7B` is not a separate "visi
 
 The catch is that ComfyUI's default `auto` heuristic is sometimes too greedy on borderline cards (it tries to keep everything resident "just in case"), causing OOM crashes on cards that would otherwise be fine. **`start.bat` handles this for you** by reading the GPU's actual VRAM via `nvidia-smi` and passing the matching ComfyUI flag at launch — no env var, no `tokens.txt` entry needed:
 
-| Detected GPU VRAM | Flag passed | Why |
+The conceptual mapping is the standard ComfyUI four-row table:
+
+| Card capacity | Flag | Why |
 |---|---|---|
-| ≥ 23 GB | `--highvram` | 24 GB+ cards: keep everything cached for fastest steady-state |
-| 7–22 GB | `--normalvram` | 8/12/16 GB borderline cards: aggressive eviction, no UNET splitting |
-| < 7 GB | `--lowvram` | Need to stream UNET blocks to avoid OOM; ~2–3× slower per image |
+| ≥ 24 GB | `--highvram` | Keep everything cached for fastest steady-state |
+| 12–23 GB | `--normalvram` | Aggressive eviction, no UNET splitting |
+| 8–11 GB | `--normalvram` | Same as above |
+| < 8 GB | `--lowvram` | Stream UNET blocks to avoid OOM; ~2–3× slower per image |
 | Detection failed (no `nvidia-smi`, AMD/Intel GPU) | *(no flag)* | Falls back to ComfyUI's built-in `auto`; one WARN line printed |
 
-The `start.bat` console banner shows exactly what was detected and passed, e.g. `[ComfyUI] Detected GPU VRAM: 16380 MB -> --normalvram`. No user-facing override env var ships — if a power user really needs to force a different mode, edit the four-row block in `start.bat` directly.
+In `start.bat` itself the integer-GiB cutoffs are written as `>= 23` and `>= 7` (not `>= 24` and `>= 8`) to compensate for `nvidia-smi`'s slight under-report — a "16 GB" card reports ~16380 MiB which integer-divides to 15 GiB, a "24 GB" card reports ~24564 MiB → 23 GiB, an "8 GB" card reports ~8188 MiB → 7 GiB. The lowered boundaries map those rounded-down values back to the correct conceptual buckets above. The block-leading comment in `start.bat` explains this calibration in detail.
+
+The `start.bat` console banner shows exactly what was detected and passed, e.g. `[ComfyUI] Detected GPU VRAM: 16380 MB (bucket=15 GiB) -> --normalvram` — handy for debugging boundary cards. No user-facing override env var ships; if a power user really needs to force a different mode, edit the if-chain in `start.bat` directly.
 
 **Realistic per-image timing on a 16 GB card with this setup:** ~15–25 s for image #1 cold, ~8–14 s steady-state once the models are cached in system RAM. With the boot-time pre-warm above (default-on for qwen), the cold path is moved to `start.bat` time and the user only ever sees the steady-state number. About 2–4 s of each generation is the CLIP→UNET swap (RAM↔VRAM at PCIe-4.0 speeds); the rest is the actual 4-step sampling + decode.
 
