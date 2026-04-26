@@ -241,14 +241,35 @@ reply, no doubled response. The persistent view registers in `on_ready`
 via `bot.add_view(SceneImageButtonView())`, so the button keeps working
 on prior bot messages even after a restart.
 
-**Auto-trigger via `[SCENE]`**
+**Auto-trigger via `[SCENE]` / `[SCENE: ...]`**
 
-The LM Studio system prompt teaches the model a new bare `[SCENE]` token
-(no body — the bot derives the prompt from the reply prose itself). The
-model emits it only at the end of a paragraph that is genuinely cinematic.
-`lmstudio_ai.chat()` strips the token and returns `wants_scene_image=True`
-as the 5th tuple element; `process_chat` then auto-runs the same runner the
-button uses.
+The LM Studio system prompt teaches the model two marker forms it may emit
+at the end of a paragraph that is genuinely cinematic:
+
+- **Bare `[SCENE]`** — the bot derives the image prompt from the reply
+  prose itself. Use when the prose already paints the picture.
+- **`[SCENE: short cinematic description]`** — the body is taken
+  **verbatim** as the image-prompt seed; the bot prose is skipped. Use
+  when the model has a clearer picture in its head than the prose conveys
+  (especially when the moment refers to characters by pronoun rather than
+  full name — spelling them out in the body lets the KB photo matching
+  resolve them).
+
+`lmstudio_ai.chat()` strips whichever marker fired and returns
+`(…, wants_scene_image, scene_prompt)` as the 5th and 6th tuple elements.
+`scene_prompt` is the `[SCENE: ...]` body (or `None` for bare `[SCENE]`).
+`process_chat` then auto-runs the same runner the button uses, passing
+`scene_prompt` through as `seed_override`.
+
+**Seed source precedence (in `scene_image.run_scene_image`)**
+
+1. `seed_override` (the `[SCENE: ...]` body) — verbatim, no prose mixing.
+2. `hint_prompt` + bot-message prose, joined with double-space.
+3. Generic fallback `"cinematic scene"`.
+
+The 🎬 button click flow, the legacy `[IMAGE: ...]` re-route, and the
+visual-intent re-route all leave `seed_override=None` and so keep the
+existing prose-derived behaviour.
 
 **No-duplicates guarantee — the central design rule**
 
@@ -308,9 +329,12 @@ factored into. Same temporary-message → live-edit → delete pattern, same
 - `scene_image.py` — runner, progress-bar context manager, in-flight set,
   cooldown mapping, visual-intent detector, per-channel toggle helpers.
 - `views.py` — `SceneImageButtonView` (persistent, fixed `custom_id`).
-- `lmstudio_ai.py` — `_SCENE_MARKER_RE`, `[SCENE]` system-prompt directive
-  in `_roleplay_format_directive`, `chat()` returns 5-tuple.
-- `ai_backend.py` — pads non-LM-Studio chat returns to 5-tuple.
+- `lmstudio_ai.py` — `_SCENE_MARKER_RE` (matches both `[SCENE]` and
+  `[SCENE: ...]`), `[SCENE]` / `[SCENE: ...]` system-prompt directive in
+  `_roleplay_format_directive`, `chat()` returns 6-tuple
+  `(…, wants_scene_image, scene_prompt)`.
+- `ai_backend.py` — pads non-LM-Studio chat returns to 6-tuple
+  `(…, False, None)`.
 - `bot.py` — scene-mode routing branch in `process_chat`, `/sceneimage`
   command, `bot.add_view(...)` in `on_ready`.
 

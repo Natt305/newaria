@@ -98,7 +98,7 @@ def is_user_visual_intent(text: str) -> bool:
 
 # ── SCENE marker (re-exported so bot.py can strip server-side too) ────────────
 
-SCENE_MARKER_RE = re.compile(r"\[\s*SCENE\s*\]", re.I)
+SCENE_MARKER_RE = re.compile(r"\[\s*SCENE(?:\s*:\s*([^\]\n]+?))?\s*\]", re.I)
 
 
 # ── Progress bar context manager (factored out of process_chat) ───────────────
@@ -268,23 +268,32 @@ async def run_scene_image(
     channel_id,
     trigger: str,
     hint_prompt: Optional[str] = None,
+    seed_override: Optional[str] = None,
     acker: Optional[Callable[[str], Awaitable[None]]] = None,
 ) -> None:
     """Generate a scene image and edit it onto `bot_message` in place.
 
     Args:
-        bot_message:  The bot's own message to attach the image onto. Must
-                      already be sent (not a Webhook return). The image is
-                      attached via `.edit(attachments=[...])`.
-        channel:      For typing context.
-        channel_id:   Stringified channel id (used for cooldown + dedup).
-        trigger:      One of "button" | "scene_tag" | "intent_reroute"
-                      | "image_tag_reroute" — diagnostic only.
-        hint_prompt:  Optional seed text. For [IMAGE: ...] re-route this is
-                      the marker body. For intent re-route it's the user
-                      message text. For [SCENE] / button it's None and we
-                      derive from `bot_message.content`.
-        acker:        Optional async ephemeral-acknowledger (button path).
+        bot_message:    The bot's own message to attach the image onto. Must
+                        already be sent (not a Webhook return). The image is
+                        attached via `.edit(attachments=[...])`.
+        channel:        For typing context.
+        channel_id:     Stringified channel id (used for cooldown + dedup).
+        trigger:        One of "button" | "scene_tag" | "intent_reroute"
+                        | "image_tag_reroute" — diagnostic only.
+        hint_prompt:    Optional seed text. For [IMAGE: ...] re-route this is
+                        the marker body. For intent re-route it's the user
+                        message text. For bare [SCENE] / button it's None
+                        and we derive from `bot_message.content`. Combined
+                        with the bot prose unless `seed_override` is set.
+        seed_override:  When the model emitted `[SCENE: short cinematic
+                        description]`, the body comes through here and is
+                        used VERBATIM as the prompt seed — the bot prose is
+                        skipped because the model already handed us the
+                        polished prompt it had in mind. Mutually exclusive
+                        with the prose-derive path; takes precedence over
+                        `hint_prompt` and the bot-message text.
+        acker:          Optional async ephemeral-acknowledger (button path).
     """
     key = (str(channel_id), bot_message.id)
 
@@ -324,15 +333,25 @@ async def run_scene_image(
         bot_name = (char.get("name") or "").strip()
         looks = (char.get("looks") or "").strip()
 
-        # 1. Prompt seed — hint_prompt > bot_message.content > generic fallback.
-        seed_parts = []
-        if hint_prompt:
-            seed_parts.append(hint_prompt.strip())
-        # Always append bot's own message text so derived scene matches the prose
-        body = (bot_message.content or "").strip()
-        if body:
-            seed_parts.append(body)
-        seed = "  ".join(p for p in seed_parts if p) or "cinematic scene"
+        # 1. Prompt seed
+        # When the model emitted `[SCENE: short cinematic description]`, the
+        # body lands in `seed_override` and is used VERBATIM — the bot's
+        # reply prose is intentionally skipped because the model already
+        # handed us the polished image-prompt it had in mind, and mixing in
+        # the surrounding prose would dilute that signal.
+        # Otherwise: hint_prompt (if any) + bot_message.content, with a
+        # generic fallback if both are empty.
+        if seed_override and seed_override.strip():
+            seed = seed_override.strip()
+        else:
+            seed_parts = []
+            if hint_prompt:
+                seed_parts.append(hint_prompt.strip())
+            # Always append bot's own message text so derived scene matches the prose
+            body = (bot_message.content or "").strip()
+            if body:
+                seed_parts.append(body)
+            seed = "  ".join(p for p in seed_parts if p) or "cinematic scene"
 
         enriched = await _derive_prompt(seed, looks, bot_name)
         enriched = enriched.rstrip(",. \n") + CINEMATIC_SUFFIX

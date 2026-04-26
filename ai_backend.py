@@ -50,13 +50,20 @@ async def chat(
     model: Optional[str] = None,
     context_images: Optional[list] = None,
     character_name: str = "",
-) -> tuple[str, Optional[str], bool, bool, bool]:
+) -> tuple[str, Optional[str], bool, bool, bool, Optional[str]]:
     """Returns (response_text, image_prompt_or_None, prompt_from_marker,
-    success, wants_scene_image).
+    success, wants_scene_image, scene_prompt_or_None).
 
-    Only the LM Studio backend currently emits the [SCENE] cinematic
-    signal. For Groq / Ollama the 5th element is always padded to False so
-    the call site (`process_chat`) can unpack uniformly.
+    Only the LM Studio backend currently emits the [SCENE] / [SCENE: ...]
+    cinematic signal. For Groq / Ollama the 5th element is always padded to
+    False and the 6th to None so the call site (`process_chat`) can unpack
+    uniformly.
+
+    scene_prompt carries the optional body the model wrote inside
+    `[SCENE: short cinematic description]` — when present, the caller uses
+    it verbatim as the image-prompt seed instead of deriving from the bot's
+    reply prose. None means the caller falls back to the prose-derived path
+    (also the case for bare `[SCENE]`).
     """
     kwargs = {"system_prompt": system_prompt}
     if model:
@@ -70,11 +77,14 @@ async def chat(
     if character_name and _backend() == "lmstudio":
         kwargs["character_name"] = character_name
     result = await _mod().chat(messages, **kwargs)
-    # Normalise to 5-tuple so callers don't have to know which backend
-    # is active. LM Studio already returns 5; Groq / Ollama still return
-    # 4 — pad the cinematic-signal flag with False.
+    # Normalise to 6-tuple so callers don't have to know which backend
+    # is active. LM Studio already returns 6; Groq / Ollama still return 4
+    # — pad the cinematic-signal flag with False and the scene-prompt body
+    # with None.
     if len(result) == 4:
-        return (*result, False)
+        return (*result, False, None)
+    if len(result) == 5:
+        return (*result, None)
     return result
 
 

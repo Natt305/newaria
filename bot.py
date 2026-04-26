@@ -1043,7 +1043,14 @@ async def process_chat(
     )
     history = get_channel_context(channel_id)
 
-    response_text, image_prompt, _prompt_from_marker, chat_success, _wants_scene = await groq_ai.chat(
+    (
+        response_text,
+        image_prompt,
+        _prompt_from_marker,
+        chat_success,
+        _wants_scene,
+        _scene_prompt,
+    ) = await groq_ai.chat(
         history, system_prompt=system_prompt,
         context_images=context_images if context_images else None,
         character_name=bot_name,
@@ -1113,6 +1120,12 @@ async def process_chat(
             print(f"[Bot] Scene-mode reply failed: {exc}")
             return
         if _route_to_scene:
+            # When the model emitted `[SCENE: ...]` with a body, hand the
+            # polished body to the runner as `seed_override` so it's used
+            # verbatim as the prompt seed (and the bot prose is skipped).
+            # Bare `[SCENE]`, the legacy `[IMAGE: ...]` re-route, the visual-
+            # intent re-route, and button clicks all keep the existing
+            # `hint_prompt` + bot-prose derive path unchanged.
             await scene_image.run_scene_image(
                 bot_message=bot_message,
                 channel=channel,
@@ -1123,6 +1136,7 @@ async def process_chat(
                           else "intent_reroute")
                 ),
                 hint_prompt=image_prompt or user_text,
+                seed_override=_scene_prompt,
                 acker=None,
             )
         return
