@@ -113,12 +113,16 @@ async def progress_bar(
 ):
     """Reusable progress UX matching the legacy [IMAGE:] flow.
 
-    Yields an async `on_progress(tag)` callback (or None when disabled).
-    Posts a temp progress reply, polls a queue, edits the message live with
-    `formatter(tag, name)` output, deletes the message on exit.
+    Yields ``(on_progress, set_final)`` where:
+
+    - ``on_progress(tag)`` is the awaitable progress callback (None when disabled).
+    - ``set_final(text)`` lets the caller replace the live progress text with a
+      final summary (e.g. *"refs: bot, Saki Nikaido, Tokyo Tower"*) which stays
+      visible after the runner exits. When ``set_final`` is never called, the
+      progress message is deleted on exit as before.
     """
     if not enabled:
-        yield None
+        yield (None, lambda _t: None)
         return
 
     progress_msg: Optional[discord.Message] = None
@@ -131,13 +135,22 @@ async def progress_bar(
         progress_msg = None
 
     if progress_msg is None:
-        yield None
+        yield (None, lambda _t: None)
         return
 
     queue: asyncio.Queue[str] = asyncio.Queue()
+    final_holder: dict = {"text": None}
+    # Track the last live progress text so the final footer can be APPENDED
+    # under it rather than replacing the whole message — keeps the "what
+    # stage did we end at" context visible alongside "which refs were used".
+    last_rendered: dict = {"text": formatter("STAGE:loading", name) or "正在生成圖像…"}
 
     async def on_progress(tag: str) -> None:
         await queue.put(tag)
+
+    def set_final(text: str) -> None:
+        if text:
+            final_holder["text"] = text
 
     async def poller() -> None:
         while True:
@@ -149,6 +162,7 @@ async def progress_bar(
                     break
             content = formatter(tag, name)
             if content:
+                last_rendered["text"] = content
                 try:
                     await progress_msg.edit(content=content)
                 except discord.HTTPException:
@@ -157,34 +171,243 @@ async def progress_bar(
 
     poller_task = asyncio.create_task(poller())
     try:
-        yield on_progress
+        yield (on_progress, set_final)
     finally:
         poller_task.cancel()
         try:
             await poller_task
         except asyncio.CancelledError:
             pass
-        try:
-            await progress_msg.delete()
-        except discord.HTTPException:
-            pass
+        final_text = final_holder["text"]
+        if final_text:
+            base = (last_rendered["text"] or "").rstrip()
+            combined = f"{base}\n{final_text}" if base else final_text
+            # Discord caps message edits at 2000 chars — be defensive even
+            # though the formatter output is short and the footer is ~80.
+            if len(combined) > 2000:
+                combined = combined[: 2000 - len(final_text) - 1].rstrip() + "\n" + final_text
+            try:
+                await progress_msg.edit(content=combined)
+            except discord.HTTPException:
+                pass
+        else:
+            try:
+                await progress_msg.delete()
+            except discord.HTTPException:
+                pass
 
 
 # ── Reference-image assembly ──────────────────────────────────────────────────
 
-def _gather_refs(seed_text: str) -> tuple[list, list, dict]:
-    """Build (refs, subjects, appearances) from character + KB matches.
+# Stop-words filtered out of token-overlap matching so "the tower" matches
+# `Tokyo Tower` (via "tower") but `the` alone never wins. EN articles +
+# pronouns + auxiliaries; CJK has no equivalent set since CJK matching uses
+# substring rather than tokens.
+_TOKEN_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "of", "to", "in", "on", "at", "for",
+    "with", "is", "was", "are", "were", "be", "been", "being",
+    "she", "he", "it", "they", "you", "i", "we", "us", "me",
+    "him", "her", "his", "hers", "their", "theirs", "them",
+    "my", "mine", "our", "ours", "your", "yours", "its",
+    "this", "that", "these", "those",
+    "as", "by", "do", "does", "did", "have", "has", "had",
+    "from", "but", "not", "no", "so", "if", "then", "than", "too", "very",
+    "out", "up", "down", "over", "into", "onto", "off", "about", "around",
+})
 
-    Character (bot) photos go first (up to 2). Then any KB image entry whose
-    title appears in `seed_text` contributes up to 2 photos each. Hard cap at
-    4 refs total — Qwen v2 image1..image4 slots.
+# Word-character class used for ASCII boundary checks. CJK characters and
+# punctuation count as boundaries so "saki" matches "Saki," / "Saki。" but
+# not "ksaki" or "asaki".
+_ASCII_WORD = re.compile(r"[a-z0-9]+")
+_ASCII_ONLY = re.compile(r"^[\x00-\x7f]+$")
+
+# `[SCENE: body | with: Saki, Tokyo Tower]` — captured by upstream marker
+# parsing as just the body; we strip the trailing `| with: ...` here so the
+# names can override the fuzzy matcher.
+_WITH_CLAUSE_RE = re.compile(r"\|\s*with\s*:\s*(.+)$", re.I)
+
+
+def _parse_with_clause(body: str) -> tuple[str, list[str]]:
+    """Pull the optional `| with: a, b, c` tail out of a marker body.
+
+    Returns ``(cleaned_body, [name, ...])``. When no clause is present the
+    body is returned unchanged with an empty list. Names that are blank
+    after stripping are dropped.
+    """
+    body = (body or "").strip()
+    if not body:
+        return body, []
+    m = _WITH_CLAUSE_RE.search(body)
+    if not m:
+        return body, []
+    raw = m.group(1)
+    cleaned = body[: m.start()].rstrip(" ,;|\t")
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    return cleaned, names
+
+
+def _name_tokens(name: str) -> set[str]:
+    """Non-trivial ASCII tokens from `name` for token-overlap matching.
+
+    Tokens shorter than 3 chars and tokens in the stop-word list are dropped
+    so a multi-word title like *Tokyo Tower* contributes ``{"tokyo", "tower"}``
+    while *the city* contributes only ``{"city"}``.
+    """
+    if not name:
+        return set()
+    return {
+        t for t in _ASCII_WORD.findall(name.lower())
+        if len(t) >= 3 and t not in _TOKEN_STOPWORDS
+    }
+
+
+def _seed_token_set(seed: str) -> set[str]:
+    """All ASCII word tokens in the seed (no length / stop-word filtering —
+    the filtering happens on the name side so common seed words like *the*
+    only match when a name actually contains them)."""
+    if not seed:
+        return set()
+    return set(_ASCII_WORD.findall(seed.lower()))
+
+
+def _has_substring_match(name: str, seed_lower: str) -> bool:
+    """Substring match with word-boundary safety for ASCII names.
+
+    Pure-ASCII names require ASCII word boundaries on both sides so *she*
+    matches "She smiles" but never "ashes". CJK or mixed-script names use
+    plain substring matching since CJK has no inter-word whitespace.
+    """
+    name_l = name.strip().lower()
+    if len(name_l) < 2 or not seed_lower:
+        return False
+    if _ASCII_ONLY.match(name_l):
+        pattern = r"(?<![a-z0-9])" + re.escape(name_l) + r"(?![a-z0-9])"
+        return bool(re.search(pattern, seed_lower))
+    return name_l in seed_lower
+
+
+def _name_matches_seed(name: str, seed_lower: str, seed_tokens: set[str]) -> bool:
+    """True when `name` (a title or alias) overlaps the seed text.
+
+    Combines the word-bounded substring rule with token-overlap so single
+    multi-word titles still match short-form mentions ("the tower" → *Tokyo
+    Tower* via the *tower* token).
+    """
+    name = (name or "").strip()
+    if len(name) < 2 or not seed_lower:
+        return False
+    if _has_substring_match(name, seed_lower):
+        return True
+    name_tokens = _name_tokens(name)
+    if name_tokens and (name_tokens & seed_tokens):
+        return True
+    return False
+
+
+def _entry_aliases(entry: dict) -> list[str]:
+    """Read the optional `aliases` field as a clean list of strings.
+
+    Tolerates legacy entries that lack the field, mis-typed entries that
+    stored a comma-separated string, and entries with the field set to a
+    non-list value.
+    """
+    raw = entry.get("aliases")
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [p.strip() for p in raw.split(",") if p.strip()]
+    if isinstance(raw, (list, tuple)):
+        return [str(p).strip() for p in raw if isinstance(p, str) and p.strip()]
+    return []
+
+
+def _entry_matches_seed(entry: dict, seed_lower: str, seed_tokens: set[str]) -> bool:
+    """Title OR any alias overlaps the seed via the fuzzy rule."""
+    title = (entry.get("title") or "").strip()
+    if title and _name_matches_seed(title, seed_lower, seed_tokens):
+        return True
+    for alias in _entry_aliases(entry):
+        if _name_matches_seed(alias, seed_lower, seed_tokens):
+            return True
+    return False
+
+
+def _entry_matches_explicit(entry: dict, query: str) -> bool:
+    """Strict match for `with: ...` names — case-insensitive equality against
+    the title or any alias. No substring / token guessing here so a misspelt
+    name silently drops rather than pulling in an unrelated entry."""
+    q = (query or "").strip().lower()
+    if not q:
+        return False
+    title = (entry.get("title") or "").strip().lower()
+    if title and q == title:
+        return True
+    for alias in _entry_aliases(entry):
+        if q == alias.strip().lower():
+            return True
+    return False
+
+
+def _format_refs_footer(subjects: list, bot_name: str) -> str:
+    """Render a one-line *"refs: bot, Saki, Tokyo Tower"* footer.
+
+    The bot's own slot collapses to the literal word ``bot`` so the line is
+    short; KB titles keep their original casing. Empty input returns the
+    empty string. The whole line is truncated to ~80 chars (with an ellipsis)
+    to avoid pushing the progress UI off-screen on mobile clients.
+    """
+    if not subjects:
+        return ""
+    bot_marker = (bot_name or "self").strip().lower()
+    pretty: list[str] = []
+    seen: set[str] = set()
+    for s in subjects:
+        label = (s or "").strip()
+        if not label:
+            continue
+        if label.lower() == bot_marker:
+            label = "bot"
+        key = label.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        pretty.append(label)
+    if not pretty:
+        return ""
+    line = "refs: " + ", ".join(pretty)
+    if len(line) > 80:
+        line = line[:77].rstrip(", ") + "…"
+    return line
+
+
+def _gather_refs(
+    seed_text: str,
+    explicit_subjects: Optional[list[str]] = None,
+) -> tuple[list, list, dict]:
+    """Build ``(refs, subjects, appearances)`` from character + KB matches.
+
+    Character (bot) photos go first (up to 2). Remaining slots are filled
+    from the KB:
+
+    1. **Explicit subjects** (parsed from ``[SCENE: ... | with: a, b]``) are
+       resolved against KB titles + aliases via strict case-insensitive
+       equality. Names that fail to resolve are dropped silently — we do
+       NOT fall back to the fuzzy scorer to avoid double-counting a
+       misspelt name.
+    2. **Fuzzy seed matches** then top up the slots: an entry joins when
+       its title or any alias overlaps the seed via the word-bounded
+       substring or non-trivial-token rule (``_name_matches_seed``).
+
+    Hard cap stays at 4 refs total — Qwen v2 image1..image4 slots. Each KB
+    entry contributes at most 2 photos and is added at most once.
     """
     MAX_TOTAL = 4
     refs: list = []
     subjects: list = []
     appearances: dict = {}
 
-    haystack = (seed_text or "").lower()
+    seed_lower = (seed_text or "").lower()
+    seed_tokens = _seed_token_set(seed_text)
 
     char = database.get_character()
     bot_name = (char.get("name") or "").strip()
@@ -201,31 +424,58 @@ def _gather_refs(seed_text: str) -> tuple[list, list, dict]:
     if bot_name and looks:
         appearances[bot_name] = looks
 
+    if len(refs) >= MAX_TOTAL:
+        return refs, subjects, appearances
+
+    try:
+        kb_entries = database.get_image_entries()
+    except Exception:
+        kb_entries = []
+
+    used_entry_ids: set = set()
+
+    def _add_entry(entry: dict) -> None:
+        entry_id = entry.get("id")
+        if entry_id is None or entry_id in used_entry_ids:
+            return
+        title = (entry.get("title") or "").strip()
+        n_imgs = database.get_entry_image_count(entry_id)
+        added_any = False
+        for idx in range(1, min(n_imgs, 2) + 1):
+            if len(refs) >= MAX_TOTAL:
+                break
+            full = database.get_kb_image_full(entry_id, idx)
+            if full:
+                refs.append(full)
+                subjects.append(title)
+                added_any = True
+        if added_any:
+            used_entry_ids.add(entry_id)
+            desc = (entry.get("appearance_description") or "").strip()
+            if desc and title and title not in appearances:
+                appearances[title] = desc
+
+    # 1. Explicit `with: ...` overrides win their slots first.
+    if explicit_subjects:
+        for name in explicit_subjects:
+            if len(refs) >= MAX_TOTAL:
+                break
+            for entry in kb_entries:
+                if entry.get("id") in used_entry_ids:
+                    continue
+                if _entry_matches_explicit(entry, name):
+                    _add_entry(entry)
+                    break
+
+    # 2. Fuzzy seed-driven matches fill the remaining slots.
     if len(refs) < MAX_TOTAL:
-        try:
-            kb_entries = database.get_image_entries()
-        except Exception:
-            kb_entries = []
         for entry in kb_entries:
             if len(refs) >= MAX_TOTAL:
                 break
-            title = (entry.get("title") or "").strip()
-            if len(title) < 2 or title.lower() not in haystack:
+            if entry.get("id") in used_entry_ids:
                 continue
-            entry_id = entry.get("id")
-            if entry_id is None:
-                continue
-            n_imgs = database.get_entry_image_count(entry_id)
-            for idx in range(1, min(n_imgs, 2) + 1):
-                if len(refs) >= MAX_TOTAL:
-                    break
-                full = database.get_kb_image_full(entry_id, idx)
-                if full:
-                    refs.append(full)
-                    subjects.append(title)
-            desc = (entry.get("appearance_description") or "").strip()
-            if desc and title not in appearances:
-                appearances[title] = desc
+            if _entry_matches_seed(entry, seed_lower, seed_tokens):
+                _add_entry(entry)
 
     return refs, subjects, appearances
 
@@ -341,8 +591,10 @@ async def run_scene_image(
         # the surrounding prose would dilute that signal.
         # Otherwise: hint_prompt (if any) + bot_message.content, with a
         # generic fallback if both are empty.
+        explicit_subjects: list[str] = []
         if seed_override and seed_override.strip():
-            seed = seed_override.strip()
+            cleaned, explicit_subjects = _parse_with_clause(seed_override.strip())
+            seed = cleaned or "cinematic scene"
         else:
             seed_parts = []
             if hint_prompt:
@@ -361,23 +613,27 @@ async def run_scene_image(
         engine = os.environ.get("COMFYUI_ENGINE", "qwen").lower()
 
         gen_kwargs: dict = {}
+        resolved_subjects: list[str] = []
         if backend == "comfyui" and engine == "qwen":
-            refs, subjects, appearances = _gather_refs(seed)
+            refs, subjects, appearances = _gather_refs(seed, explicit_subjects)
             if refs:
                 gen_kwargs["reference_images"] = refs
                 gen_kwargs["reference_subjects"] = subjects
                 gen_kwargs["subject_appearances"] = appearances
+            resolved_subjects = subjects
         elif backend == "comfyui":
             # FLUX — single-ref char only, no KB interleaving
-            refs, subjects, _ = _gather_refs(seed)
+            refs, subjects, _ = _gather_refs(seed, explicit_subjects)
             if refs:
                 gen_kwargs["reference_image"] = refs[0]
                 gen_kwargs["reference_images"] = refs[:1]
                 gen_kwargs["reference_subjects"] = subjects[:1]
+            resolved_subjects = subjects[:1]
         elif backend in ("local_diffusers", "hf_spaces"):
-            refs, _, _ = _gather_refs(seed)
+            refs, subjects, _ = _gather_refs(seed, explicit_subjects)
             if refs:
                 gen_kwargs["reference_image"] = refs[0]
+            resolved_subjects = subjects[:1]
         # cloudflare: text-only, no refs
 
         # 3. Run generation with the shared progress bar
@@ -396,7 +652,7 @@ async def run_scene_image(
             bot_name or "場景",
             _fmt_progress,
             enabled=progress_enabled,
-        ) as on_progress:
+        ) as (on_progress, set_final):
             if on_progress is not None:
                 gen_kwargs["on_progress"] = on_progress
             try:
@@ -410,6 +666,14 @@ async def run_scene_image(
                     f"{type(exc).__name__}: {exc} (trigger={trigger})"
                 )
                 result = None
+
+            # Surface the resolved reference subjects so users can see at a
+            # glance which KB photos actually made it into the generation —
+            # the most common silent failure mode is "the AI invented a face
+            # because the KB photo didn't match the pronoun-only paragraph".
+            footer = _format_refs_footer(resolved_subjects, bot_name)
+            if footer:
+                set_final(footer)
 
         # 4. Attach in place
         if (

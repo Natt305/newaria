@@ -293,14 +293,68 @@ When scene mode is OFF (or the backend is not LM Studio), the legacy
 **Engine tiers** (in `scene_image.run_scene_image`)
 
 - **Qwen** (primary): full multi-ref edit through `_build_multi_edit_workflow_qwen`,
-  up to 4 refs (character portrait first, then KB photos whose titles appear
-  in the seed text), with a cinematic suffix appended to the prompt
-  (`, cinematic composition, soft rim light, shallow depth of field, film grain`).
-  Pairs with the Qwen v2 `latent_image` scaling fix described above so
-  the bot's looks survive multi-reference editing.
+  up to 4 refs (character portrait first, then KB photos whose titles or
+  aliases overlap the seed text — see *KB photo matching* below), with a
+  cinematic suffix appended to the prompt (`, cinematic composition,
+  soft rim light, shallow depth of field, film grain`). Pairs with the
+  Qwen v2 `latent_image` scaling fix described above so the bot's looks
+  survive multi-reference editing.
 - **FLUX**: single-ref multiref using only the character portrait, no KB
   interleaving, same cinematic suffix.
 - **Cloudflare**: plain text-to-image with the cinematic suffix; no refs.
+
+**KB photo matching** (`scene_image._gather_refs`)
+
+The character (bot) portrait is always loaded first and is never gated on
+the seed text. Remaining ref slots (cap = 4) come from KB image entries.
+
+Two layers decide whether a KB entry joins the reference set:
+
+1. **Explicit override — `[SCENE: body | with: a, b, c]`.** When the model
+   emits a `with:` clause as the tail of a `[SCENE: ...]` body, the names
+   are matched against KB titles + aliases via strict case-insensitive
+   equality. *No* substring guessing — a misspelt name silently drops
+   rather than pulling in an unrelated entry. The cleaned body (with the
+   `with:` tail stripped) is then used as the prompt seed.
+2. **Fuzzy seed match.** Each remaining KB entry's title and aliases are
+   compared against the seed text via two rules combined: word-bounded
+   substring matching (so *"Saki"* matches "Saki, smiling" but never
+   "ksaki"; CJK falls back to plain substring so *"妹妹"* still matches
+   *"妹妹來了"*) and non-trivial-token overlap (so *"the tower"* matches
+   `Tokyo Tower` via the `tower` token, but stop-words like *the / she /
+   you* never win on their own).
+
+Each KB entry contributes at most 2 photos and is added at most once. The
+matcher is fully synchronous and dependency-free of network calls.
+
+**Aliases — opt-in additive field on KB image entries**
+
+Each image entry can carry an optional `aliases: List[str]` field, edited
+via the 🏷️ **別名** button on the entry view (or programmatically via
+`database.update_aliases`). Older entries with no `aliases` field continue
+to load and save unchanged — they simply fall back to title-only matching.
+Aliases are the recommended fix for the *"reply uses a pronoun and the KB
+photo drops"* failure mode: add the character's nickname / romanisation /
+short-form so the fuzzy matcher catches the next mention.
+
+*Worked example:* KB entry `Saki Nikaido` with no aliases. The bot replies
+*"she smiles at you, eyes warm"* — neither *Saki* nor *Nikaido* appears,
+so the photo would silently drop and Qwen would invent a face. Either:
+
+- add aliases like `Saki, Saki-chan` (the model usually retains *Saki*
+  somewhere nearby), or
+- have the model emit `[SCENE: a quiet smile in lamplight | with: Saki Nikaido]`
+  to explicitly carry the subject through.
+
+**Resolved-refs footer**
+
+The progress message that already replies under each scene-image
+generation gets a one-line *"refs: bot, Saki Nikaido, Tokyo Tower"*
+footer **appended** under its final stage line (truncated to ~80 chars
+for the footer itself). Operators can see at a glance both the stage the
+generation finished at and which photos actually made it into the generation, so a
+silently-dropped subject is immediately visible and can be fixed by
+rewording the prompt, adding an alias, or using `with: ...`.
 
 **Shared progress UX**
 
