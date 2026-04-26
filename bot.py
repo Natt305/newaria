@@ -1874,6 +1874,24 @@ async def on_ready():
         else:
             _kb_photo_count = sum(1 for e in database.get_image_entries() if e.get("images"))
             print(f"[Bot] Image backend: comfyui — ready ({_cu_url})  |  KB photos: {_kb_photo_count} character(s)")
+        # Probe /object_info for the custom nodes the active engine needs so a
+        # missing pack surfaces here at boot instead of as a cryptic /prompt
+        # node-error 400 on the first !generate. Failure to find a node is a
+        # WARNING only — the FLUX engine may still be usable, etc.
+        try:
+            import comfyui_ai as _comfyui_ai
+            _diag = await asyncio.to_thread(_comfyui_ai.diagnose)
+            if _diag.get("reachable") and _diag.get("missing"):
+                _missing_names = ", ".join(n for n, _ in _diag["missing"])
+                print(
+                    f"[WARNING] ComfyUI is missing custom nodes for "
+                    f"engine={_diag['engine']}: {_missing_names}. "
+                    f"Image generation will fail until these are installed — "
+                    f"see the per-node install hints above, then restart ComfyUI. "
+                    f"Run /diagcomfyui to re-check."
+                )
+        except Exception as _diag_exc:
+            print(f"[Bot] ComfyUI diagnose() raised: {type(_diag_exc).__name__}: {_diag_exc}")
     elif _IMAGE_BACKEND == "local_diffusers":
         print(f"[Bot] Image backend: local_diffusers — {'ready' if _image_ready() else 'disabled (LOCAL_DIFFUSER_MODEL not set)'}")
     else:
@@ -3456,6 +3474,107 @@ class PermissionsView(discord.ui.View):
             embed.add_field(name=f"/{cmd}", value=gate_str, inline=True)
         embed.set_footer(text="使用 /setrole <指令> <角色> 設定 · /clearrole <指令> 移除限制")
         return embed
+
+
+@bot.hybrid_command(name="diagcomfyui", description="檢查 ComfyUI 是否安裝了當前引擎所需的自訂節點")
+async def diagcomfyui_cmd(ctx):
+    """Re-run comfyui_ai.diagnose() on demand and reply in-channel.
+
+    Mirrors the boot-time probe: hits /object_info for each node the active
+    COMFYUI_ENGINE needs, plus (for the Qwen engine) the available
+    CLIPLoaderGGUF type choices to confirm `qwen_image` is present. Useful
+    after installing/updating a custom-node pack and restarting ComfyUI.
+    """
+    if _IMAGE_BACKEND != "comfyui":
+        await ctx.reply(
+            f"⚠️ 目前 IMAGE_BACKEND=`{_IMAGE_BACKEND}`，並未使用 ComfyUI；無需診斷。",
+            mention_author=False,
+        )
+        return
+
+    # /object_info probes can take a few seconds when ComfyUI is busy; defer
+    # the slash-command response so we don't get a 3-second-timeout failure.
+    if hasattr(ctx, "defer"):
+        try:
+            await ctx.defer()
+        except Exception:
+            pass
+
+    try:
+        import comfyui_ai as _comfyui_ai
+        diag = await asyncio.to_thread(_comfyui_ai.diagnose)
+    except Exception as exc:
+        await ctx.reply(
+            f"❌ 診斷失敗: `{type(exc).__name__}: {exc}`",
+            mention_author=False,
+        )
+        return
+
+    engine = diag.get("engine", "?")
+    base_url = diag.get("base_url", "?")
+    reachable = diag.get("reachable", False)
+
+    if not reachable:
+        embed = discord.Embed(
+            title="🩺 ComfyUI 診斷",
+            description=f"❌ 無法連線到 ComfyUI 伺服器：`{base_url}`\n請確認 ComfyUI 已啟動，且 `COMFYUI_URL` 設定正確。",
+            color=discord.Color.red(),
+        )
+        embed.add_field(name="引擎", value=f"`{engine}`", inline=True)
+        await ctx.reply(embed=embed, mention_author=False)
+        return
+
+    nodes = diag.get("nodes", {})
+    missing = diag.get("missing", [])
+    clip_types = diag.get("clip_types", [])
+
+    color = discord.Color.green() if not missing else discord.Color.orange()
+    title_marker = "✅" if not missing else "⚠️"
+    embed = discord.Embed(
+        title=f"{title_marker} ComfyUI 診斷 — engine=`{engine}`",
+        description=f"伺服器: `{base_url}`",
+        color=color,
+    )
+
+    node_lines = []
+    for name, present in nodes.items():
+        node_lines.append(f"{'✅' if present else '❌'} `{name}`")
+    embed.add_field(
+        name="必要自訂節點",
+        value="\n".join(node_lines) if node_lines else "(無)",
+        inline=False,
+    )
+
+    if engine == "qwen" and nodes.get("CLIPLoaderGGUF"):
+        if clip_types:
+            qwen_ok = "qwen_image" in clip_types
+            preview = ", ".join(f"`{t}`" for t in clip_types[:12])
+            if len(clip_types) > 12:
+                preview += f", … (+{len(clip_types) - 12})"
+            embed.add_field(
+                name=f"CLIPLoaderGGUF type 選項 ({'✅ 含 qwen_image' if qwen_ok else '❌ 缺少 qwen_image'})",
+                value=preview,
+                inline=False,
+            )
+        else:
+            embed.add_field(
+                name="CLIPLoaderGGUF type 選項",
+                value="⚠ 無法解析 `/object_info` 回應結構（ComfyUI 版本可能過舊）。",
+                inline=False,
+            )
+
+    if missing:
+        hint_lines = [f"• `{n}` — {h}" for n, h in missing]
+        embed.add_field(
+            name="缺少的節點 — 安裝來源",
+            value="\n".join(hint_lines)[:1024],
+            inline=False,
+        )
+        embed.set_footer(text="安裝後請重啟 ComfyUI，然後再次執行 /diagcomfyui 確認。")
+    else:
+        embed.set_footer(text="所有必要的自訂節點皆已就位。")
+
+    await ctx.reply(embed=embed, mention_author=False)
 
 
 @bot.hybrid_command(name="setrole", description="指定哪個角色可以使用某個指令 (需管理員)")

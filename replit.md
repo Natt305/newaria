@@ -106,6 +106,7 @@ Selected via `COMFYUI_ENGINE=qwen` (the new default).
 **Backward compatibility:** by default the bot **does not** auto-switch engines when `COMFYUI_ENGINE=qwen` is set but the Qwen vars are missing — it logs a clear WARNING and fails fast, so the active engine can never silently drift to something the user didn't ask for. If you actually want the old "fall back to FLUX" behavior, set `COMFYUI_ALLOW_ENGINE_FALLBACK=1`. To force FLUX explicitly, set `COMFYUI_ENGINE=flux`.
 
 **Troubleshooting:**
+- **First step for any "node-not-found 400" error: run `/diagcomfyui`.** The bot also runs the same probe automatically at startup (when `IMAGE_BACKEND=comfyui`) via `comfyui_ai.diagnose()` — it hits `/object_info` once for each required custom node and prints `✅ found / ❌ MISSING` per node, plus the `CLIPLoaderGGUF` `type` choices so you can verify `qwen_image` is one of them. If anything is missing it logs a single prominent `[WARNING]` line telling you which custom-node pack to install (the bot still starts — the FLUX engine may still be usable). Re-run `/diagcomfyui` in any channel after installing/updating a pack and restarting ComfyUI.
 - `/prompt` returns a node-not-found error mentioning `TextEncodeQwenImageEditPlus` → the custom node pack isn't installed; restart ComfyUI after installing it.
 - Reference images are obviously ignored / output is text-only → `mmproj-*.gguf` is missing from `models/clip/`.
 - `/prompt` complains about CLIP type → confirm city96's `CLIPLoaderGGUF` exposes `qwen_image` in its type dropdown (recent versions do).

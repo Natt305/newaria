@@ -300,6 +300,7 @@ _DEFAULT_COMMAND_ROLES: Dict[str, Optional[str]] = {
     "helpsetting":           "__admin__",
     "generate":              None,
     "help":                  None,
+    "diagcomfyui":           "__admin__",
 }
 
 _SETTINGS_DEFAULTS = {

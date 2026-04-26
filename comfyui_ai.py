@@ -1911,6 +1911,147 @@ def image_ready() -> bool:
         return False
 
 
+# ── Custom-node packs required per engine ─────────────────────────────────────
+# Used by diagnose() below. Each entry is (node_class_name, install_hint).
+_REQUIRED_NODES_QWEN = [
+    ("UnetLoaderGGUF",
+     "city96's `ComfyUI-GGUF` "
+     "(https://github.com/city96/ComfyUI-GGUF)"),
+    ("CLIPLoaderGGUF",
+     "city96's `ComfyUI-GGUF` "
+     "(https://github.com/city96/ComfyUI-GGUF)"),
+    ("TextEncodeQwenImageEditPlus",
+     "any pack shipping `TextEncodeQwenImageEditPlus` "
+     "(e.g. Phr00t's `comfyui_qwen_image_edit_plus_nodes`)"),
+]
+_REQUIRED_NODES_FLUX = [
+    ("UnetLoaderGGUF",
+     "city96's `ComfyUI-GGUF` "
+     "(https://github.com/city96/ComfyUI-GGUF)"),
+    ("Flux2Scheduler",
+     "ComfyUI core 0.8.2+ (update ComfyUI itself)"),
+    ("EmptyFlux2LatentImage",
+     "ComfyUI core 0.8.2+ (update ComfyUI itself)"),
+]
+
+
+def _extract_clip_loader_types(payload: dict) -> list:
+    """Pull the list of `type` choices out of a /object_info/CLIPLoaderGGUF
+    response. ComfyUI nests the inputs under
+    payload[node_name]["input"]["required"]["type"] which is itself a list
+    whose first element is the choices list. Returns an empty list if the
+    shape doesn't match what we expect (e.g. older ComfyUI build)."""
+    try:
+        # /object_info/<NodeName> returns {"<NodeName>": {...info...}}
+        node_info = next(iter(payload.values())) if payload else {}
+        required = node_info.get("input", {}).get("required", {})
+        type_field = required.get("type")
+        if isinstance(type_field, list) and type_field and isinstance(type_field[0], list):
+            return list(type_field[0])
+    except Exception:
+        pass
+    return []
+
+
+def diagnose() -> dict:
+    """Probe ComfyUI's `/object_info` to verify the custom nodes required by
+    the active `COMFYUI_ENGINE` are installed.
+
+    Hits `/object_info/<NodeName>` once per required node. Prints a concise
+    console summary (✅ found / ❌ missing per node) plus, for the Qwen engine,
+    the list of `type` choices exposed by `CLIPLoaderGGUF` so the user can
+    confirm `qwen_image` is one of them.
+
+    Does not raise. Always returns a structured dict so the `/diagcomfyui`
+    Discord command can render the same information in chat:
+
+        {
+            "engine":     "qwen" | "flux",
+            "base_url":   "http://...",
+            "reachable":  bool,                         # /system_stats responded
+            "nodes":      {"NodeName": True/False, ...},
+            "missing":    [(node_name, install_hint), ...],
+            "clip_types": [...]   # only for the Qwen engine; [] otherwise
+        }
+    """
+    base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
+    engine = os.environ.get("COMFYUI_ENGINE", "qwen").strip().lower()
+    if engine not in ("qwen", "flux"):
+        engine = "qwen"
+    required = _REQUIRED_NODES_QWEN if engine == "qwen" else _REQUIRED_NODES_FLUX
+
+    result: dict = {
+        "engine":     engine,
+        "base_url":   base_url,
+        "reachable":  False,
+        "nodes":      {},
+        "missing":    [],
+        "clip_types": [],
+    }
+
+    print(f"[ComfyUI] Diagnose: engine={engine}  url={base_url}")
+
+    try:
+        import requests as _requests
+    except Exception as exc:
+        print(f"[ComfyUI] Diagnose skipped — `requests` not importable: {exc}")
+        return result
+
+    try:
+        ss = _requests.get(f"{base_url}/system_stats", timeout=5)
+        result["reachable"] = (ss.status_code == 200)
+    except Exception as exc:
+        print(f"[ComfyUI] Diagnose: server unreachable at {base_url} ({type(exc).__name__}: {exc})")
+        return result
+
+    if not result["reachable"]:
+        print(f"[ComfyUI] Diagnose: /system_stats returned HTTP {ss.status_code} — skipping node probe.")
+        return result
+
+    for node_name, _hint in required:
+        try:
+            r = _requests.get(f"{base_url}/object_info/{node_name}", timeout=5)
+            present = (r.status_code == 200) and bool(r.json())
+        except Exception as exc:
+            print(f"[ComfyUI] Diagnose: probe for {node_name} failed ({type(exc).__name__}: {exc})")
+            present = False
+        result["nodes"][node_name] = present
+        marker = "✅ found" if present else "❌ MISSING"
+        print(f"[ComfyUI] Diagnose:   {marker}  {node_name}")
+        if not present:
+            result["missing"].append((node_name, _hint))
+        elif node_name == "CLIPLoaderGGUF":
+            try:
+                result["clip_types"] = _extract_clip_loader_types(r.json())
+            except Exception:
+                result["clip_types"] = []
+
+    if engine == "qwen" and result["nodes"].get("CLIPLoaderGGUF"):
+        types = result["clip_types"]
+        if types:
+            qwen_ok = "qwen_image" in types
+            qmark = "✅" if qwen_ok else "❌"
+            print(f"[ComfyUI] Diagnose:   {qmark} CLIPLoaderGGUF type choices: {types}")
+            if not qwen_ok:
+                print("[ComfyUI] Diagnose:   ⚠ `qwen_image` is NOT one of the CLIPLoaderGGUF "
+                      "types — update city96's ComfyUI-GGUF to a recent commit.")
+        else:
+            print("[ComfyUI] Diagnose:   ⚠ Could not parse CLIPLoaderGGUF type choices "
+                  "(unexpected /object_info shape).")
+
+    if result["missing"]:
+        names = ", ".join(n for n, _ in result["missing"])
+        print(f"[ComfyUI] Diagnose: ⚠ MISSING required custom nodes for engine={engine}: {names}")
+        for node_name, hint in result["missing"]:
+            print(f"[ComfyUI] Diagnose:     • install `{node_name}` via {hint}")
+        print("[ComfyUI] Diagnose: image generation requests will fail with a "
+              "/prompt node-not-found 400 until these are installed.")
+    else:
+        print(f"[ComfyUI] Diagnose: ✅ all required custom nodes present for engine={engine}.")
+
+    return result
+
+
 async def _ws_progress(
     ws_url: str,
     on_progress: Callable[[str], Coroutine],
