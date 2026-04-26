@@ -2294,7 +2294,15 @@ def _salvage_suggestions(text: str, count: int) -> list:
             # dropped — falling back to the raw line would let `false` slip
             # through as a button label.
         except Exception:
-            candidates.append(line)
+            # JSON parse failed — but the line may still be a single-quoted
+            # or curly-quoted "array" shape (`['text']`, `[“text”]`) that
+            # is technically not JSON. Strip a single pair of outer
+            # brackets here; `_clean` then strips the inner quote pair
+            # (single, double, or curly) on the next pass.
+            inner = line
+            if len(inner) >= 2 and inner[0] == "[" and inner[-1] == "]":
+                inner = inner[1:-1].strip().rstrip(",").strip()
+            candidates.append(inner)
 
         for cand in candidates:
             cleaned = _clean(cand)
