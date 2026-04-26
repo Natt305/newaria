@@ -96,13 +96,19 @@ Selected via `COMFYUI_ENGINE=qwen` (the new default).
 2. `CLIPLoaderGGUF` (city96, `type=qwen_image`) → CLIP — `mmproj-f16.gguf` must sit alongside the encoder GGUF in `models/clip/`, otherwise the encoder runs in text-only mode and the reference photos are silently dropped.
 3. `VAELoader` → VAE (any Qwen-Image VAE; `pig_qwen_image_vae_fp32-f16.gguf` works through the stock loader).
 4. Up to 4 `LoadImage` nodes (one per uploaded reference) wired into `image1..image4` slots of `TextEncodeQwenImageEditPlus` (positive). Negative is a plain empty `CLIPTextEncode`.
-5. `EmptySD3LatentImage` (16-channel — Qwen-Image is a 16-channel MMDiT model).
+5. `EmptySD3LatentImage` (16-channel — Qwen-Image is a 16-channel MMDiT model). When Phr00t's **v2** `nodes_qwen.py` is detected (see below), this latent is *also* wired into the encoder's `latent_image` input — the v2 fork uses it to size the reference embeddings against the target canvas, which kills the scaling/cropping/zoom artifacts that plagued v1 multi-ref edits.
 6. `KSampler` — `cfg=1.0`, default `steps=4`, sampler `euler_ancestral`, scheduler `beta` (matches Phr00t's reference `Qwen-Rapid-AIO.json`; all overridable via env vars).
 7. `VAEDecode` → `SaveImage`.
 
 **Required ComfyUI custom node packs (manual install):**
 - `ComfyUI-GGUF` (city96) — provides `UnetLoaderGGUF` and `CLIPLoaderGGUF`.
-- Any pack shipping `TextEncodeQwenImageEditPlus` (Phr00t's `nodes_qwen.py` or comparable).
+- Any pack shipping `TextEncodeQwenImageEditPlus`. **Strongly recommended: Phr00t's v2 `nodes_qwen.py`** (rename `nodes_qwen.v2.py` → `nodes_qwen.py` and drop into `<ComfyUI>/comfy_extras/`). The v1 node still works but produces visibly worse multi-reference results — faces crop, full-body refs zoom into torsos.
+
+**Encoder v2 auto-detection.** At boot (and whenever you re-run `/diagcomfyui`) the bot probes `/object_info/TextEncodeQwenImageEditPlus` for a `latent_image` input slot — the marker for Phr00t's v2 fork — and caches the result. The boot console prints exactly one of these lines so you can verify your install at a glance:
+- `✅ TextEncodeQwenImageEditPlus v2 — `latent_image` input present (scaling fix active).`
+- `⚠ TextEncodeQwenImageEditPlus v1 — no `latent_image` input; falling back to legacy mode (install Phr00t's v2 nodes_qwen.py to fix scaling/cropping/zoom artifacts).`
+
+Each `!generate` then tags its workflow log with `(latent_image: wired)`, `(latent_image: not wired (v1 node))`, or `(latent_image: not wired (unknown))` so you can confirm at a glance which path actually ran. The "unknown" tag means ComfyUI was unreachable when the bot started — re-run `/diagcomfyui` after ComfyUI comes up to populate the cache. The bot **never** sends `latent_image` to a v1 node, so a v1 install can't be poisoned with an unknown input that would 400 the prompt.
 
 **Backward compatibility:** by default the bot **does not** auto-switch engines when `COMFYUI_ENGINE=qwen` is set but the Qwen vars are missing — it logs a clear WARNING and fails fast, so the active engine can never silently drift to something the user didn't ask for. If you actually want the old "fall back to FLUX" behavior, set `COMFYUI_ALLOW_ENGINE_FALLBACK=1`. To force FLUX explicitly, set `COMFYUI_ENGINE=flux`.
 
