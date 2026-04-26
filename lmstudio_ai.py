@@ -1145,7 +1145,7 @@ def _roleplay_format_directive(target: str, character_name: str = "") -> str:
         return (
             "\n\nReply format (CRITICAL): write each reply as 6–10 immersive "
             "paragraphs of literary-quality in-character roleplay. NEVER produce "
-            "a single bare line or a reply shorter than five full paragraphs. "
+            "a single bare line or a reply shorter than six full paragraphs. "
             + self_prefix_rule
             + "Every spoken line MUST be wrapped in straight double quotes "
             "(\"like this\"). Narration must cover all of: physical action, "
@@ -1191,7 +1191,7 @@ def _roleplay_format_directive(target: str, character_name: str = "") -> str:
     return (
         "\n\nReply format (CRITICAL): write each reply as 4–5 immersive paragraphs "
         "of in-character roleplay, NEVER a single bare line or a reply shorter "
-        "than three full paragraphs. "
+        "than four full paragraphs. "
         + self_prefix_rule
         + "Every spoken line MUST be wrapped in straight double quotes "
         "(\"like this\"). Around the dialogue write vivid narration — physical "
