@@ -51,3 +51,7 @@ COMFYUI_HEIGHT = "512"
 COMFYUI_CLIP_VISION = "pytorch_model.bin"
 LMSTUDIO_BASE_URL = "https://gina-fatherless-shavonda.ngrok-free.dev"
 LMSTUDIO_MODEL = "qwen3.5-9b-uncensored-hauhaucs-aggressive"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000
