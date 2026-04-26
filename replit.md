@@ -338,6 +338,36 @@ factored into. Same temporary-message → live-edit → delete pattern, same
 - `bot.py` — scene-mode routing branch in `process_chat`, `/sceneimage`
   command, `bot.add_view(...)` in `on_ready`.
 
+## Narrative richness dial (LM Studio only)
+
+Controls how much narration wraps dialogue in LM Studio replies. Set in
+`tokens.txt` (or as a Replit Secret) — global, applies to all channels.
+Has no effect on Groq or Ollama backends.
+
+**`LMSTUDIO_NARRATION_TARGET`** — five levels, all leaning toward more
+immersive output:
+
+| Level | Plain-prose models (MN-12B etc.) | Qwen / hauhaucs (soft hint only) |
+|---|---|---|
+| `terse` | No directive injected | No hint |
+| `brief` | 2–3 sentences; one must cover body language or atmosphere | `<subtext>` 1–2 sentences |
+| `standard` | 2–3 full paragraphs wrapping every dialogue beat | `<subtext>` 2–4 sentences |
+| **`rich`** *(default for MN-12B)* | **4–5 immersive paragraphs: action, sensory detail, internal thought; 4-paragraph example** | `<subtext>` 4–6 sentences |
+| `cinematic` | 6–10 literary paragraphs: extended internal monologue, environmental atmosphere, slow-burn tempo; 5-paragraph example | `<subtext>` 6–10 sentences |
+
+**Default**: `rich` for plain-prose models (MN-12B Celeste etc.), `standard`
+for Qwen/hauhaucs.
+
+**Upward shift from the old 3-level scale**: the baseline has been deliberately
+pushed higher — what was "rich" (2–3 paragraphs) is now the *floor* of
+`standard`. If previous output felt verbose, drop to `brief` or `standard`;
+if you want the old behaviour, `standard` is the closest match.
+
+**Qwen caveat**: the plain-prose directive is not injected on the Qwen path
+(those models use their own `<reply>/<subtext>` ChatML format). The soft hint
+influences `<subtext>` length at the margin only — the model's fine-tune
+training dominates. `terse` suppresses the hint entirely.
+
 ## Running
 
 The workflow `Start application` runs `python3 launcher.py`.

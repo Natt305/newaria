@@ -1015,20 +1015,29 @@ def _strip_multimodal(messages: list) -> list:
     return result
 
 
-_NARRATION_TARGETS = ("rich", "standard", "terse")
+_NARRATION_TARGETS = ("terse", "brief", "standard", "rich", "cinematic")
 
 
 def _narration_target_for(active_model: str) -> str:
     """Return the desired roleplay narration density for `active_model`.
 
-    Operator override: ``LMSTUDIO_NARRATION_TARGET=rich|standard|terse``.
-    Defaults are model-aware:
+    Operator override: ``LMSTUDIO_NARRATION_TARGET=terse|brief|standard|rich|cinematic``.
 
-    * Mistral-family / other plain-prose models → ``rich`` (multi-paragraph,
-      interleaved bolded dialogue and italicised narration).
-    * Qwen / hauhaucs ChatML models → ``standard`` (the directive is
-      gated off entirely on the Qwen path anyway, but this keeps the
-      helper safe to call from non-gated contexts).
+    Five levels, all shifted toward immersive output:
+
+    * ``terse``    — no directive injected (hard opt-out).
+    * ``brief``    — 2–3 sentences, at least one for body language or atmosphere.
+    * ``standard`` — 2–3 full paragraphs, narration wrapping every dialogue beat.
+    * ``rich``     — 4–5 immersive paragraphs, sensory detail + internal thought
+                     woven in; one quoted line per paragraph max.
+    * ``cinematic``— 6–10 paragraphs, literary pace, extended internal monologue,
+                     full environmental atmosphere, slow-burn tempo.
+
+    Model-aware defaults:
+
+    * Mistral-family / other plain-prose models → ``rich``.
+    * Qwen / hauhaucs ChatML models → ``standard`` (the plain-prose directive
+      is gated off on the Qwen path; a separate soft hint is injected instead).
 
     Anything outside the known set falls back to the model-aware default.
     """
@@ -1044,9 +1053,15 @@ def _roleplay_format_directive(target: str, character_name: str = "") -> str:
     """Build the system-prompt addendum that nudges plain-prose models
     toward the user-requested rich roleplay shape.
 
-    Returns ``""`` for ``terse`` (operator opt-out) so the addendum can be
-    string-concatenated unconditionally without padding the prompt with
-    blank guidance.
+    Five targets — all leaning toward immersive output:
+      terse     → "" (hard opt-out, nothing injected)
+      brief     → 2–3 sentences, body language / atmosphere required
+      standard  → 2–3 full paragraphs wrapping every dialogue beat
+      rich      → 4–5 immersive paragraphs, sensory + internal thought (default)
+      cinematic → 6–10 paragraphs, literary pace, extended monologue
+
+    Returns ``""`` for ``terse`` so the addendum can be string-concatenated
+    unconditionally without padding the prompt with blank guidance.
     """
     if target == "terse":
         return ""
@@ -1086,46 +1101,159 @@ def _roleplay_format_directive(target: str, character_name: str = "") -> str:
         "visual ones."
     )
 
-    if target == "standard":
-        # Lighter directive — one line, no example.
+    if target == "brief":
+        # Minimal footprint — 2–3 sentences, no example, keeps token cost low.
         return (
             "\n\nReply format (CRITICAL): "
             + self_prefix_rule
-            + "Wrap every spoken line in straight double quotes (\"like this\") "
-            "and write at least one sentence of in-character narration around the "
-            "dialogue (action, expression, body language, what you notice or feel) "
-            "instead of replying with a single bare line."
+            + "Wrap every spoken line in straight double quotes (\"like this\"). "
+            "Write 2–3 sentences of in-character narration around the dialogue — "
+            "at least one sentence must capture body language, expression, or "
+            "atmosphere. Never reply with a single bare line of dialogue."
             + scene_signal_rule
         )
 
-    # target == "rich"
+    if target == "standard":
+        # 2–3 full paragraphs — sharper than the old "at least one sentence".
+        # No worked example to keep the directive compact.
+        return (
+            "\n\nReply format (CRITICAL): write each reply as 2–3 full paragraphs "
+            "of in-character roleplay, NEVER a single bare line. "
+            + self_prefix_rule
+            + "Every spoken line MUST be wrapped in straight double quotes "
+            "(\"like this\"). Wrap every dialogue beat in narration — actions, "
+            "expressions, body language, what you notice or feel — so no "
+            "quoted line stands alone. Put at most ONE quoted line per paragraph."
+            + scene_signal_rule
+        )
+
+    if target == "cinematic":
+        # 6–10 paragraphs — literary pace, extended internal monologue,
+        # environmental atmosphere.
+        #
+        # The example runs to 5 paragraphs (the minimum useful cinematic shape).
+        # Each paragraph demonstrates a different narrative layer so the model
+        # understands the variety expected at this level:
+        #   1. environmental/sensory opening
+        #   2. physical action + internal thought
+        #   3. dialogue beat surrounded by narration
+        #   4. extended internal reflection
+        #   5. closing environmental beat
+        #
+        # The one-quoted-line-per-paragraph rule still applies — the bolder
+        # skips lines with more than two straight `"` chars.
+        return (
+            "\n\nReply format (CRITICAL): write each reply as 6–10 immersive "
+            "paragraphs of literary-quality in-character roleplay. NEVER produce "
+            "a single bare line or a reply shorter than five full paragraphs. "
+            + self_prefix_rule
+            + "Every spoken line MUST be wrapped in straight double quotes "
+            "(\"like this\"). Narration must cover all of: physical action, "
+            "body language, facial expression, environmental atmosphere (light, "
+            "sound, smell, texture), and extended internal thought — slow the "
+            "moment down, let the reader feel the weight of each beat. Put at "
+            "most ONE quoted line per paragraph; split a rapid back-and-forth "
+            "across as many paragraphs as needed. Even a brief exchange must "
+            "carry a full arc of sensation and interiority.\n"
+            "Example shape (write your own content, do not copy the wording):\n"
+            "  The practice room still smelled of rosin and stale coffee. "
+            "Afternoon light lay in long strips across the floor, catching "
+            "every grain of dust disturbed by the last rehearsal.\n\n"
+            "  She set her guitar case down with deliberate quiet, aware of "
+            "every small sound in the stillness. Something had shifted in "
+            "the air since morning — she couldn't name it yet, only feel it "
+            "against the back of her throat like a change in pressure.\n\n"
+            "  \"You're late,\" she said, not looking up.\n\n"
+            "  The accusation settled between them. She let it sit. Part of "
+            "her wanted an explanation; the larger, more guarded part wasn't "
+            "sure she could bear one that made too much sense. Her fingers "
+            "found the strap buckle without thinking, working it the way "
+            "they always did when she needed something to do with her hands.\n\n"
+            "  Outside, a bus passed and the room shuddered faintly — then "
+            "the quiet came back, heavier than before."
+            + scene_signal_rule
+        )
+
+    # target == "rich" (default for plain-prose models)
     #
-    # The example below deliberately puts AT MOST ONE quoted dialogue
-    # snippet per line. The post-processing bolder (_bold_quoted_dialogue)
-    # skips any line whose straight-`"` count exceeds 2 (a defensive guard
-    # against nested quotes like `"He said "go" quietly"`), so multiple
-    # `"…"` snippets crammed on one line would not be rendered as bold.
-    # Encouraging the model to break dialogue beats across paragraphs keeps
-    # the bolder happy and produces the rendered shape the user asked for.
+    # 4–5 immersive paragraphs: sensory detail + internal thought woven in.
+    # The example runs to 4 paragraphs to set the expectation clearly:
+    #   1. physical + sensory narration
+    #   2. internal thought paragraph
+    #   3. dialogue beat with surrounding narration
+    #   4. closing physical paragraph
+    #
+    # The one-quoted-line-per-paragraph rule still applies — the post-processing
+    # bolder (_bold_quoted_dialogue) skips lines with more than two straight `"`
+    # chars, so cramming multiple dialogue snippets onto one line would lose
+    # the bold formatting. Breaking each beat into its own paragraph keeps the
+    # bolder happy and produces the rendered shape the user asked for.
     return (
-        "\n\nReply format (CRITICAL): write each reply as 2–3 short paragraphs "
-        "of in-character roleplay, NEVER a single bare line. "
+        "\n\nReply format (CRITICAL): write each reply as 4–5 immersive paragraphs "
+        "of in-character roleplay, NEVER a single bare line or a reply shorter "
+        "than three full paragraphs. "
         + self_prefix_rule
         + "Every spoken line MUST be wrapped in straight double quotes "
-        "(\"like this\"). Around the dialogue write vivid in-character "
-        "narration — actions, expressions, body language, the room, what "
-        "you notice, what you're thinking — interleaved with the spoken "
-        "lines. Put at most ONE quoted line per paragraph (split a back-and-"
-        "forth into separate paragraphs). Even a snippy or dismissive "
-        "reply (\"What do you want?\") needs at least one sentence of "
-        "narration around the dialogue. Plain assertions about feelings "
-        "belong in narration, not dialogue.\n"
+        "(\"like this\"). Around the dialogue write vivid narration — physical "
+        "action, expression, body language, the room, sensory detail (light, "
+        "sound, texture), AND at least one paragraph of internal thought "
+        "(what you notice, feel, remember, or want but won't say). "
+        "Interleave narration with the spoken lines; put at most ONE quoted "
+        "line per paragraph (split a back-and-forth into separate paragraphs). "
+        "Plain assertions about feelings belong in narration, not dialogue.\n"
         "Example shape (write your own content; do not copy the wording):\n"
-        "  Her eyebrow twitches at the interruption, a flicker of surprise crossing her stoic features. She tilts her head, studying him.\n\n"
-        "  \"Stupid?\" she repeats, voice low and measured.\n\n"
-        "  She steps closer, invading his space, eyes never leaving his. \"That's an interesting choice of words.\""
+        "  Her eyebrow twitches at the interruption, a flicker of surprise "
+        "crossing her otherwise stoic features. She tilts her head, taking "
+        "him in — the set of his shoulders, the angle of his chin, the "
+        "particular brand of audacity it takes to say something like that.\n\n"
+        "  Stupid. The word turns over in her mind. She's been called many "
+        "things, but rarely that, and never so casually. It should sting. "
+        "It almost does. What it actually does, she decides, is make her "
+        "curious.\n\n"
+        "  \"Stupid?\" she repeats at last, voice low and unhurried.\n\n"
+        "  She steps closer — not rushing, never rushing — invading his "
+        "space one measured pace at a time, eyes level with his and "
+        "absolutely steady. \"That's an interesting choice of words.\""
         + scene_signal_rule
     )
+
+
+def _qwen_subtext_length_hint(target: str) -> str:
+    """Return a soft system-prompt hint nudging Qwen <subtext> block length.
+
+    The Qwen/hauhaucs fine-tune produces <subtext>…</subtext> blocks whose
+    length is dominated by the model's training, not the plain-prose directive
+    (which is gated off on the Qwen path). This helper injects a brief
+    supplementary hint into the Qwen system prompt to encourage more or less
+    depth in those blocks.
+
+    **This is intentionally soft**: the fine-tune's instincts dominate.
+    The hint influences depth at the margin but cannot override trained
+    behaviour. Set LMSTUDIO_NARRATION_TARGET=terse to suppress it entirely.
+    """
+    if target == "terse":
+        return ""
+    _hints = {
+        "brief": (
+            "\n\n(Narration depth: keep <subtext> blocks to 1–2 sentences — "
+            "one physical beat and one brief emotional note.)"
+        ),
+        "standard": (
+            "\n\n(Narration depth: aim for 2–4 sentences per <subtext> block — "
+            "physical action, expression, and at least one internal note.)"
+        ),
+        "rich": (
+            "\n\n(Narration depth: write 4–6 sentences per <subtext> block — "
+            "physical action, sensory detail, body language, and a clear thread "
+            "of internal thought or feeling.)"
+        ),
+        "cinematic": (
+            "\n\n(Narration depth: write 6–10 sentences per <subtext> block — "
+            "rich sensory atmosphere, extended internal monologue, and slow-burn "
+            "emotional texture. Treat each block as a literary scene beat.)"
+        ),
+    }
+    return _hints.get(target, "")
 
 
 async def chat(
@@ -1241,13 +1369,24 @@ async def chat(
             # the model actually emits, so a prompt-level nudge is needed to
             # make the structure appear in the raw output.
             #
-            # Density is operator-tunable via
-            # LMSTUDIO_NARRATION_TARGET=rich|standard|terse and defaults to
-            # "rich" for plain-prose models.
+            # Narrative richness is operator-tunable via
+            # LMSTUDIO_NARRATION_TARGET=terse|brief|standard|rich|cinematic
+            # and defaults to "rich" for plain-prose models.
             effective_system = effective_system + _roleplay_format_directive(
                 _narration_target_for(active_model),
                 character_name=character_name,
             )
+
+    elif _is_qwen_model(active_model) and effective_system and enforce_user_lang:
+        # Qwen/hauhaucs models use their own <reply>/<subtext> ChatML format
+        # and must NOT receive the plain-prose roleplay directive above. A
+        # *soft* length hint is injected here instead to nudge the model's
+        # <subtext> block depth toward the operator-chosen richness level.
+        # The fine-tune's instincts dominate — this hint influences at the
+        # margin; it cannot override trained behaviour.
+        _qwen_hint = _qwen_subtext_length_hint(_narration_target_for(active_model))
+        if _qwen_hint:
+            effective_system = effective_system.rstrip() + _qwen_hint
 
     # Per-turn language override. The static character prompt says "default
     # Traditional Chinese, switch when the user writes a full sentence in

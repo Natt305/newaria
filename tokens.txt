@@ -174,30 +174,52 @@ LMSTUDIO_THINKING=off
 # ----------------------------------------------------------------
 # 角色扮演格式 / Roleplay reply format
 # ----------------------------------------------------------------
-# 控制非 Qwen 系列（純文字提示）模型在系統提示裡會被注入多少
-# 「多段落 + 引號對白 + 動作旁白」的格式指引。預設值依模型族群
-# 自動切換：Mistral Nemo（Celeste 等）→ rich，Qwen → standard
-# (Qwen 路徑本來就用自己的 <reply>/<subtext> 格式，所以這個指引
-# 在 Qwen 上不會被注入)。
+# 控制 LM Studio 模型系統提示中注入的敘事深度指引。五個層級，
+# 全部向「更沉浸」的方向調整。預設值依模型族群自動切換：
+# Mistral Nemo（Celeste 等純文字提示模型）→ rich
+# Qwen / hauhaucs → standard（純文字指引不會注入 Qwen，改用
+# 針對 <subtext> 長度的「軟提示」；微調訓練仍主導，軟提示僅
+# 在邊際影響）。
 #
-#   rich      預設 (Mistral)。要求模型每次回覆 2–3 個短段落，
-#             把口語對白放在直雙引號內 ("…")，並在對白前後寫
-#             動作/表情/環境/內心想法等敘事。系統提示會包含
-#             一個簡短示範。最適合 Celeste 之類的角色扮演微調。
-#   standard  簡化版指引 (一句話、無示範)。仍要求引號對白和
-#             一句以上敘事，但不強制 2–3 段。適合反應較慢或
-#             token 預算較緊的模型。
-#   terse     完全關閉這段指引 (不影響語言保護或反迴圈機制)。
-#             適合自己已經會輸出正確格式、不需要額外提示的模型。
+#   terse     完全關閉格式指引（不影響語言保護、反迴圈機制）。
+#             適合自己已輸出正確格式、不需要額外提示的模型。
+#             Qwen 路徑：也不注入軟提示。
 #
-# Operator-tunable density of the roleplay-format directive injected
-# for plain-prose (non-Qwen) models. Defaults: "rich" for Mistral and
-# other plain-prose models, "standard" for Qwen (the directive is
-# gated off on the Qwen path anyway). "rich" asks for 2–3 short
-# paragraphs interleaving italic narration with bolded quoted
-# dialogue and includes a one-line shape example. "standard" drops
-# the example and the paragraph count. "terse" disables the
-# directive entirely.
+#   brief     最輕量。要求 2–3 句敘事（至少一句描述肢體語言
+#             或環境氣氛），不需要示範。適合 token 預算緊的情境。
+#             Qwen 路徑：軟提示 → <subtext> 1–2 句。
+#
+#   standard  要求每次回覆 2–3 個完整段落，對白前後均須有敘事；
+#             不含示範例句。
+#             Qwen 路徑：軟提示 → <subtext> 2–4 句。
+#
+#   rich      預設（Mistral）。要求 4–5 個沉浸式段落，含感官
+#             細節、動作、肢體語言，以及至少一段內心獨白。
+#             系統提示包含四段示範（含內心想法）。最適合
+#             Celeste 等角色扮演微調。
+#             Qwen 路徑：軟提示 → <subtext> 4–6 句。
+#
+#   cinematic 最豐富。要求 6–10 個文學風格段落：環境氣氛、
+#             延伸內心獨白、慢節奏情感肌理。含五段示範。
+#             適合需要高度沉浸的長篇 RP。
+#             Qwen 路徑：軟提示 → <subtext> 6–10 句。
+#
+# Operator-tunable narrative richness for the roleplay-format directive
+# injected into plain-prose (non-Qwen) LM Studio models. Five levels,
+# all shifted toward more immersive output:
+#
+#   terse     No directive injected (hard opt-out). Qwen: no soft hint.
+#   brief     2–3 sentences, at least one for body language or atmosphere.
+#             No example. Qwen soft hint: <subtext> 1–2 sentences.
+#   standard  2–3 full paragraphs wrapping every dialogue beat; no example.
+#             Qwen soft hint: <subtext> 2–4 sentences.
+#   rich      4–5 immersive paragraphs: sensory detail, action, body
+#     (default) language, plus at least one paragraph of internal thought.
+#             Includes a 4-paragraph example. Qwen soft hint: 4–6 sentences.
+#   cinematic 6–10 literary paragraphs: extended internal monologue,
+#             environmental atmosphere, slow-burn emotional texture.
+#             Includes a 5-paragraph example. Qwen soft hint: 6–10 sentences.
+#
 # LMSTUDIO_NARRATION_TARGET=
 
 # ----------------------------------------------------------------
