@@ -12,6 +12,39 @@ import image_dispatch
 PAGE_SIZE = 5
 
 
+class SceneImageButtonView(discord.ui.View):
+    """Persistent 🎬 button attached to RP-mode bot replies when scene
+    mode is enabled for the channel.
+
+    Persistence: timeout=None and a fixed `custom_id` so Discord can route
+    clicks back to this callback even after a bot restart. The view is
+    registered once via `bot.add_view(SceneImageButtonView())` in `on_ready`.
+
+    The click handler defers ephemerally and dispatches into the shared
+    `scene_image.run_scene_image` runner, which deduplicates via in-flight
+    set + per-channel cooldown so spam-clicks cannot queue duplicates.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        emoji="🎬",
+        style=discord.ButtonStyle.secondary,
+        custom_id="scene_image_btn",
+    )
+    async def scene_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        # Lazy import — scene_image transitively imports ai_backend which
+        # is fine, but this keeps view import order independent of the
+        # runner's full module init.
+        import scene_image
+        await scene_image.handle_button_click(interaction)
+
+
 def _has_saveimage_permission(interaction: discord.Interaction) -> bool:
     """Return True if the interaction user may save to the knowledge base."""
     gate = database.get_command_roles().get("saveimage")

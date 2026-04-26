@@ -227,6 +227,93 @@ The legacy two-pass workflow: generates a base scene first, then runs per-charac
 **Required ComfyUI node packs** (Ultimate Inpaint only):
 - `ComfyUI-Easy-Use`, `ComfyUI-Crystools`, `ComfyUI-Impact-Pack`, `ComfyUI-BRIA-RMBG`, `SAM3`, `ComfyUI-GODMT`, `ComfyUI-layerdiffuse`
 
+## Scene image (RP mode — LM Studio)
+
+A first-class affordance for cinematic moments in LM Studio roleplay. Off
+by default; opt in per channel via `/sceneimage on`.
+
+**What it does**
+
+When scene mode is on for a channel, every LM Studio bot reply gets a
+single 🎬 button. Click it and the bot generates a character-accurate
+scene image and **edits** it onto its own message in place — no separate
+reply, no doubled response. The persistent view registers in `on_ready`
+via `bot.add_view(SceneImageButtonView())`, so the button keeps working
+on prior bot messages even after a restart.
+
+**Auto-trigger via `[SCENE]`**
+
+The LM Studio system prompt teaches the model a new bare `[SCENE]` token
+(no body — the bot derives the prompt from the reply prose itself). The
+model emits it only at the end of a paragraph that is genuinely cinematic.
+`lmstudio_ai.chat()` strips the token and returns `wants_scene_image=True`
+as the 5th tuple element; `process_chat` then auto-runs the same runner the
+button uses.
+
+**No-duplicates guarantee — the central design rule**
+
+When scene mode is on for a channel **and** the active backend is LM Studio,
+`process_chat` skips the legacy `[IMAGE: ...] → reply.send(file)` branch
+entirely. Instead it routes through `scene_image.run_scene_image` if any of
+these are true on the same turn:
+
+- `wants_scene_image` (LLM emitted `[SCENE]`)
+- `image_prompt` from a legacy `[IMAGE: ...]` tag (re-routed as a hint)
+- `scene_image.is_user_visual_intent(user_text)` matched
+
+The runner has its own `(channel_id, target_message_id)` in-flight set, so
+even when both `[SCENE]` and `[IMAGE: ...]` come back on the same turn,
+**exactly one image is produced** — and it always edits the bot's own
+message rather than sending a second one.
+
+When scene mode is OFF (or the backend is not LM Studio), the legacy
+`[IMAGE: ...]` flow runs unchanged.
+
+**Engine tiers** (in `scene_image.run_scene_image`)
+
+- **Qwen** (primary): full multi-ref edit through `_build_multi_edit_workflow_qwen`,
+  up to 4 refs (character portrait first, then KB photos whose titles appear
+  in the seed text), with a cinematic suffix appended to the prompt
+  (`, cinematic composition, soft rim light, shallow depth of field, film grain`).
+  Pairs with the Qwen v2 `latent_image` scaling fix described above so
+  the bot's looks survive multi-reference editing.
+- **FLUX**: single-ref multiref using only the character portrait, no KB
+  interleaving, same cinematic suffix.
+- **Cloudflare**: plain text-to-image with the cinematic suffix; no refs.
+
+**Shared progress UX**
+
+`scene_image.progress_bar(message, name, formatter)` is the reusable async
+context manager that the legacy `[IMAGE: ...]` flow's progress block was
+factored into. Same temporary-message → live-edit → delete pattern, same
+`bot._format_diffuser_progress` formatter, no duplicated implementation.
+
+**Cooldown & dedup**
+
+- Per-channel cooldown via `commands.CooldownMapping` (3 generations / 60s)
+- In-flight `set[(channel_id, target_message_id)]` rejects spam-clicks and
+  dual-trigger races with a friendly ephemeral.
+
+**Operator-facing surface**
+
+- `/sceneimage on|off|status` (hybrid command, per-channel, persists in
+  `data/settings.json` under `scene_image:{channel_id}`)
+- `/diagcomfyui` now includes a "場景圖片模式 (此頻道)" field showing the
+  current channel's state alongside the ComfyUI node diagnosis.
+- Boot log line: `[SceneImage] Persistent view registered — buttons on bot
+  messages restored across restart.`
+
+**Files**
+
+- `scene_image.py` — runner, progress-bar context manager, in-flight set,
+  cooldown mapping, visual-intent detector, per-channel toggle helpers.
+- `views.py` — `SceneImageButtonView` (persistent, fixed `custom_id`).
+- `lmstudio_ai.py` — `_SCENE_MARKER_RE`, `[SCENE]` system-prompt directive
+  in `_roleplay_format_directive`, `chat()` returns 5-tuple.
+- `ai_backend.py` — pads non-LM-Studio chat returns to 5-tuple.
+- `bot.py` — scene-mode routing branch in `process_chat`, `/sceneimage`
+  command, `bot.add_view(...)` in `on_ready`.
+
 ## Running
 
 The workflow `Start application` runs `python3 launcher.py`.

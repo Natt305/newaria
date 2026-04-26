@@ -14,6 +14,7 @@ import ai_backend as groq_ai
 import cloudflare_ai
 import views as ui
 import help_config
+import scene_image
 
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -1042,7 +1043,7 @@ async def process_chat(
     )
     history = get_channel_context(channel_id)
 
-    response_text, image_prompt, _prompt_from_marker, chat_success = await groq_ai.chat(
+    response_text, image_prompt, _prompt_from_marker, chat_success, _wants_scene = await groq_ai.chat(
         history, system_prompt=system_prompt,
         context_images=context_images if context_images else None,
         character_name=bot_name,
@@ -1071,6 +1072,60 @@ async def process_chat(
         str(author.id), author.display_name,
         user_text, saved_text, bot_name,
     ))
+
+    # ── Scene-mode routing (no-duplicates guarantee) ──────────────────────
+    # When scene mode is on for this channel AND the active backend is
+    # LM Studio, ALL image generation funnels through scene_image.run_scene_image
+    # so the legacy "[IMAGE:] → reply.send(file)" path can never fire on the
+    # same turn as the new in-place [SCENE] / button path. The shared runner
+    # has its own (channel_id, target_msg_id) in-flight guard, so even if the
+    # LLM emits both [SCENE] and [IMAGE: ...] on the same turn, exactly one
+    # image is produced.
+    _ai_backend = os.environ.get("AI_BACKEND", "groq").strip().lower()
+    _scene_mode_on = (
+        _ai_backend == "lmstudio"
+        and scene_image.is_scene_mode_on(channel_id)
+    )
+    if _scene_mode_on:
+        _route_to_scene = bool(
+            _wants_scene
+            or (image_prompt and _image_ready())
+            or scene_image.is_user_visual_intent(user_text)
+        )
+        # Send the prose first with the persistent 🎬 button attached.
+        # Suggestions are bypassed in scene mode so the View can be
+        # `timeout=None` and survive restarts.
+        prose = response_text or "…"
+        try:
+            scene_view = ui.SceneImageButtonView()
+            if len(prose) > 2000:
+                _chunks = [prose[i:i+2000] for i in range(0, len(prose), 2000)]
+                for _c in _chunks[:-1]:
+                    await reply_target.reply(_c, mention_author=False)
+                bot_message = await reply_target.reply(
+                    _chunks[-1], view=scene_view, mention_author=False,
+                )
+            else:
+                bot_message = await reply_target.reply(
+                    prose, view=scene_view, mention_author=False,
+                )
+        except discord.HTTPException as exc:
+            print(f"[Bot] Scene-mode reply failed: {exc}")
+            return
+        if _route_to_scene:
+            await scene_image.run_scene_image(
+                bot_message=bot_message,
+                channel=channel,
+                channel_id=channel_id,
+                trigger=(
+                    "scene_tag" if _wants_scene
+                    else ("image_tag_reroute" if image_prompt
+                          else "intent_reroute")
+                ),
+                hint_prompt=image_prompt or user_text,
+                acker=None,
+            )
+        return
 
     if image_prompt and _image_ready():
         # Send any pre-text first (usually None for seamless generation)
@@ -1973,6 +2028,16 @@ async def on_ready():
     if saved_thinking:
         _custom_thinking = saved_thinking
         print(f"[Bot] 已還原思考泡泡: '{_custom_thinking}'")
+
+    # Register the persistent 🎬 scene-image button view exactly once. With
+    # `timeout=None` and a fixed `custom_id`, Discord routes any click on
+    # any prior bot message back into the view's callback even after a
+    # restart — no need to re-attach views to old messages.
+    try:
+        bot.add_view(ui.SceneImageButtonView())
+        print("[SceneImage] Persistent view registered — buttons on bot messages restored across restart.")
+    except Exception as _sv_exc:
+        print(f"[SceneImage] add_view failed: {type(_sv_exc).__name__}: {_sv_exc}")
 
     await _apply_status()
     try:
@@ -2930,6 +2995,69 @@ async def clear_cmd(ctx):
     await ctx.reply("✅ 此頻道的對話歷史已清除！", mention_author=False)
 
 
+@bot.hybrid_command(
+    name="sceneimage",
+    description="切換此頻道的場景圖片模式 (LM Studio RP 專用)",
+)
+@app_commands.describe(action="on / off / status — 缺省為 status")
+async def sceneimage_cmd(ctx, action: Optional[str] = None):
+    """Toggle the per-channel scene-image mode.
+
+    When ON, every LM Studio bot reply in this channel gets a 🎬 button,
+    the model can auto-trigger images via [SCENE], and ALL image generation
+    (including legacy [IMAGE: ...] tags and visual-intent re-routes) funnels
+    through `scene_image.run_scene_image` so no doubled responses can fire.
+
+    Defaults to OFF on fresh channels — opt-in only.
+    """
+    if not await check_command_role(ctx):
+        return
+    channel_id = str(ctx.channel.id)
+    current = scene_image.is_scene_mode_on(channel_id)
+    cmd = (action or "status").strip().lower()
+
+    if cmd in ("on", "enable", "enabled", "true", "1", "開啟", "開"):
+        scene_image.set_scene_mode(channel_id, True)
+        new_state = True
+    elif cmd in ("off", "disable", "disabled", "false", "0", "關閉", "關"):
+        scene_image.set_scene_mode(channel_id, False)
+        new_state = False
+    elif cmd in ("status", "stat", "查看", "狀態"):
+        new_state = current
+    else:
+        await ctx.reply(
+            "用法: `/sceneimage on` `/sceneimage off` 或 `/sceneimage status`",
+            mention_author=False,
+        )
+        return
+
+    _ai_backend = os.environ.get("AI_BACKEND", "groq").strip().lower()
+    backend_note = (
+        ""
+        if _ai_backend == "lmstudio"
+        else f"\n⚠️ 目前 AI_BACKEND=`{_ai_backend}`，自動 [SCENE] 觸發只在 LM Studio 後端運作；按鈕仍可手動點擊。"
+    )
+
+    state_label = "✅ 已開啟" if new_state else "❌ 已關閉"
+    embed = discord.Embed(
+        title=f"🎬 場景圖片模式 — {state_label}",
+        description=(
+            (
+                "此頻道的所有 LM Studio 回覆都會附上 🎬 按鈕，並會在 LLM 偵測到電影級畫面時自動生成圖片。"
+                "舊的 [IMAGE: ...] 流程在此頻道會自動改走場景流程，不會產生重複訊息。"
+                if new_state
+                else "此頻道恢復為一般模式。回覆不會附上 🎬 按鈕，[IMAGE: ...] 流程會以原本方式運作。"
+            )
+            + backend_note
+        ),
+        color=discord.Color.green() if new_state else discord.Color.red(),
+    )
+    embed.set_footer(
+        text="再次執行此指令可切換狀態。設定在重啟後保留 (儲存於 settings)。"
+    )
+    await ctx.reply(embed=embed, mention_author=False)
+
+
 @bot.hybrid_command(name="suggestions", description="開啟或關閉建議按鈕")
 async def suggestions_cmd(ctx):
     """切換建議按鈕開關: !suggestions 或 /suggestions"""
@@ -3632,6 +3760,22 @@ async def diagcomfyui_cmd(ctx):
         embed.set_footer(text="安裝後請重啟 ComfyUI，然後再次執行 /diagcomfyui 確認。")
     else:
         embed.set_footer(text="所有必要的自訂節點皆已就位。")
+
+    # Scene-image mode status for the current channel — gives operators a
+    # one-stop view of "is this channel set up for cinematic auto-images?"
+    try:
+        _scene_on = scene_image.is_scene_mode_on(str(ctx.channel.id))
+        _ai_back = os.environ.get("AI_BACKEND", "groq").strip().lower()
+        embed.add_field(
+            name="場景圖片模式 (此頻道)",
+            value=(
+                f"{'✅ 開啟' if _scene_on else '❌ 關閉'} · 後端=`{_ai_back}`\n"
+                "使用 `/sceneimage on|off|status` 切換。"
+            ),
+            inline=False,
+        )
+    except Exception:
+        pass
 
     await ctx.reply(embed=embed, mention_author=False)
 

@@ -120,6 +120,13 @@ _IMAGE_MARKER_RE = re.compile(
     re.I | re.S,
 )
 
+# Bare cinematic-moment signal — the model emits `[SCENE]` (no body) at the
+# end of a paragraph when the moment is genuinely worth illustrating.
+# Stripped from the visible reply; bot.py uses the boolean flag returned
+# from `chat()` to decide whether to auto-trigger scene_image.run_scene_image.
+# See `_roleplay_format_directive` for the system-prompt teaching.
+_SCENE_MARKER_RE = re.compile(r"\[\s*SCENE\s*\]", re.I)
+
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 _THINK_RE_UNCLOSED = re.compile(r"<think>.*", re.DOTALL)
 
@@ -1045,6 +1052,19 @@ def _roleplay_format_directive(target: str, character_name: str = "") -> str:
              "(no 'CharacterName:' at the start of the reply or any paragraph). "
     )
 
+    # Optional cinematic-scene signal — taught to all RP targets so the model
+    # can flag visually striking moments (a confession, walking on stage, a
+    # fight beat). bot.py only acts on this token when scene mode is on for
+    # the active channel; otherwise it's silently stripped.
+    scene_signal_rule = (
+        " When — and only when — the moment you just wrote is genuinely "
+        "cinematic (a vivid action, a charged confrontation, a striking visual "
+        "tableau worth illustrating), append a single bare `[SCENE]` token at "
+        "the very end of your reply, on its own line, with no body text. "
+        "Do NOT explain it, do NOT include `[SCENE: ...]` with content. "
+        "Most replies should NOT have it — only the truly visual ones."
+    )
+
     if target == "standard":
         # Lighter directive — one line, no example.
         return (
@@ -1054,6 +1074,7 @@ def _roleplay_format_directive(target: str, character_name: str = "") -> str:
             "and write at least one sentence of in-character narration around the "
             "dialogue (action, expression, body language, what you notice or feel) "
             "instead of replying with a single bare line."
+            + scene_signal_rule
         )
 
     # target == "rich"
@@ -1082,6 +1103,7 @@ def _roleplay_format_directive(target: str, character_name: str = "") -> str:
         "  Her eyebrow twitches at the interruption, a flicker of surprise crossing her stoic features. She tilts her head, studying him.\n\n"
         "  \"Stupid?\" she repeats, voice low and measured.\n\n"
         "  She steps closer, invading his space, eyes never leaving his. \"That's an interesting choice of words.\""
+        + scene_signal_rule
     )
 
 
@@ -1094,13 +1116,17 @@ async def chat(
     enforce_user_lang: bool = True,
     character_name: str = "",
     response_format: Optional[dict] = None,
-) -> tuple[str, Optional[str], bool, bool]:
-    """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
+) -> tuple[str, Optional[str], bool, bool, bool]:
+    """Send a chat request to LM Studio. Returns
+    (response_text, image_prompt_or_None, prompt_from_marker, success, wants_scene_image).
 
     context_images: optional list of (bytes, mime_type) tuples injected as visual
     content into the last user message. When provided, the vision model is used
     automatically (defaults to the same model since the Qwen 3.5 default is multimodal).
     prompt_from_marker=True means the image prompt came from the [IMAGE: ...] tag.
+    wants_scene_image=True means the model emitted a bare [SCENE] cinematic
+    signal (stripped from the visible reply); the caller decides whether to
+    act on it based on per-channel scene-mode toggle.
     success=False means the call ultimately failed and response_text is the
     user-facing error message — callers should NOT pass it to memory extraction
     or suggestion generation.
@@ -1307,7 +1333,7 @@ async def chat(
         )
 
     if text is None or text == _NO_VISION_SENTINEL:
-        return _FAILED_REPLY_MESSAGE, None, False, False
+        return _FAILED_REPLY_MESSAGE, None, False, False, False
 
     # Empty-response safety net. When thinking is enabled, the model can spend
     # the whole token budget inside <think>...</think> and never produce the
@@ -1334,10 +1360,10 @@ async def chat(
                 text = retry_text
             else:
                 print("[LMStudio] /no_think retry also empty — giving up")
-                return "", None, False, True
+                return "", None, False, True, False
         else:
             print("[LMStudio] Empty answer with thinking already off — giving up")
-            return "", None, False, True
+            return "", None, False, True, False
 
     if _BREAKS_CHARACTER_RE.search(text):
         print("[LMStudio] Character break detected — retrying with laser-focused identity prompt")
@@ -1484,13 +1510,13 @@ async def chat(
                                 f"[LMStudio] Repetition recovery failed (best salvage {len(best)}ch) "
                                 f"— returning user-facing failure message"
                             )
-                            return _FAILED_REPLY_MESSAGE, None, False, False
+                            return _FAILED_REPLY_MESSAGE, None, False, False, False
                 else:
                     # Retry call returned nothing AND the original salvage
                     # was already too short. Surface the standard failure
                     # message instead of a torn fragment.
                     print("[LMStudio] Repetition retry returned no text — returning user-facing failure message")
-                    return _FAILED_REPLY_MESSAGE, None, False, False
+                    return _FAILED_REPLY_MESSAGE, None, False, False, False
 
     # 2. Language mismatch — user wrote English but the reply went Chinese
     #    (the most common failure with mid-conversation language drift).
@@ -1569,6 +1595,15 @@ async def chat(
 
     text = _parse_reply_format(text)
 
+    # Strip the optional cinematic-scene signal first so the [IMAGE: ...]
+    # extractor and the Discord formatter never see a stray `[SCENE]` token
+    # in the reply text. The flag is returned as the 5th tuple element;
+    # bot.py decides whether to act on it based on the per-channel toggle.
+    wants_scene = bool(_SCENE_MARKER_RE.search(text))
+    if wants_scene:
+        text = _SCENE_MARKER_RE.sub("", text).strip()
+        print("[LMStudio] [SCENE] cinematic signal detected — stripped from reply")
+
     # Extract the [IMAGE: ...] marker BEFORE running the Discord formatter,
     # otherwise a marker-only reply would be wrapped in *...* by the
     # narration-italicising pass, leaving stray `**` after marker removal
@@ -1584,7 +1619,7 @@ async def chat(
         if clean_text and not _is_qwen_model(active_model) and enforce_user_lang:
             clean_text = _format_for_discord(clean_text, character_name=character_name)
         print(f"[LMStudio] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
-        return (clean_text or None), img_prompt, True, True
+        return (clean_text or None), img_prompt, True, True, wants_scene
 
     # Plain-prose models (Celeste etc.) ignore the prompt-level Discord-
     # formatting instruction, so we apply bold-dialogue + italic-narration
@@ -1599,9 +1634,9 @@ async def chat(
         img_prompt = user_wants_image(messages)
         if img_prompt:
             print(f"[LMStudio] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
-            return None, img_prompt, False, True
+            return None, img_prompt, False, True, wants_scene
 
-    return text, None, False, True
+    return text, None, False, True, wants_scene
 
 
 async def understand_image(

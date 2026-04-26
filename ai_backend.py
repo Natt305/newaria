@@ -50,7 +50,14 @@ async def chat(
     model: Optional[str] = None,
     context_images: Optional[list] = None,
     character_name: str = "",
-) -> tuple[str, Optional[str], bool, bool]:
+) -> tuple[str, Optional[str], bool, bool, bool]:
+    """Returns (response_text, image_prompt_or_None, prompt_from_marker,
+    success, wants_scene_image).
+
+    Only the LM Studio backend currently emits the [SCENE] cinematic
+    signal. For Groq / Ollama the 5th element is always padded to False so
+    the call site (`process_chat`) can unpack uniformly.
+    """
     kwargs = {"system_prompt": system_prompt}
     if model:
         kwargs["model"] = model
@@ -62,7 +69,13 @@ async def chat(
     # Groq / Ollama paths see no signature change.
     if character_name and _backend() == "lmstudio":
         kwargs["character_name"] = character_name
-    return await _mod().chat(messages, **kwargs)
+    result = await _mod().chat(messages, **kwargs)
+    # Normalise to 5-tuple so callers don't have to know which backend
+    # is active. LM Studio already returns 5; Groq / Ollama still return
+    # 4 — pad the cinematic-signal flag with False.
+    if len(result) == 4:
+        return (*result, False)
+    return result
 
 
 async def understand_image(
