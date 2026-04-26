@@ -73,7 +73,7 @@ Set these in `tokens.txt` **or** as Replit Secrets (Secrets take priority):
 | `COMFYUI_QWEN_GGUF` | Required for `engine=qwen` | Qwen-Image-Edit-Rapid AIO GGUF filename, e.g. `Qwen-Rapid-NSFW-v23_Q4_K.gguf`, placed in `models/diffusion_models/` (loaded by `UnetLoaderGGUF`). |
 | `COMFYUI_QWEN_VAE` | Required for `engine=qwen` | Qwen-Image VAE filename, e.g. `pig_qwen_image_vae_fp32-f16.gguf` in `models/vae/` (loaded by stock `VAELoader`). |
 | `COMFYUI_QWEN_CLIP_GGUF` | Required for `engine=qwen` | Qwen 2.5 VL text-encoder GGUF filename, e.g. `Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf` in `models/clip/`. **Must** be paired with `mmproj-f16.gguf` (or `mmproj-Q8_0.gguf`) in the same folder — without mmproj the encoder is text-only and reference photos are silently ignored. |
-| `COMFYUI_QWEN_STEPS` | Optional | Qwen sampling steps (default `4` — the Rapid AIO is distilled). |
+| `COMFYUI_QWEN_STEPS` | Optional | Qwen sampling steps (default `4` — the Rapid AIO is distilled). The Qwen engine intentionally ignores any `COMFYUI_STEPS` / step overrides coming from the rest of the pipeline (which are tuned for FLUX's ~20 steps) — only this var is honored, so set it explicitly if you want anything other than 4. |
 | `COMFYUI_QWEN_SAMPLER` | Optional | Qwen KSampler `sampler_name` (default `euler_ancestral`). |
 | `COMFYUI_QWEN_SCHEDULER` | Optional | Qwen KSampler `scheduler` (default `beta`). |
 | `COMFYUI_QWEN_WIDTH` | Optional | Qwen output width  (default `1024` — Qwen-Image native scale). |
