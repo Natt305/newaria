@@ -13,6 +13,112 @@ import aiohttp
 DEFAULT_MODEL = "gemma3:12b"
 DEFAULT_VISION_MODEL = "gemma3:12b"
 
+
+# ── Structured-output (JSON format) support ───────────────────────────────────
+# When OLLAMA_USE_JSON_FORMAT=on, generate_suggestions and extract_memories
+# add `format: "json"` to the /api/chat payload so Ollama constrains decoding
+# to a valid JSON document. If the running Ollama (or model) rejects the
+# field, `_call_ollama` flips _JSON_FORMAT_DISABLED for the rest of the
+# process and retries the call once without it. The salvage parser still
+# recovers buttons from numbered/bulleted prose as a no-op safety net.
+_JSON_FORMAT_DISABLED = False
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse an env var as a boolean. Accepts on/off/1/0/true/false/yes/no."""
+    val = os.environ.get(name, "").strip().lower()
+    if not val:
+        return default
+    if val in ("on", "true", "1", "yes", "y"):
+        return True
+    if val in ("off", "false", "0", "no", "n"):
+        return False
+    return default
+
+
+def _json_format_enabled() -> bool:
+    """Return True when JSON-format mode should be attempted on the next call."""
+    if _JSON_FORMAT_DISABLED:
+        return False
+    return _env_bool("OLLAMA_USE_JSON_FORMAT", False)
+
+
+def _parse_json_array_payload(text: str) -> Optional[list]:
+    """Extract a list-of-strings payload from `text`.
+
+    Handles both shapes that flow through extract_memories /
+    generate_suggestions:
+      - JSON-format mode wraps the array in {"items": [...]} (Ollama's
+        format=json mode requires a JSON document, and we ask the model
+        for an object root for parity with LM Studio / Groq).
+      - Free-form mode emits a bare JSON array, possibly with surrounding
+        prose; we bracket-extract from the first `[` to the last `]`.
+    Returns None when neither shape parses, so the caller can fall through
+    to its existing salvage path.
+    """
+    if not text:
+        return None
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            for key in ("items", "suggestions", "memories", "facts"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return value
+        elif isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    start = text.find("[")
+    end = text.rfind("]") + 1
+    if start != -1 and end > start:
+        try:
+            data = _json.loads(text[start:end])
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return None
+
+
+def _parse_json_string_payload(text: str) -> Optional[str]:
+    """Extract a single string payload from `text`.
+
+    Mirrors `_parse_json_array_payload` but for the image-text shape used by
+    enhance_image_prompt and generate_image_comment under format=json mode:
+      - JSON-format mode emits {"text": "..."} (or one of a few synonym keys
+        the model might pick when only loosely constrained: "prompt",
+        "comment", "content", "value").
+      - Failing that, we recover an embedded JSON object via brace-scanning.
+    Returns None when nothing parses, so the caller falls back to its existing
+    free-form path.
+    """
+    if not text:
+        return None
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            for key in ("text", "prompt", "comment", "content", "value"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+    except Exception:
+        pass
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start != -1 and end > start:
+        try:
+            data = _json.loads(text[start:end])
+            if isinstance(data, dict):
+                for key in ("text", "prompt", "comment", "content", "value"):
+                    value = data.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value
+        except Exception:
+            pass
+    return None
+
+
 IMAGE_TRIGGER_PHRASES = [
     # English declines
     "i can't generate",
@@ -242,6 +348,7 @@ async def _call_ollama(
     temperature: float = 0.8,
     max_tokens: int = 1024,
     num_ctx: int = 16384,
+    response_format: Optional[dict] = None,
 ) -> Optional[str]:
     """Make a single chat completion request using Ollama's native /api/chat endpoint.
 
@@ -249,6 +356,15 @@ async def _call_ollama(
     native endpoint reliably respects options.num_ctx. The OpenAI-compatible
     endpoint silently ignores it, leaving the model at its baked-in default
     (often 4096 tokens), which causes system prompt truncation for large KB sets.
+
+    response_format: optional kwarg used to mirror the LM Studio / Groq
+    contract. When set to ``{"type": "json_object"}`` (or any non-None value),
+    the request is sent with Ollama's ``format: "json"`` field so decoding
+    is constrained to a valid JSON document. If the running Ollama version
+    or model rejects the field with a 4xx mentioning "format", the
+    process-wide ``_JSON_FORMAT_DISABLED`` flag is flipped and the request
+    is retried once without the field so the caller still gets a free-form
+    reply.
     """
     url = f"{_base_url()}/api/chat"
     native_messages = _to_native_messages(messages)
@@ -262,6 +378,9 @@ async def _call_ollama(
             "num_predict": max_tokens,
         },
     }
+    if response_format is not None:
+        payload["format"] = "json"
+        print(f"[Ollama] format=json active on {model}")
     est = _estimate_tokens(messages)
     sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
     print(f"[Ollama] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total | num_ctx={num_ctx}")
@@ -273,6 +392,31 @@ async def _call_ollama(
                 if resp.status != 200:
                     body = await resp.text()
                     print(f"[Ollama] HTTP {resp.status}: {body[:500]}")
+                    # format=json capability check: if this Ollama version /
+                    # model rejects the format field, drop it for the rest of
+                    # the process so the bot stops looping on the same error
+                    # and retry the same request once without it.
+                    if (
+                        response_format is not None
+                        and 400 <= resp.status < 500
+                        and "format" in body.lower()
+                    ):
+                        global _JSON_FORMAT_DISABLED
+                        _JSON_FORMAT_DISABLED = True
+                        print(
+                            "[Ollama] format=json unsupported — auto-disabling "
+                            "JSON-format mode for this process and retrying once"
+                        )
+                        payload.pop("format", None)
+                        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as retry_resp:
+                            if retry_resp.status != 200:
+                                retry_body = await retry_resp.text()
+                                print(f"[Ollama] Retry without format failed: HTTP {retry_resp.status}: {retry_body[:500]}")
+                                return None
+                            retry_data = await retry_resp.json()
+                            retry_content = _THINK_RE.sub("", retry_data.get("message", {}).get("content") or "").strip()
+                            print(f"[Ollama] Retry without format response: {retry_content[:200]!r}")
+                            return retry_content
                     return None
                 data = await resp.json()
                 content = _THINK_RE.sub("", data.get("message", {}).get("content") or "").strip()
@@ -295,6 +439,7 @@ async def chat(
     system_prompt: str = "",
     model: str = "",
     context_images: Optional[list] = None,
+    response_format: Optional[dict] = None,
 ) -> tuple[str, Optional[str], bool, bool]:
     """Send a chat request to Ollama. Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
 
@@ -334,7 +479,11 @@ async def chat(
             content = image_parts
         ollama_messages.append({"role": msg["role"], "content": content})
 
-    text = await _call_ollama(ollama_messages, model=active_model)
+    text = await _call_ollama(
+        ollama_messages,
+        model=active_model,
+        response_format=response_format,
+    )
 
     if text is None:
         return "I'm having trouble connecting to Ollama right now. Please make sure Ollama is running.", None, False, False
@@ -385,7 +534,12 @@ async def chat(
         if not any(m["role"] == "user" for m in retry_msgs[1:]) and last_user_text:
             retry_msgs.append({"role": "user", "content": last_user_text})
 
-        retry_text = await _call_ollama(retry_msgs, model=active_model, temperature=0.6)
+        retry_text = await _call_ollama(
+            retry_msgs,
+            model=active_model,
+            temperature=0.6,
+            response_format=response_format,
+        )
         if retry_text:
             if _BREAKS_CHARACTER_RE.search(retry_text):
                 print("[Ollama] Retry also broke character — using retry result anyway")
@@ -464,24 +618,52 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     if not exchange or len(exchange.strip()) < 30:
         return []
 
-    system = (
-        f"You are a memory extractor for {bot_name}.\n"
-        "Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\n"
-        "Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, "
-        "locations, events, goals, feelings, or important statements the user shared.\n"
-        "Skip greetings, generic questions, image requests, and anything trivial or repetitive.\n"
-        "Each fact MUST name the person and what they shared, written in Traditional Chinese.\n"
-        "Keep each fact under 60 characters.\n"
-        "Return ONLY a valid JSON array of strings. Return [] if nothing is worth remembering.\n"
-        'Example: ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]'
-    )
+    use_json_format = _json_format_enabled()
+    if use_json_format:
+        # Ollama's format=json requires the response to be a JSON document.
+        # Ask for an OBJECT root with `items` so the parser shape matches
+        # LM Studio / Groq exactly. The off-path keeps emitting bare arrays.
+        system = (
+            f"You are a memory extractor for {bot_name}.\n"
+            "Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\n"
+            "Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, "
+            "locations, events, goals, feelings, or important statements the user shared.\n"
+            "Skip greetings, generic questions, image requests, and anything trivial or repetitive.\n"
+            "Each fact MUST name the person and what they shared, written in Traditional Chinese.\n"
+            "Keep each fact under 60 characters.\n"
+            'Return ONLY a valid JSON object of the shape {"items": [<fact strings>]}. '
+            'Return {"items": []} if nothing is worth remembering.\n'
+            'Example: {"items": ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]}'
+        )
+    else:
+        system = (
+            f"You are a memory extractor for {bot_name}.\n"
+            "Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\n"
+            "Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, "
+            "locations, events, goals, feelings, or important statements the user shared.\n"
+            "Skip greetings, generic questions, image requests, and anything trivial or repetitive.\n"
+            "Each fact MUST name the person and what they shared, written in Traditional Chinese.\n"
+            "Keep each fact under 60 characters.\n"
+            "Return ONLY a valid JSON array of strings. Return [] if nothing is worth remembering.\n"
+            'Example: ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]'
+        )
 
     messages = [{"role": "user", "content": f"Extract memorable facts:\n\n{exchange[:1500]}"}]
+    response_format = {"type": "json_object"} if use_json_format else None
 
     try:
-        text, *_ = await chat(messages, system_prompt=system)
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            response_format=response_format,
+        )
         if not text:
             return []
+        # Schema-mode replies arrive as `{"items":[...]}`; the helper also
+        # accepts a bare `[...]` so legacy free-text replies still parse.
+        parsed = _parse_json_array_payload(text)
+        if parsed is not None:
+            return [str(s).strip() for s in parsed[:3] if isinstance(s, str) and s.strip()]
         start = text.find("[")
         end = text.rfind("]") + 1
         if start != -1 and end > start:
@@ -561,6 +743,20 @@ async def enhance_image_prompt(
         if has_images else ""
     )
 
+    use_json_format = _json_format_enabled()
+    if use_json_format:
+        # Schema mode emits `{"text":"<prompt>"}` so the parser shape is
+        # consistent with generate_image_comment. Ollama's format=json
+        # forces JSON output but is unconstrained; the prompt instructs
+        # the model to put the prompt INSIDE the `text` field.
+        output_rule = (
+            "- Output ONLY a JSON object of the shape {\"text\": \"<prompt>\"} — "
+            "no intro, no markdown, no code fences, no explanation outside the JSON.\n"
+            "- The prompt itself goes inside the `text` field as one continuous English string.\n"
+        )
+    else:
+        output_rule = "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
@@ -569,7 +765,7 @@ async def enhance_image_prompt(
         f"{ref_block}"
         f"{image_note}"
         "Rules:\n"
-        "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+        f"{output_rule}"
         "- Always write in English.\n"
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
         "- Aim for 150-300 words.\n"
@@ -845,16 +1041,29 @@ async def enhance_image_prompt(
     messages_list = [{"role": "user", "content": user_content}]
     if has_images:
         print(f"[Ollama] enhance_image_prompt: using vision model with {len(reference_images)} reference image(s)")
+    response_format = {"type": "json_object"} if use_json_format else None
     try:
+        # NOTE: Ollama's chat() does not accept max_tokens — that argument
+        # was previously passed here and silently raised TypeError, which
+        # made enhance_image_prompt always return raw_prompt. Removed so
+        # the structured-output path is actually reachable.
         enhanced, *_ = await chat(
             messages_list,
             system_prompt=system,
             context_images=reference_images if has_images else None,
-            max_tokens=8192,
+            response_format=response_format,
         )
         if enhanced:
             enhanced = _THINK_RE.sub("", enhanced)
             enhanced = _THINK_RE_UNCLOSED.sub("", enhanced).strip()
+            # Schema mode wraps the prompt in {"text": "..."}; pull it
+            # back out so downstream consumers see the same plain string.
+            # None means schema was ignored or auto-disable already
+            # tripped — fall through to the bare-text path below.
+            if use_json_format:
+                unwrapped = _parse_json_string_payload(enhanced)
+                if unwrapped:
+                    enhanced = unwrapped.strip()
             if len(enhanced) > 5:
                 print(f"[Ollama] Prompt enhanced: {enhanced}")
                 return enhanced
@@ -871,12 +1080,25 @@ async def generate_image_comment(
     history: list = None,
 ) -> str:
     """Generate a short in-character comment to accompany a generated image."""
+    use_json_format = _json_format_enabled()
+    if use_json_format:
+        # Wrap the comment in {"text": "..."} so format=json yields parseable
+        # JSON instead of bare prose.
+        format_rule = (
+            "- Output ONLY a JSON object of the shape {\"text\": \"<sentence>\"} — "
+            "no markdown, no code fences, no explanation outside the JSON.\n"
+            "- Put your in-character comment inside the `text` field as one short string.\n"
+        )
+    else:
+        format_rule = ""
+
     system = (
         f"You are {bot_name}. {character_background}\n"
         "You are mid-conversation and have just drawn/created an image for the user. "
         "Write ONE short sentence (two at most) to send alongside it — something that flows "
         "naturally from the conversation you were just having, like a real person would say.\n"
         "Rules:\n"
+        f"{format_rule}"
         "- Stay in the mood and tone of the conversation. If you were joking, keep joking. "
         "If you were being sincere, be sincere.\n"
         "- Reference the specific thing that was asked for when it feels natural — don't just react generically.\n"
@@ -905,10 +1127,23 @@ async def generate_image_comment(
     )
 
     messages = [{"role": "user", "content": msg}]
+    response_format = {"type": "json_object"} if use_json_format else None
     try:
-        text, *_ = await chat(messages, system_prompt=system)
-        if text and len(text.strip()) > 2:
-            return text.strip()
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            response_format=response_format,
+        )
+        if text:
+            # Schema mode wraps the comment in {"text": "..."}; recover it
+            # so the caller still gets a plain string. None means schema
+            # was ignored or auto-disable already tripped — fall through.
+            if use_json_format:
+                unwrapped = _parse_json_string_payload(text)
+                if unwrapped:
+                    text = unwrapped
+            if len(text.strip()) > 2:
+                return text.strip()
     except Exception as e:
         print(f"[Ollama] Image comment generation failed: {e}")
 
@@ -978,13 +1213,24 @@ async def generate_suggestions(
             f"(detect it automatically — do NOT translate): \"{language_sample[:120]}\"\n"
         )
 
+    use_json_format = _json_format_enabled()
+    if use_json_format:
+        # Ask for `{"items":[...]}` so format=json (object root) works and
+        # the shared parser shape matches LM Studio / Groq.
+        return_line = (
+            'Return ONLY a valid JSON object of the shape {"items": [<suggestion strings>]}. '
+            'No markdown, no code fences.\n'
+        )
+    else:
+        return_line = "Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
+
     base = (
         f"{lang_instruction}"
         f"You are {bot_name}. {character_background}\n"
         f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
         f"Write them as the USER speaking to you — casual, warm, and conversational.\n"
         f"Each should be 10–75 characters. No punctuation at the end. No quotes.\n"
-        f"Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
+        f"{return_line}"
     )
     if guiding_prompt:
         system = f"{guiding_prompt}\n\n{base}"
@@ -997,13 +1243,29 @@ async def generate_suggestions(
         prompt = f"Generate {count} casual opening messages someone might send to start chatting with {bot_name}."
 
     messages = [{"role": "user", "content": prompt}]
+    response_format = {"type": "json_object"} if use_json_format else None
 
     text = ""
     try:
-        text, *_ = await chat(messages, system_prompt=system)
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            response_format=response_format,
+        )
         if not text:
             print("[Ollama] Suggestion: empty model response — no buttons")
             return []
+        # Schema mode emits `{"items":[...]}`; legacy mode emits a bare array.
+        # The shared helper accepts both shapes.
+        parsed = _parse_json_array_payload(text)
+        if parsed is not None and len(parsed) > 0:
+            clean = []
+            for s in parsed[:count]:
+                s = str(s).strip().rstrip(".")
+                if len(s) > 80:
+                    s = s[:77] + "..."
+                clean.append(s)
+            return clean
         start = text.find("[")
         end = text.rfind("]") + 1
         if start != -1 and end > start:

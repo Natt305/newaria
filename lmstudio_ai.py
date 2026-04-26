@@ -582,6 +582,188 @@ def _thinking_enabled() -> bool:
     return val in ("on", "true", "1", "yes", "y")
 
 
+# ── Structured-output (JSON Schema) support ──────────────────────────────────
+# When LMSTUDIO_USE_JSON_SCHEMA=on, the four utility callers
+# (generate_suggestions, extract_memories) attach a `response_format` payload
+# that puts LM Studio into constrained-decoding mode and forces the model to
+# return only schema-conformant JSON. If the running LM Studio version (or the
+# loaded model) doesn't support `response_format`, the server returns 4xx;
+# `_call_lmstudio` catches that, sets `_JSON_SCHEMA_DISABLED=True` for the
+# remainder of the process, and falls back to a plain free-form request so the
+# bot keeps working without bouncing every call against an unsupported feature.
+_JSON_SCHEMA_DISABLED = False
+
+
+def _json_schema_enabled() -> bool:
+    """Return True when structured-output mode should be attempted on the next call."""
+    if _JSON_SCHEMA_DISABLED:
+        return False
+    return _env_bool("LMSTUDIO_USE_JSON_SCHEMA", False)
+
+
+def _suggestion_response_format(count: int) -> dict:
+    """Build the `response_format` JSON Schema for a suggestion-button array.
+
+    The schema's root is a JSON object (rather than a bare array) because
+    OpenAI-style strict-mode structured output requires an object root, and
+    LM Studio mirrors that contract. The array is exposed under an `items`
+    key so `_parse_json_array_payload()` can recover it on both backends.
+    Each string is capped at 80 characters — Discord button label hard limit.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "suggestion_buttons",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "string", "maxLength": 80},
+                        "minItems": count,
+                        "maxItems": count,
+                    },
+                },
+                "required": ["items"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _memory_response_format() -> dict:
+    """Build the `response_format` JSON Schema for the extract_memories array.
+
+    Returns 0–3 fact strings, each capped at 60 characters per the prompt
+    contract. Wrapped in an object root for the same reason as
+    `_suggestion_response_format`.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "memorable_facts",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "string", "maxLength": 60},
+                        "minItems": 0,
+                        "maxItems": 3,
+                    },
+                },
+                "required": ["items"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _parse_json_array_payload(text: str) -> Optional[list]:
+    """Extract a list-of-strings payload from `text`.
+
+    Handles both shapes that flow through extract_memories /
+    generate_suggestions:
+      - JSON Schema mode wraps the array in {"items": [...]} (the schema's
+        root must be an object for strict-mode compatibility).
+      - Free-form mode emits a bare JSON array, possibly with surrounding
+        prose; we bracket-extract from the first `[` to the last `]`.
+    Returns None when neither shape parses, so the caller can fall through
+    to its existing salvage path.
+    """
+    if not text:
+        return None
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            for key in ("items", "suggestions", "memories", "facts"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return value
+        elif isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    start = text.find("[")
+    end = text.rfind("]") + 1
+    if start != -1 and end > start:
+        try:
+            data = _json.loads(text[start:end])
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return None
+
+
+def _image_text_response_format(name: str, max_chars: int) -> dict:
+    """JSON Schema for a single-string payload under a `text` key.
+
+    Used by enhance_image_prompt and generate_image_comment so structured-
+    output mode applies to all four utility callers named in the task. The
+    schema's root is an object (OpenAI strict-mode requires this) with one
+    required string property, capped at `max_chars` to keep the model's
+    output bounded.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": name,
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "maxLength": max_chars},
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _parse_json_string_payload(text: str) -> Optional[str]:
+    """Extract a single string payload from `text`.
+
+    Mirrors `_parse_json_array_payload` but for the image-text shape:
+      - JSON Schema / json_object mode emits {"text": "..."} (or one of a
+        few common synonym keys the model might pick if it's only loosely
+        constrained, e.g. "prompt", "comment").
+      - When the model ignores the schema and emits a bare string we still
+        try to recover the JSON wrapper substring.
+    Returns None when nothing parses, so the caller falls back to its
+    existing free-form path.
+    """
+    if not text:
+        return None
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            for key in ("text", "prompt", "comment", "content", "value"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+    except Exception:
+        pass
+    # Recover an embedded JSON object by bracket-scanning, mirroring the
+    # array helper for resilience against light wrapper prose.
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start != -1 and end > start:
+        try:
+            data = _json.loads(text[start:end])
+            if isinstance(data, dict):
+                for key in ("text", "prompt", "comment", "content", "value"):
+                    value = data.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value
+        except Exception:
+            pass
+    return None
+
+
 def _apply_no_think(system_prompt: str, model: str = "") -> str:
     """Prepend the Qwen3 `/no_think` directive to the system prompt.
 
@@ -836,6 +1018,7 @@ async def _call_lmstudio(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     extra_sampling: Optional[dict] = None,
+    response_format: Optional[dict] = None,
 ) -> Optional[str]:
     """Make a single chat completion request using LM Studio's OpenAI-compatible endpoint.
 
@@ -846,6 +1029,13 @@ async def _call_lmstudio(
 
     For non-Qwen models (e.g. Celeste) none of the Qwen3-specific workarounds
     are applied — the request is sent as a plain chat completion.
+
+    response_format: optional OpenAI-style structured-output payload, e.g.
+    ``{"type": "json_schema", "json_schema": {...}}``. When set, LM Studio
+    constrains decoding so the response matches the schema exactly. If the
+    server returns 4xx complaining about response_format / json_schema, the
+    process-wide ``_JSON_SCHEMA_DISABLED`` flag is flipped and the request is
+    retried once without the field so the caller still gets a free-form reply.
     """
     url = f"{_base_url()}/v1/chat/completions"
     is_qwen = _is_qwen_model(model)
@@ -883,6 +1073,9 @@ async def _call_lmstudio(
     payload.update(sampling)
     if is_qwen:
         payload["chat_template_kwargs"] = {"enable_thinking": False}
+    if response_format is not None:
+        payload["response_format"] = response_format
+        print(f"[LMStudio] response_format active ({response_format.get('type', '?')})")
     est = _estimate_tokens(messages)
     sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
     print(f"[LMStudio] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total | max_tokens={max_tokens}")
@@ -919,6 +1112,29 @@ async def _call_lmstudio(
                         if resp.status == 400 and "does not support images" in body.lower():
                             _NO_VISION_MODELS.add(model)
                             return _NO_VISION_SENTINEL
+                        # Structured-output capability check: this LM Studio
+                        # version (or the loaded model) doesn't accept the
+                        # `response_format` field. Auto-disable it for the
+                        # rest of the process so the bot stops looping on the
+                        # same error, drop the field from the payload, and
+                        # retry once. Subsequent calls will read the disabled
+                        # flag in `_json_schema_enabled()` and never set
+                        # response_format again.
+                        if (
+                            response_format is not None
+                            and 400 <= resp.status < 500
+                            and ("response_format" in body.lower() or "json_schema" in body.lower())
+                        ):
+                            global _JSON_SCHEMA_DISABLED
+                            _JSON_SCHEMA_DISABLED = True
+                            print(
+                                "[LMStudio] response_format unsupported — auto-disabling "
+                                "structured-output mode for this process and retrying once"
+                            )
+                            payload.pop("response_format", None)
+                            response_format = None
+                            last_error_reason = "response_format unsupported"
+                            continue
                         # 4xx errors are real client problems — retrying
                         # won't help, the same payload would fail the same way.
                         if 400 <= resp.status < 500:
@@ -1105,6 +1321,7 @@ async def chat(
     max_tokens: Optional[int] = None,
     enforce_user_lang: bool = True,
     character_name: str = "",
+    response_format: Optional[dict] = None,
 ) -> tuple[str, Optional[str], bool, bool]:
     """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
 
@@ -1286,7 +1503,12 @@ async def chat(
                 })
                 break
 
-    text = await _call_lmstudio(lm_messages, model=active_model, max_tokens=max_tokens)
+    text = await _call_lmstudio(
+        lm_messages,
+        model=active_model,
+        max_tokens=max_tokens,
+        response_format=response_format,
+    )
 
     # Image fallback: the loaded model is text-only. Strip the image parts
     # from the last user message and retry with plain text + a note about
@@ -1305,7 +1527,12 @@ async def chat(
             note = " [The user attached an image, but the active model can't see images — respond to the text only.]"
             existing = plain_messages[-1]["content"]
             plain_messages[-1]["content"] = (existing if isinstance(existing, str) else "") + note
-        text = await _call_lmstudio(plain_messages, model=active_model, max_tokens=max_tokens)
+        text = await _call_lmstudio(
+            plain_messages,
+            model=active_model,
+            max_tokens=max_tokens,
+            response_format=response_format,
+        )
 
     if text is None or text == _NO_VISION_SENTINEL:
         return _FAILED_REPLY_MESSAGE, None, False, False
@@ -1324,7 +1551,12 @@ async def chat(
                 retry_messages = [{"role": "system", "content": no_think_system}] + lm_messages[1:]
             else:
                 retry_messages = [{"role": "system", "content": no_think_system}] + lm_messages
-            retry_text = await _call_lmstudio(retry_messages, model=active_model, max_tokens=max_tokens)
+            retry_text = await _call_lmstudio(
+                retry_messages,
+                model=active_model,
+                max_tokens=max_tokens,
+                response_format=response_format,
+            )
             if retry_text and retry_text.strip():
                 print("[LMStudio] /no_think retry produced an answer")
                 text = retry_text
@@ -1374,7 +1606,13 @@ async def chat(
         if not any(m["role"] == "user" for m in retry_msgs[1:]) and last_user_text:
             retry_msgs.append({"role": "user", "content": last_user_text})
 
-        retry_text = await _call_lmstudio(retry_msgs, model=active_model, temperature=0.6, max_tokens=max_tokens)
+        retry_text = await _call_lmstudio(
+            retry_msgs,
+            model=active_model,
+            temperature=0.6,
+            max_tokens=max_tokens,
+            response_format=response_format,
+        )
         if retry_text:
             if _BREAKS_CHARACTER_RE.search(retry_text):
                 print("[LMStudio] Retry also broke character — using retry result anyway")
@@ -1451,6 +1689,7 @@ async def chat(
                         "top_p": 0.85,
                         "min_p": 0.07,
                     },
+                    response_format=response_format,
                 )
                 if retry_text and retry_text.strip():
                     rep_idx2 = _detect_repetition_loop(retry_text)
@@ -1507,6 +1746,7 @@ async def chat(
                 model=active_model,
                 temperature=0.6,
                 max_tokens=max_tokens,
+                response_format=response_format,
             )
             if retry_text and retry_text.strip():
                 if _classify_response_language(retry_text) == "zh":
@@ -1546,6 +1786,7 @@ async def chat(
             model=active_model,
             temperature=0.6,
             max_tokens=max_tokens,
+            response_format=response_format,
         )
         if retry_text and retry_text.strip():
             if _has_simplified_chinese(retry_text):
@@ -1662,6 +1903,13 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
 
     messages = [{"role": "user", "content": f"Extract memorable facts:\n\n{exchange[:1500]}"}]
 
+    # Structured-output mode: when LMSTUDIO_USE_JSON_SCHEMA is on (and the
+    # server hasn't 4xx'd it earlier this process), ask LM Studio to constrain
+    # decoding to a `{"items":[<=3 short strings]}` schema. The salvage parser
+    # below still runs as a no-op safety net for older servers and for any
+    # response that slips through as a bare array.
+    response_format = _memory_response_format() if _json_schema_enabled() else None
+
     try:
         # Larger budget than chat() default — qwen3 reasoning often needs
         # 2-3K tokens before producing the JSON output. Falls back gracefully
@@ -1671,9 +1919,21 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
         # extracted facts to be written in Traditional Chinese. Letting the
         # language enforcer kick in would force English facts and break the
         # downstream JSON consumers.
-        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096, enforce_user_lang=False)
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            max_tokens=4096,
+            enforce_user_lang=False,
+            response_format=response_format,
+        )
         if not text:
             return []
+        # Try the structured-output shape first (`{"items":[...]}` or bare
+        # `[...]`); fall back to the legacy substring scan for older servers
+        # that returned arbitrary prose around the array.
+        parsed = _parse_json_array_payload(text)
+        if parsed is not None:
+            return [str(s).strip() for s in parsed[:3] if isinstance(s, str) and s.strip()]
         start = text.find("[")
         end = text.rfind("]") + 1
         if start != -1 and end > start:
@@ -1770,6 +2030,20 @@ async def enhance_image_prompt(
                 "When reading appearance for a character, use ONLY their assigned photo number.\n"
             )
 
+    use_schema = _json_schema_enabled()
+    if use_schema:
+        # Schema mode emits `{"text":"<prompt>"}` so the parser shape is
+        # consistent with generate_image_comment. Output rule is reworded
+        # so the model writes the prompt INTO the `text` field rather
+        # than emitting bare prose.
+        output_rule = (
+            "- Output ONLY a JSON object of the shape {\"text\": \"<prompt>\"} — "
+            "no intro, no markdown, no code fences, no explanation outside the JSON.\n"
+            "- The prompt itself goes inside the `text` field as one continuous English string.\n"
+        )
+    else:
+        output_rule = "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
@@ -1778,7 +2052,7 @@ async def enhance_image_prompt(
         f"{char_block}"
         f"{ref_block}"
         "Rules:\n"
-        "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+        f"{output_rule}"
         "- Always write in English.\n"
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
         "- Aim for 150-300 words.\n"
@@ -1821,6 +2095,9 @@ async def enhance_image_prompt(
         print(f"[LMStudio] enhance_image_prompt: using vision model with {len(reference_images)} reference image(s)")
 
     messages_list = [{"role": "user", "content": user_content}]
+    response_format = (
+        _image_text_response_format("image_prompt", 4000) if use_schema else None
+    )
     try:
         enhanced, *_ = await chat(
             messages_list,
@@ -1832,10 +2109,19 @@ async def enhance_image_prompt(
             # (character description) — the language enforcer's heuristic
             # is meaningless here, so we disable it.
             enforce_user_lang=False,
+            response_format=response_format,
         )
         if enhanced:
             enhanced = _THINK_RE.sub("", enhanced)
             enhanced = _THINK_RE_UNCLOSED.sub("", enhanced).strip()
+            # Schema mode wraps the prompt in {"text": "..."}; pull it back
+            # out so downstream consumers see the same plain string. If the
+            # parser returns None (schema ignored, or 4xx auto-disable
+            # already tripped), fall through to the bare-text path below.
+            if use_schema:
+                unwrapped = _parse_json_string_payload(enhanced)
+                if unwrapped:
+                    enhanced = unwrapped.strip()
             if len(enhanced) > 5:
                 # Detect refusals and connection errors: when the vision call
                 # fails (e.g. model isn't multimodal, LM Studio unreachable),
@@ -1861,12 +2147,25 @@ async def generate_image_comment(
     history: list = None,
 ) -> str:
     """Generate a short in-character comment to accompany a generated image."""
+    use_schema = _json_schema_enabled()
+    if use_schema:
+        # Wrap the comment in {"text": "..."} so structured-output mode
+        # produces parseable JSON instead of bare prose.
+        format_rule = (
+            "- Output ONLY a JSON object of the shape {\"text\": \"<sentence>\"} — "
+            "no markdown, no code fences, no explanation outside the JSON.\n"
+            "- Put your in-character comment inside the `text` field as one short string.\n"
+        )
+    else:
+        format_rule = ""
+
     system = (
         f"You are {bot_name}. {character_background}\n"
         "You are mid-conversation and have just drawn/created an image for the user. "
         "Write ONE short sentence (two at most) to send alongside it — something that flows "
         "naturally from the conversation you were just having, like a real person would say.\n"
         "Rules:\n"
+        f"{format_rule}"
         "- Stay in the mood and tone of the conversation.\n"
         "- Language: default Traditional Chinese (繁體中文). Only switch if the user wrote a full sentence in another language. Never use Simplified Chinese.\n"
         "- Do NOT say 'Here is', 'Here's', 'I generated', 'I created', '好的', '完成了', or anything that sounds like a task report.\n"
@@ -1896,13 +2195,30 @@ async def generate_image_comment(
     )
 
     messages = [{"role": "user", "content": msg}]
+    response_format = (
+        _image_text_response_format("image_comment", 400) if use_schema else None
+    )
     try:
         # enforce_user_lang=False: the user message is the English instruction
         # "Write your one-sentence reaction…" but the system prompt asks for
         # Traditional Chinese (or whatever language the conversation is in).
-        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096, enforce_user_lang=False)
-        if text and len(text.strip()) > 2:
-            return text.strip()
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            max_tokens=4096,
+            enforce_user_lang=False,
+            response_format=response_format,
+        )
+        if text:
+            # Schema mode wraps the comment in {"text": "..."}; recover it
+            # so the caller still gets a plain string. None means schema
+            # was ignored or auto-disable already tripped — fall through.
+            if use_schema:
+                unwrapped = _parse_json_string_payload(text)
+                if unwrapped:
+                    text = unwrapped
+            if len(text.strip()) > 2:
+                return text.strip()
     except Exception as e:
         print(f"[LMStudio] Image comment generation failed: {e}")
 
@@ -1995,6 +2311,15 @@ async def generate_suggestions(
 
     messages = [{"role": "user", "content": prompt}]
 
+    # Structured-output mode: ask LM Studio to constrain decoding to a
+    # `{"items":[exactly N short strings]}` schema when LMSTUDIO_USE_JSON_SCHEMA
+    # is on. The salvage path stays in place so the bot still recovers
+    # buttons from numbered/bulleted text on servers that ignore the field
+    # or once the 4xx auto-disable has tripped.
+    response_format = (
+        _suggestion_response_format(count) if _json_schema_enabled() else None
+    )
+
     text = ""
     try:
         # Suggestions need a bigger budget than chat() default since the model
@@ -2003,10 +2328,27 @@ async def generate_suggestions(
         # `language_sample` directive in the system prompt; the user message
         # wrapper is English ("Generate {count} natural follow-up messages…")
         # but the suggestions themselves should follow `language_sample`.
-        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096, enforce_user_lang=False)
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            max_tokens=4096,
+            enforce_user_lang=False,
+            response_format=response_format,
+        )
         if not text:
             print("[LMStudio] Suggestion: empty model response — no buttons")
             return []
+        # Schema-mode replies arrive as `{"items":[...]}`; the helper also
+        # accepts a bare `[...]` so legacy free-text replies still parse.
+        parsed = _parse_json_array_payload(text)
+        if parsed is not None and len(parsed) > 0:
+            clean = []
+            for s in parsed[:count]:
+                s = str(s).strip().rstrip(".")
+                if len(s) > 80:
+                    s = s[:77] + "..."
+                clean.append(s)
+            return clean
         start = text.find("[")
         end = text.rfind("]") + 1
         if start != -1 and end > start:

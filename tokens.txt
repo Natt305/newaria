@@ -200,6 +200,61 @@ LMSTUDIO_THINKING=off
 # directive entirely.
 # LMSTUDIO_NARRATION_TARGET=
 
+# ----------------------------------------------------------------
+# 結構化輸出 / Structured-output (JSON Schema / JSON mode) switches
+# ----------------------------------------------------------------
+# 這三個開關控制四條工具呼叫是否在請求中加上「結構化輸出」欄位，
+# 強制後端只回傳合法的 JSON：generate_suggestions（按鈕建議）、
+# extract_memories（長期記憶擷取）、enhance_image_prompt（圖像提示
+# 改寫）、generate_image_comment（圖像旁白）。預設全部關閉（off），
+# 維持原本的純文字提示行為；打開後若後端或模型不支援該欄位（HTTP
+# 4xx 或 SDK 例外提到 response_format / json mode），程式會自動在當
+# 前進程內把它停掉並重試一次同一個呼叫，所以打開不會把工作流卡死。
+# 既有的「救援解析器」(salvage parser) 仍會作為最後一道安全網，從
+# 編號清單或項目符號文字裡盡力撈出按鈕；圖像那兩條呼叫即使開啟結
+# 構化輸出，若解析失敗也會回退到原本的純文字結果。接受 1/0、on/off、
+# true/false、yes/no（不分大小寫）。
+#
+# These three flags decide whether the four utility callers
+# (generate_suggestions, extract_memories, enhance_image_prompt,
+# generate_image_comment) attach a structured-output field — LM
+# Studio's response_format JSON Schema, Groq's
+# response_format={"type":"json_object"}, or Ollama's format=json —
+# to the request so the backend only returns JSON. All default to off
+# so existing setups behave exactly as before. If the backend or
+# model rejects the field (4xx, or an SDK exception mentioning
+# response_format / json mode), the corresponding flag is auto-
+# disabled for the rest of the process and the request is retried
+# once without it, so flipping these on never breaks a running bot.
+# The existing salvage parser still recovers buttons from numbered
+# or bulleted prose as a no-op safety net; the two image callers
+# also fall back to plain prose when their JSON parser doesn't find
+# a usable string. Accepts 1/0, on/off, true/false, yes/no
+# (case-insensitive).
+#
+#   LMSTUDIO_USE_JSON_SCHEMA   default off — sends a strict JSON
+#                              Schema (object root with `items`)
+#                              for suggestion buttons (count strings,
+#                              each ≤80 chars) and memory facts
+#                              (0–3 strings, each ≤60 chars), and a
+#                              {"text": "..."} schema for the image
+#                              prompt and image-comment callers.
+#   GROQ_USE_JSON_MODE         default off — sends
+#                              response_format={"type":"json_object"}
+#                              and asks the model for an
+#                              {"items":[...]} document for buttons /
+#                              memories, or {"text":"..."} for image
+#                              prompt / image-comment.
+#   OLLAMA_USE_JSON_FORMAT     default off — sends format=json on
+#                              /api/chat and asks the model for an
+#                              {"items":[...]} document for buttons /
+#                              memories, or {"text":"..."} for image
+#                              prompt / image-comment.
+#
+# LMSTUDIO_USE_JSON_SCHEMA=off
+# GROQ_USE_JSON_MODE=off
+# OLLAMA_USE_JSON_FORMAT=off
+
 # ================================================================
 #  Cloudflare 圖像生成（可選）
 # ================================================================

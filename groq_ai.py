@@ -67,6 +67,109 @@ def _is_daily_limit_error(err: str) -> bool:
     markers = ("per_day", "per day", "daily", "tokens_per_day", "day limit", "24-hour")
     return any(m in err for m in markers)
 
+# ── Structured-output (JSON mode) support ─────────────────────────────────────
+# When GROQ_USE_JSON_MODE=on, generate_suggestions and extract_memories ask
+# Groq for response_format={"type":"json_object"} so the API guarantees the
+# reply parses as JSON. If a model rejects the field (older or non-supporting
+# routes), `chat()` flips _JSON_MODE_DISABLED for the rest of the process and
+# retries the same call once without the field — the salvage parser still
+# recovers buttons from numbered/bulleted prose as a no-op safety net.
+_JSON_MODE_DISABLED = False
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse an env var as a boolean. Accepts on/off/1/0/true/false/yes/no."""
+    val = os.environ.get(name, "").strip().lower()
+    if not val:
+        return default
+    if val in ("on", "true", "1", "yes", "y"):
+        return True
+    if val in ("off", "false", "0", "no", "n"):
+        return False
+    return default
+
+
+def _json_mode_enabled() -> bool:
+    """Return True when JSON mode should be attempted on the next call."""
+    if _JSON_MODE_DISABLED:
+        return False
+    return _env_bool("GROQ_USE_JSON_MODE", False)
+
+
+def _parse_json_array_payload(text: str) -> Optional[list]:
+    """Extract a list-of-strings payload from `text`.
+
+    Handles both the JSON-mode object shape (`{"items":[...]}`) and bare
+    `[...]` arrays so the same callers work whether or not response_format
+    was honored. Returns None when neither shape parses, so the caller can
+    fall through to its existing salvage path.
+    """
+    import json as _json
+    if not text:
+        return None
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            for key in ("items", "suggestions", "memories", "facts"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return value
+        elif isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    start = text.find("[")
+    end = text.rfind("]") + 1
+    if start != -1 and end > start:
+        try:
+            data = _json.loads(text[start:end])
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return None
+
+
+def _parse_json_string_payload(text: str) -> Optional[str]:
+    """Extract a single string payload from `text`.
+
+    Mirrors `_parse_json_array_payload` but for the image-text shape used
+    by enhance_image_prompt and generate_image_comment under json_object
+    mode:
+      - json_object mode emits {"text": "..."} (or one of a few synonym
+        keys the model might pick when only loosely constrained:
+        "prompt", "comment", "content", "value").
+      - Failing that, recover an embedded JSON object via brace-scanning.
+    Returns None when nothing parses, so the caller falls back to its
+    existing free-form path.
+    """
+    import json as _json
+    if not text:
+        return None
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            for key in ("text", "prompt", "comment", "content", "value"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+    except Exception:
+        pass
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start != -1 and end > start:
+        try:
+            data = _json.loads(text[start:end])
+            if isinstance(data, dict):
+                for key in ("text", "prompt", "comment", "content", "value"):
+                    value = data.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value
+        except Exception:
+            pass
+    return None
+
+
 _DEFAULT_CHAT_MODEL   = "llama-3.3-70b-versatile"
 _DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
@@ -251,24 +354,55 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     if not client:
         return []
 
-    system = (
-        f"You are a memory extractor for {bot_name}.\n"
-        "Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\n"
-        "Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, "
-        "locations, events, goals, feelings, or important statements the user shared.\n"
-        "Skip greetings, generic questions, image requests, and anything trivial or repetitive.\n"
-        "Each fact MUST name the person and what they shared, written in Traditional Chinese.\n"
-        "Keep each fact under 60 characters.\n"
-        "Return ONLY a valid JSON array of strings. Return [] if nothing is worth remembering.\n"
-        'Example: ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]'
-    )
+    use_json_mode = _json_mode_enabled()
+    if use_json_mode:
+        # Groq's json_object mode requires the response to be a JSON OBJECT
+        # (not a bare array). Ask the model to wrap the array under `items`
+        # so `_parse_json_array_payload` can recover it. The free-text
+        # contract (bare array) is preserved when the switch is off so
+        # nothing changes for default operators.
+        system = (
+            f"You are a memory extractor for {bot_name}.\n"
+            "Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\n"
+            "Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, "
+            "locations, events, goals, feelings, or important statements the user shared.\n"
+            "Skip greetings, generic questions, image requests, and anything trivial or repetitive.\n"
+            "Each fact MUST name the person and what they shared, written in Traditional Chinese.\n"
+            "Keep each fact under 60 characters.\n"
+            'Return ONLY a valid JSON object of the shape {"items": [<fact strings>]}. '
+            'Return {"items": []} if nothing is worth remembering.\n'
+            'Example: {"items": ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]}'
+        )
+    else:
+        system = (
+            f"You are a memory extractor for {bot_name}.\n"
+            "Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\n"
+            "Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, "
+            "locations, events, goals, feelings, or important statements the user shared.\n"
+            "Skip greetings, generic questions, image requests, and anything trivial or repetitive.\n"
+            "Each fact MUST name the person and what they shared, written in Traditional Chinese.\n"
+            "Keep each fact under 60 characters.\n"
+            "Return ONLY a valid JSON array of strings. Return [] if nothing is worth remembering.\n"
+            'Example: ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]'
+        )
 
     messages = [{"role": "user", "content": f"Extract memorable facts:\n\n{exchange[:1500]}"}]
+    response_format = {"type": "json_object"} if use_json_mode else None
 
     try:
-        text, *_ = await chat(messages, system_prompt=system, model=DEFAULT_MODEL)
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            model=DEFAULT_MODEL,
+            response_format=response_format,
+        )
         if not text:
             return []
+        # Try the structured object/bare-array helper first; fall back to the
+        # legacy substring scan for any reply that slips through as prose.
+        parsed = _parse_json_array_payload(text)
+        if parsed is not None:
+            return [str(s).strip() for s in parsed[:3] if isinstance(s, str) and s.strip()]
         start = text.find("[")
         end = text.rfind("]") + 1
         if start != -1 and end > start:
@@ -711,6 +845,20 @@ async def enhance_image_prompt(
             "If any item from this checklist is missing from your output, add it before finalizing.\n"
         )
 
+    use_json_mode = _json_mode_enabled()
+    if use_json_mode:
+        # Schema mode emits `{"text":"<prompt>"}` so the parser shape matches
+        # generate_image_comment. Groq's json_object mode forces JSON output
+        # but is unconstrained; the prompt instructs the model to put the
+        # prompt INSIDE the `text` field.
+        output_rule = (
+            "- Output ONLY a JSON object of the shape {\"text\": \"<prompt>\"} — "
+            "no intro, no markdown, no code fences, no explanation outside the JSON.\n"
+            "- The prompt itself goes inside the `text` field as one continuous English string.\n"
+        )
+    else:
+        output_rule = "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
@@ -719,7 +867,7 @@ async def enhance_image_prompt(
         f"{multi_char_note}"
         f"{ref_block}"
         "Rules:\n"
-        "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+        f"{output_rule}"
         "- Always write in English.\n"
         "- Aim for 150-300 words.\n"
         "- Be specific: include subject, art style, lighting, colors, mood, and setting.\n"
@@ -1024,6 +1172,7 @@ async def enhance_image_prompt(
         for _sname, _sdesc in subject_supplements.items():
             print(f"[Groq] subject_supplement (gap-filler) — {_sname}: {_sdesc[:100]!r}")
 
+    response_format = {"type": "json_object"} if use_json_mode else None
     try:
         enhanced, *_ = await chat(
             messages_list,
@@ -1031,10 +1180,19 @@ async def enhance_image_prompt(
             model=DEFAULT_MODEL,
             context_images=reference_images if has_images else None,
             max_tokens=8192,
+            response_format=response_format,
         )
         if enhanced:
             enhanced = _THINK_RE.sub("", enhanced)
             enhanced = _THINK_RE_UNCLOSED.sub("", enhanced).strip()
+            # Schema mode wraps the prompt in {"text": "..."}; pull it back
+            # out so downstream consumers see the same plain string. None
+            # means schema was ignored or auto-disable already tripped —
+            # fall through to bare-text handling below.
+            if use_json_mode:
+                unwrapped = _parse_json_string_payload(enhanced)
+                if unwrapped:
+                    enhanced = unwrapped.strip()
             if len(enhanced) > 5:
                 # Detect refusals: text-model fallbacks that couldn't see the
                 # reference images produce polite apologies.  Using that text as
@@ -1057,6 +1215,7 @@ async def chat(
     model: str = DEFAULT_MODEL,
     context_images: Optional[list] = None,
     max_tokens: int = 1024,
+    response_format: Optional[dict] = None,
 ) -> tuple[str, Optional[str], bool, bool]:
     """
     Send a chat request to Groq.
@@ -1127,12 +1286,18 @@ async def chat(
         if context_images and not is_vision_model:
             print(f"[Groq] Falling back to text model {attempt_model} — stripping image_url parts from messages")
         try:
-            response = await client.chat.completions.create(
-                model=attempt_model,
-                messages=msgs_for_attempt,
-                temperature=0.8,
-                max_tokens=max_tokens,
-            )
+            create_kwargs = {
+                "model": attempt_model,
+                "messages": msgs_for_attempt,
+                "temperature": 0.8,
+                "max_tokens": max_tokens,
+            }
+            if response_format is not None:
+                create_kwargs["response_format"] = response_format
+                print(
+                    f"[Groq] response_format active ({response_format.get('type', '?')}) on {attempt_model}"
+                )
+            response = await client.chat.completions.create(**create_kwargs)
             text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
 
             # Primary: bot used the [IMAGE: ...] marker → generate silently
@@ -1158,6 +1323,45 @@ async def chat(
 
         except Exception as e:
             err = str(e).lower()
+            # Structured-output capability check: if the route or the model
+            # rejects the response_format field, drop it for the rest of the
+            # process so the bot stops bouncing on the same error, then retry
+            # the SAME model once without the field. Subsequent calls observe
+            # the disabled flag in `_json_mode_enabled()`.
+            if (
+                response_format is not None
+                and ("response_format" in err or "json_object" in err or "json mode" in err)
+            ):
+                global _JSON_MODE_DISABLED
+                _JSON_MODE_DISABLED = True
+                print(
+                    f"[Groq] response_format unsupported on {attempt_model} — auto-disabling "
+                    "JSON mode for this process and retrying without it"
+                )
+                response_format = None
+                try:
+                    response = await client.chat.completions.create(
+                        model=attempt_model,
+                        messages=msgs_for_attempt,
+                        temperature=0.8,
+                        max_tokens=max_tokens,
+                    )
+                    text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
+                    marker_match = _IMAGE_MARKER_RE.search(text)
+                    if marker_match:
+                        img_prompt = marker_match.group(1).strip()
+                        clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
+                        print(f"[Groq] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
+                        return (clean_text or None), img_prompt, True, True
+                    if response_declines_image(text, messages=messages):
+                        img_prompt = user_wants_image(messages)
+                        if img_prompt:
+                            print(f"[Groq] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
+                            return None, img_prompt, False, True
+                    return text, None, False, True
+                except Exception as inner:
+                    print(f"[Groq] Retry without response_format on {attempt_model} failed: {inner}")
+                    continue
             if "model" in err and ("not found" in err or "deprecated" in err or "invalid" in err):
                 print(f"[Groq] Model {attempt_model} unavailable, trying next...")
                 continue
@@ -1202,12 +1406,25 @@ async def generate_image_comment(
     if not client:
         return ""
 
+    use_json_mode = _json_mode_enabled()
+    if use_json_mode:
+        # Wrap the comment in {"text": "..."} so json_object mode produces
+        # parseable JSON instead of bare prose.
+        format_rule = (
+            "- Output ONLY a JSON object of the shape {\"text\": \"<sentence>\"} — "
+            "no markdown, no code fences, no explanation outside the JSON.\n"
+            "- Put your in-character comment inside the `text` field as one short string.\n"
+        )
+    else:
+        format_rule = ""
+
     system = (
         f"You are {bot_name}. {character_background}\n"
         "You are mid-conversation and have just drawn/created an image for the user. "
         "Write ONE short sentence (two at most) to send alongside it — something that flows "
         "naturally from the conversation you were just having, like a real person would say.\n"
         "Rules:\n"
+        f"{format_rule}"
         "- Stay in the mood and tone of the conversation. If you were joking, keep joking. "
         "If you were being sincere, be sincere.\n"
         "- Reference the specific thing that was asked for when it feels natural — don't just react generically.\n"
@@ -1237,10 +1454,24 @@ async def generate_image_comment(
     )
 
     messages = [{"role": "user", "content": msg}]
+    response_format = {"type": "json_object"} if use_json_mode else None
     try:
-        text, *_ = await chat(messages, system_prompt=system, model=DEFAULT_MODEL)
-        if text and len(text.strip()) > 2:
-            return text.strip()
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            model=DEFAULT_MODEL,
+            response_format=response_format,
+        )
+        if text:
+            # Schema mode wraps the comment in {"text": "..."}; recover it
+            # so the caller still gets a plain string. None means schema
+            # was ignored or auto-disable already tripped — fall through.
+            if use_json_mode:
+                unwrapped = _parse_json_string_payload(text)
+                if unwrapped:
+                    text = unwrapped
+            if len(text.strip()) > 2:
+                return text.strip()
     except Exception as e:
         print(f"[Groq] Image comment generation failed: {e}")
 
@@ -1314,13 +1545,25 @@ async def generate_suggestions(
             f"(detect it automatically — do NOT translate): \"{language_sample[:120]}\"\n"
         )
 
+    use_json_mode = _json_mode_enabled()
+    if use_json_mode:
+        # Groq's json_object mode forces an OBJECT root, so ask for
+        # `{"items":[...]}` instead of a bare array. _parse_json_array_payload
+        # accepts both shapes so the off-path keeps emitting bare arrays.
+        return_line = (
+            'Return ONLY a valid JSON object of the shape {"items": [<suggestion strings>]}. '
+            'No markdown, no code fences.\n'
+        )
+    else:
+        return_line = "Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
+
     base = (
         f"{lang_instruction}"
         f"You are {bot_name}. {character_background}\n"
         f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
         f"Write them as the USER speaking to you — casual, warm, and conversational.\n"
         f"Each should be 10–75 characters. No punctuation at the end. No quotes.\n"
-        f"Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
+        f"{return_line}"
     )
     if guiding_prompt:
         system = f"{guiding_prompt}\n\n{base}"
@@ -1333,13 +1576,29 @@ async def generate_suggestions(
         prompt = f"Generate {count} casual opening messages someone might send to start chatting with {bot_name}."
 
     messages = [{"role": "user", "content": prompt}]
+    response_format = {"type": "json_object"} if use_json_mode else None
 
     text = ""
     try:
-        text, *_ = await chat(messages, system_prompt=system)
+        text, *_ = await chat(
+            messages,
+            system_prompt=system,
+            response_format=response_format,
+        )
         if not text:
             print("[Groq] Suggestion: empty model response — no buttons")
             return []
+        # Schema mode emits `{"items":[...]}`; legacy mode emits a bare array.
+        # The shared helper handles both shapes.
+        parsed = _parse_json_array_payload(text)
+        if parsed is not None and len(parsed) > 0:
+            clean = []
+            for s in parsed[:count]:
+                s = str(s).strip().rstrip(".")
+                if len(s) > 80:
+                    s = s[:77] + "..."
+                clean.append(s)
+            return clean
         start = text.find("[")
         end = text.rfind("]") + 1
         if start != -1 and end > start:
