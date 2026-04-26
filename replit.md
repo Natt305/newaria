@@ -136,6 +136,35 @@ The first `!generate` of a session normally pays a one-time 30–60 s cost for C
 - The console prints a clear `WARMUP` banner before submitting so the VRAM spike that follows is obviously the warm-up and not a real request.
 - Gated by `COMFYUI_PREWARM` (see env-var table). **Default: on for `qwen`, off for `flux`** — Qwen is the new default and benefits most from a hot model, while FLUX runs on tighter-VRAM setups more often. Override either way if you need to.
 
+**VRAM management for the Qwen pipeline:**
+
+The recommended Qwen stack is borderline on a 16 GB GPU but fits cleanly *because the workflow is sequential*, not because everything coexists in VRAM at once:
+
+| Component | VRAM | When it's needed |
+|---|---|---|
+| Qwen-Rapid-NSFW UNET (Q4_K) | 12.4 GB | `KSampler` step only |
+| Qwen2.5-VL-7B CLIP encoder (Q4_K_M) | 4.68 GB | `TextEncodeQwenImageEditPlus` only |
+| VAE | ~0.4 GB | `VAEDecode` only |
+| **Naive peak (everything resident)** | **~17.4 GB** | ❌ does NOT fit on 16 GB |
+| **Sequential peak (CLIP evicted before sampling)** | **~13.0 GB** | ✅ fits cleanly |
+
+Common misconception worth correcting: **`Qwen2.5-VL-7B` is not a separate "vision analysis" stage that runs before image generation**. It IS the text encoder our workflow uses — `CLIPLoaderGGUF` loads it with `type=qwen_image` and `TextEncodeQwenImageEditPlus` pipes both your prompt *and* up to 4 reference photos through it to produce the conditioning. Every single image generation goes through both the encoder and the sampler, in sequence, every time. ComfyUI's built-in memory manager handles the eviction automatically — once the encoder finishes its job, it's paged out of VRAM before `KSampler` loads the UNET.
+
+The catch is that ComfyUI's default `auto` heuristic is sometimes too greedy on borderline cards (it tries to keep everything resident "just in case"), causing OOM crashes on cards that would otherwise be fine. **`start.bat` handles this for you** by reading the GPU's actual VRAM via `nvidia-smi` and passing the matching ComfyUI flag at launch — no env var, no `tokens.txt` entry needed:
+
+| Detected GPU VRAM | Flag passed | Why |
+|---|---|---|
+| ≥ 23 GB | `--highvram` | 24 GB+ cards: keep everything cached for fastest steady-state |
+| 7–22 GB | `--normalvram` | 8/12/16 GB borderline cards: aggressive eviction, no UNET splitting |
+| < 7 GB | `--lowvram` | Need to stream UNET blocks to avoid OOM; ~2–3× slower per image |
+| Detection failed (no `nvidia-smi`, AMD/Intel GPU) | *(no flag)* | Falls back to ComfyUI's built-in `auto`; one WARN line printed |
+
+The `start.bat` console banner shows exactly what was detected and passed, e.g. `[ComfyUI] Detected GPU VRAM: 16380 MB -> --normalvram`. No user-facing override env var ships — if a power user really needs to force a different mode, edit the four-row block in `start.bat` directly.
+
+**Realistic per-image timing on a 16 GB card with this setup:** ~15–25 s for image #1 cold, ~8–14 s steady-state once the models are cached in system RAM. With the boot-time pre-warm above (default-on for qwen), the cold path is moved to `start.bat` time and the user only ever sees the steady-state number. About 2–4 s of each generation is the CLIP→UNET swap (RAM↔VRAM at PCIe-4.0 speeds); the rest is the actual 4-step sampling + decode.
+
+You can confirm the active VRAM headroom from Discord with `/diagcomfyui` — the embed includes a "顯存" field showing `剩餘 N MB / 共 N MB` straight from ComfyUI's `/system_stats`.
+
 **Troubleshooting:**
 - **First step for any "node-not-found 400" error: run `/diagcomfyui`.** The bot also runs the same probe automatically at startup (when `IMAGE_BACKEND=comfyui`) via `comfyui_ai.diagnose()` — it hits `/object_info` once for each required custom node and prints `✅ found / ❌ MISSING` per node, plus the `CLIPLoaderGGUF` `type` choices so you can verify `qwen_image` is one of them, plus the count and names of any engine-scoped packs currently disabled (see above). If anything is missing it logs a single prominent `[WARNING]` line telling you which custom-node pack to install (the bot still starts — the FLUX engine may still be usable). Re-run `/diagcomfyui` in any channel after installing/updating a pack and restarting ComfyUI.
 - `/prompt` returns a node-not-found error mentioning `TextEncodeQwenImageEditPlus` → the custom node pack isn't installed; restart ComfyUI after installing it.
@@ -143,6 +172,7 @@ The first `!generate` of a session normally pays a one-time 30–60 s cost for C
 - `/prompt` complains about CLIP type → confirm city96's `CLIPLoaderGGUF` exposes `qwen_image` in its type dropdown (recent versions do).
 - `KSampler` complains about an invalid sampler / scheduler → the user-supplied `COMFYUI_QWEN_SAMPLER` / `COMFYUI_QWEN_SCHEDULER` doesn't exist on this ComfyUI build; revert to defaults (`euler_ancestral` / `beta`).
 - VRAM-tight machines: drop `COMFYUI_QWEN_WIDTH`/`COMFYUI_QWEN_HEIGHT` to `768` and stay at `COMFYUI_QWEN_STEPS=4`. **Most importantly, audit `comfyui_engine_packs.txt`** so every heavy FLUX-only pack you actually have installed is listed under `flux:` — the shipped defaults cover the common Ultimate-Inpaint stack, but unique installs may have other VRAM-hungry packs.
+- **OOM during sampling** → check the `[ComfyUI] Detected GPU VRAM: N MB -> <flag>` line in your `start.bat` console output to confirm the auto-picked flag matches your card. If it didn't detect (you see the "ComfyUI will use its built-in auto" WARN line), `nvidia-smi` is either missing from PATH or your GPU isn't reporting; add the right `--lowvram` / `--normalvram` flag manually to the `start "ComfyUI" ...` line in `start.bat`. See the "VRAM management for the Qwen pipeline" subsection above for the math.
 - A FLUX node that *should* be present is reported missing after switching to `flux` → check that the corresponding pack isn't still listed `flux:` in the manifest but somehow got missed during re-enable; `/diagcomfyui`'s "已停用的自訂節點包" field will show any leftover `.disabled` folders you can rename back manually.
 
 ### ComfyUI Engine: `flux` (legacy)

@@ -3600,6 +3600,19 @@ async def diagcomfyui_cmd(ctx):
             inline=False,
         )
 
+    # VRAM readout from /system_stats so the user can verify there is room for
+    # the active engine's workflow to swap (Qwen pipeline peaks around ~13 GB
+    # on a 16 GB card after CLIP eviction; FLUX similar). Skipped silently
+    # when /system_stats did not expose device info (older ComfyUI builds).
+    vram_free_mb = diag.get("vram_free_mb")
+    vram_total_mb = diag.get("vram_total_mb")
+    if vram_free_mb is not None and vram_total_mb is not None:
+        embed.add_field(
+            name="顯存",
+            value=f"剩餘 `{vram_free_mb}` MB / 共 `{vram_total_mb}` MB",
+            inline=False,
+        )
+
     if missing:
         hint_lines = [f"• `{n}` — {h}" for n, h in missing]
         embed.add_field(

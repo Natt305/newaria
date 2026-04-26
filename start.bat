@@ -50,8 +50,35 @@ if exist "!COMFY_EXTRA_PATHS_FILE!" (
     echo [ComfyUI] Using engine-scoped model paths: !COMFY_EXTRA_PATHS_FILE!
 )
 
+rem --- Auto-detect GPU VRAM via nvidia-smi to pick the right ComfyUI memory
+rem     mode. Maps detected GB to a flag using ComfyUI's own thresholds:
+rem        >= 23 GB  -> --highvram     (24 GB cards: keep everything cached)
+rem        >=  7 GB  -> --normalvram   (8/12/16 GB: aggressive eviction)
+rem         <  7 GB  -> --lowvram      (UNET splitting needed; 2-3x slower)
+rem     If nvidia-smi is missing or fails (non-NVIDIA card, weird driver
+rem     state), pass no flag and let ComfyUI fall back to its built-in auto. ---
+set "COMFY_VRAM_ARG="
+set "COMFY_VRAM_MB="
+for /f "usebackq tokens=1" %%V in (`nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2^>nul`) do (
+    if not defined COMFY_VRAM_MB set "COMFY_VRAM_MB=%%V"
+)
+set "_COMFY_VRAM_GB=0"
+if defined COMFY_VRAM_MB set /a "_COMFY_VRAM_GB=COMFY_VRAM_MB/1024" 2>nul
+if !_COMFY_VRAM_GB! GEQ 23 (
+    set "COMFY_VRAM_ARG=--highvram"
+) else if !_COMFY_VRAM_GB! GEQ 7 (
+    set "COMFY_VRAM_ARG=--normalvram"
+) else if !_COMFY_VRAM_GB! GTR 0 (
+    set "COMFY_VRAM_ARG=--lowvram"
+)
+if defined COMFY_VRAM_ARG (
+    echo [ComfyUI] Detected GPU VRAM: !COMFY_VRAM_MB! MB -^> !COMFY_VRAM_ARG!
+) else (
+    echo [ComfyUI] Could not detect GPU VRAM ^(nvidia-smi missing/failed^) — ComfyUI will use its built-in auto memory mode.
+)
+
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
-start "ComfyUI" /d "!COMFYUI_PATH!" python main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG!
+start "ComfyUI" /d "!COMFYUI_PATH!" python main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
 
 echo [ComfyUI] Waiting for ComfyUI to be ready on port 8188...
 :waitloop

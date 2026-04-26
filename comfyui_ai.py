@@ -1983,10 +1983,14 @@ def diagnose() -> dict:
             "nodes":          {"NodeName": True/False, ...},
             "missing":        [(node_name, install_hint), ...],
             "clip_types":     [...],   # only for the Qwen engine; [] otherwise
-            "disabled_packs": [...]    # `<pack>.disabled` folder names found
+            "disabled_packs": [...],   # `<pack>.disabled` folder names found
                                        # in <COMFYUI_PATH>/custom_nodes/ —
                                        # populated only when COMFYUI_PATH is
                                        # set; empty otherwise.
+            "vram_free_mb":   int|None,  # devices[0].torch_vram_free / 1MB,
+            "vram_total_mb":  int|None,  # devices[0].torch_vram_total / 1MB.
+                                         # Both None when /system_stats does
+                                         # not expose device info.
         }
     """
     base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
@@ -2003,6 +2007,8 @@ def diagnose() -> dict:
         "missing":        [],
         "clip_types":     [],
         "disabled_packs": [],
+        "vram_free_mb":   None,
+        "vram_total_mb":  None,
     }
 
     # --- Engine-scoped pack scan (best-effort, never raises) -----------------
@@ -2050,6 +2056,27 @@ def diagnose() -> dict:
     if not result["reachable"]:
         print(f"[ComfyUI] Diagnose: /system_stats returned HTTP {ss.status_code} — skipping node probe.")
         return result
+
+    # --- VRAM readout from /system_stats (best-effort, never raises) ---------
+    # Lets the user see at a glance how much VRAM is currently free vs. total
+    # — useful for confirming the start.bat memory-mode pick (--normalvram
+    # etc.) is leaving enough headroom for the active engine's workflow.
+    # Fields are bytes per ComfyUI's API; we convert to MiB for display.
+    try:
+        _devs = ss.json().get("devices") or []
+        if _devs and isinstance(_devs[0], dict):
+            _free = _devs[0].get("torch_vram_free")
+            _total = _devs[0].get("torch_vram_total")
+            if isinstance(_free, (int, float)) and _free >= 0:
+                result["vram_free_mb"] = int(_free) // (1024 * 1024)
+            if isinstance(_total, (int, float)) and _total > 0:
+                result["vram_total_mb"] = int(_total) // (1024 * 1024)
+        if result["vram_free_mb"] is not None and result["vram_total_mb"] is not None:
+            print(f"[ComfyUI] Diagnose: VRAM: {result['vram_free_mb']} MB free "
+                  f"/ {result['vram_total_mb']} MB total")
+    except Exception as exc:
+        print(f"[ComfyUI] Diagnose: could not parse VRAM from /system_stats "
+              f"({type(exc).__name__}: {exc})")
 
     for node_name, _hint in required:
         try:
