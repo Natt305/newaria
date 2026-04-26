@@ -44,6 +44,17 @@ Required ComfyUI custom node packs for the Qwen engine:
        `TextEncodeQwenImageEditPlus`)     → image-aware text encoder
     The pig_qwen VAE GGUF loads through stock `VAELoader`, no extra pack required.
 
+Optional env vars (both engines):
+    COMFYUI_PREWARM  `1`/`true`/`yes`/`on` to pre-load the active engine's
+                     model into VRAM right after on_ready (a tiny throwaway
+                     256x256, 1-step txt2img is submitted via the same
+                     engine-specific builder); `0`/`false`/`no`/`off` to
+                     skip. Unset uses the per-engine default — on for `qwen`,
+                     off for `flux`. Cuts the first real !generate's wait by
+                     the model-load cost (~30–60 s on typical setups). Runs
+                     concurrently with bot startup; failure logs a single
+                     WARN line and never blocks.
+
 Optional env vars (FLUX engine):
     COMFYUI_URL      ComfyUI server address (default: http://127.0.0.1:8188).
     COMFYUI_STEPS    Number of inference steps (default: 4).
@@ -2081,6 +2092,153 @@ def diagnose() -> dict:
     else:
         print(f"[ComfyUI] Diagnose: ✅ all required custom nodes present for engine={engine}.")
 
+    return result
+
+
+# ── Boot-time pre-warm ────────────────────────────────────────────────────────
+# Defaults for COMFYUI_PREWARM when the user has not explicitly set it:
+# Qwen-Image-Edit-Rapid is the new default engine and benefits the most from a
+# hot model on the very first !generate, so it warms up by default. FLUX.2
+# Klein loads a heavier stack and is more likely to be running on tighter VRAM
+# budgets, so it stays opt-in.
+_PREWARM_DEFAULTS = {"qwen": True, "flux": False}
+
+
+def _prewarm_enabled(engine: str) -> bool:
+    """Return whether boot-time pre-warm should run for the given engine.
+
+    Honors COMFYUI_PREWARM (`1/true/yes/on` or `0/false/no/off`); when the var
+    is unset or unparseable, falls back to the per-engine default in
+    `_PREWARM_DEFAULTS`.
+    """
+    raw = os.environ.get("COMFYUI_PREWARM", "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return _PREWARM_DEFAULTS.get(engine, False)
+
+
+def prewarm() -> dict:
+    """Submit a tiny throwaway txt2img job so the active engine's model is
+    already resident in VRAM before the first real `!generate` request.
+
+    Blocking — meant to be called from `asyncio.to_thread(...)` in `on_ready`
+    so it runs concurrently with the rest of bot startup. Never raises: any
+    failure is logged as a single WARN line and the function returns a dict
+    describing what happened. The generated image (if any) is discarded.
+
+    Returns:
+        {
+            "engine":  "qwen" | "flux",
+            "ran":     bool,                  # True if a /prompt was submitted
+            "ok":      bool,                  # True only on full success
+            "skipped": str | None,            # human-readable reason, if any
+        }
+    """
+    base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
+    engine = os.environ.get("COMFYUI_ENGINE", "qwen").strip().lower()
+    if engine not in ("qwen", "flux"):
+        engine = "qwen"
+
+    result = {"engine": engine, "ran": False, "ok": False, "skipped": None}
+
+    if not _prewarm_enabled(engine):
+        print(f"[ComfyUI] WARMUP: disabled for engine={engine} "
+              f"(COMFYUI_PREWARM={os.environ.get('COMFYUI_PREWARM', '<unset>')!r}). "
+              f"First !generate will pay the model-load cost as before.")
+        result["skipped"] = "disabled"
+        return result
+
+    try:
+        import requests as _requests
+    except Exception as exc:
+        print(f"[ComfyUI] WARMUP WARN: `requests` not importable ({exc}) — skipping.")
+        result["skipped"] = "no-requests"
+        return result
+
+    # Engine-specific tiny workflow — same builders the real pipeline uses, so
+    # the model that gets loaded is exactly the one the user's first request
+    # will need. Smallest sensible resolution (256x256 — multiple of 64 keeps
+    # both EmptySD3LatentImage / EmptyLatentImage happy) and a single sampling
+    # step keep the wall-clock cost to roughly "model load + 1 step".
+    SEED = 1
+    STEPS = 1
+    WIDTH = 256
+    HEIGHT = 256
+    PROMPT = "a"  # one token — content doesn't matter, the load does
+
+    if engine == "qwen":
+        qwen_gguf = os.environ.get("COMFYUI_QWEN_GGUF", "").strip()
+        qwen_vae = os.environ.get("COMFYUI_QWEN_VAE", "").strip()
+        qwen_clip = os.environ.get("COMFYUI_QWEN_CLIP_GGUF", "").strip()
+        if not qwen_gguf or not qwen_vae or not qwen_clip:
+            print("[ComfyUI] WARMUP WARN: Qwen vars (COMFYUI_QWEN_GGUF/VAE/CLIP_GGUF) "
+                  "not set — skipping pre-warm.")
+            result["skipped"] = "qwen-vars-missing"
+            return result
+        sampler = os.environ.get("COMFYUI_QWEN_SAMPLER", DEFAULT_QWEN_SAMPLER).strip() or DEFAULT_QWEN_SAMPLER
+        scheduler = os.environ.get("COMFYUI_QWEN_SCHEDULER", DEFAULT_QWEN_SCHEDULER).strip() or DEFAULT_QWEN_SCHEDULER
+        workflow = _build_txt2img_workflow_qwen(
+            PROMPT, qwen_gguf, qwen_vae, qwen_clip,
+            STEPS, WIDTH, HEIGHT, SEED, sampler, scheduler,
+        )
+    else:  # flux
+        gguf_path = os.environ.get("COMFYUI_GGUF", "").strip()
+        vae_name = os.environ.get("COMFYUI_VAE", "").strip()
+        clip_name = os.environ.get("COMFYUI_CLIP", "").strip()
+        if not gguf_path or not vae_name or not clip_name:
+            print("[ComfyUI] WARMUP WARN: FLUX vars (COMFYUI_GGUF/VAE/CLIP) "
+                  "not set — skipping pre-warm.")
+            result["skipped"] = "flux-vars-missing"
+            return result
+        workflow = _build_txt2img_workflow(
+            PROMPT, gguf_path, vae_name, clip_name,
+            STEPS, WIDTH, HEIGHT, SEED,
+        )
+
+    # The shared txt2img builders end with a `SaveImage` node ("9") that
+    # writes a PNG into ComfyUI's `output/` directory. For a throwaway
+    # warm-up that's pointless clutter — a stale `ariabot_*.png` would
+    # accumulate in the user's outputs folder every boot. `PreviewImage`
+    # has the same single `images` input but routes the result to ComfyUI's
+    # `temp/` directory (which it auto-clears), so the workflow still
+    # terminates correctly without polluting `output/`.
+    save_node = workflow.get("9")
+    if save_node and save_node.get("class_type") == "SaveImage":
+        workflow["9"] = {
+            "class_type": "PreviewImage",
+            "inputs": {"images": save_node["inputs"]["images"]},
+        }
+
+    print("=" * 68)
+    print(f"[ComfyUI] WARMUP: pre-loading engine={engine} model into VRAM")
+    print(f"[ComfyUI] WARMUP:   throwaway txt2img — {WIDTH}x{HEIGHT}, {STEPS} step, result discarded.")
+    print(f"[ComfyUI] WARMUP:   Expect a one-time VRAM spike — this is NOT a real request.")
+    print("=" * 68)
+
+    client_id = f"prewarm-{uuid.uuid4().hex[:8]}"
+    timeout = _get_int("COMFYUI_TIMEOUT", DEFAULT_TIMEOUT)
+    t0 = time.time()
+    try:
+        out = _submit_and_poll(workflow, base_url, client_id, timeout, _requests)
+    except Exception as exc:
+        print(f"[ComfyUI] WARMUP WARN: pre-warm raised "
+              f"{type(exc).__name__}: {exc} — first !generate will be slow.")
+        result["ran"] = True
+        return result
+
+    result["ran"] = True
+    elapsed = int(time.time() - t0)
+    if out is None:
+        print(f"[ComfyUI] WARMUP WARN: pre-warm job did not complete after {elapsed}s — "
+              f"first !generate will pay the full model-load cost.")
+        return result
+
+    result["ok"] = True
+    print(f"[ComfyUI] WARMUP: ✅ engine={engine} model is now hot in VRAM "
+          f"(took {elapsed}s, throwaway image discarded). "
+          f"First !generate should respond promptly.")
     return result
 
 

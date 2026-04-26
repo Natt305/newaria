@@ -1898,6 +1898,21 @@ async def on_ready():
                     f"engine={_diag.get('engine', '?')}: "
                     f"{len(_disabled_packs)} ({_packs_str})"
                 )
+            # Boot-time pre-warm: once ComfyUI is reachable and the active
+            # engine's required nodes are present, fire a tiny throwaway
+            # txt2img off in the background so the model is hot in VRAM by
+            # the time the first real !generate arrives. Runs concurrently
+            # with the rest of on_ready — failure is logged inside prewarm()
+            # and never blocks bot startup. Gated by COMFYUI_PREWARM (default
+            # on for qwen, off for flux).
+            if _diag.get("reachable") and not _diag.get("missing"):
+                async def _run_prewarm():
+                    try:
+                        await asyncio.to_thread(_comfyui_ai.prewarm)
+                    except Exception as _pw_exc:
+                        print(f"[ComfyUI] WARMUP WARN: prewarm() raised "
+                              f"{type(_pw_exc).__name__}: {_pw_exc}")
+                asyncio.create_task(_run_prewarm())
         except Exception as _diag_exc:
             print(f"[Bot] ComfyUI diagnose() raised: {type(_diag_exc).__name__}: {_diag_exc}")
     elif _IMAGE_BACKEND == "local_diffusers":
