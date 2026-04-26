@@ -186,6 +186,115 @@ def _parse_reply_format(text: str) -> str:
     text = "\n\n".join(paragraphs)
     return text
 
+
+# Discord-format post-processor for plain-prose models like Celeste.
+# Mistral-family roleplay fine-tunes ignore the prompt-level "wrap dialogue
+# in **bold**" instruction and emit raw prose with quoted dialogue. We bold
+# the quoted segments and italicise pure-narration paragraphs in code so
+# the reply renders correctly in Discord regardless of model compliance.
+
+# Quote pairs we treat as dialogue. Lone apostrophes (`'`) are deliberately
+# excluded — they collide with English contractions ("Kelly's", "You're").
+_DIALOGUE_QUOTE_PAIRS: tuple[tuple[str, str], ...] = (
+    ('"', '"'),       # straight ASCII double quotes
+    ("\u201c", "\u201d"),  # curly double quotes "..."
+    ("\u300c", "\u300d"),  # Chinese corner brackets 「...」
+    ("\u300e", "\u300f"),  # Chinese white corner brackets 『...』
+)
+
+
+def _bold_quoted_dialogue(text: str) -> str:
+    """Wrap quoted dialogue segments in **bold** when not already wrapped.
+
+    Idempotent per-segment: a segment already preceded and followed by `*`
+    (i.e. inside an existing `**...**` wrapper) is skipped, so re-running
+    the helper on its own output is a no-op.
+
+    For same-char delimiters (straight `"`), nested quotes within a single
+    line — e.g. `"He said "go" quietly"` — would corrupt the markdown,
+    so any line that contains an odd or larger-than-pair count of that
+    delimiter is left untouched for that pair only. Asymmetric delimiters
+    (`「」`, `『』`, curly `""`) are immune to nesting confusion because
+    the open and close characters differ.
+    """
+    for open_q, close_q in _DIALOGUE_QUOTE_PAIRS:
+        if open_q == close_q:
+            # Same-char pair: process line-by-line and skip lines that
+            # don't have a clean pair count (≤ 2 occurrences, even count).
+            inner = rf"[^{re.escape(close_q)}\n]+?"
+            pattern = re.compile(
+                rf"(?<!\*){re.escape(open_q)}({inner}){re.escape(close_q)}(?!\*)"
+            )
+            new_lines = []
+            for line in text.split("\n"):
+                count = line.count(open_q)
+                if count == 0 or count % 2 != 0 or count > 2:
+                    new_lines.append(line)
+                else:
+                    new_lines.append(pattern.sub(rf"**{open_q}\1{close_q}**", line))
+            text = "\n".join(new_lines)
+        else:
+            inner = rf"[^{re.escape(open_q)}{re.escape(close_q)}\n]+?"
+            pattern = re.compile(
+                rf"(?<!\*){re.escape(open_q)}({inner}){re.escape(close_q)}(?!\*)"
+            )
+            text = pattern.sub(rf"**{open_q}\1{close_q}**", text)
+    return text
+
+
+def _italicize_pure_narration(text: str) -> str:
+    """Wrap whole paragraphs of unformatted narration in *italics*.
+
+    Only touches paragraphs that contain NO existing markdown (`*`, `_`)
+    and NO dialogue quotes. Mixed paragraphs (italic narration + bolded
+    dialogue) are left alone — their dialogue is already handled by
+    `_bold_quoted_dialogue`, and re-wrapping the whole thing would
+    double-up markers.
+    """
+    quote_chars = {open_q for open_q, _ in _DIALOGUE_QUOTE_PAIRS} | {
+        close_q for _, close_q in _DIALOGUE_QUOTE_PAIRS
+    }
+    out_paragraphs = []
+    for para in text.split("\n\n"):
+        stripped = para.strip()
+        if not stripped:
+            out_paragraphs.append(para)
+            continue
+        if "*" in stripped or "_" in stripped:
+            out_paragraphs.append(para)
+            continue
+        if any(q in stripped for q in quote_chars):
+            out_paragraphs.append(para)
+            continue
+        # Pure narration paragraph — italicise while preserving any
+        # surrounding whitespace.
+        leading_len = len(para) - len(para.lstrip())
+        trailing_len = len(para) - len(para.rstrip())
+        leading = para[:leading_len]
+        trailing = para[len(para) - trailing_len:] if trailing_len else ""
+        out_paragraphs.append(f"{leading}*{stripped}*{trailing}")
+    return "\n\n".join(out_paragraphs)
+
+
+def _format_for_discord(text: str) -> str:
+    """Convert plain-prose roleplay output into Discord-ready markdown.
+
+    Two passes:
+      1. Bold any quoted dialogue segments not already inside **...**.
+      2. Italicise paragraphs that are pure narration with no existing
+         formatting and no dialogue quotes.
+
+    Designed for Mistral-family models (Celeste etc.) that ignore the
+    prompt-level formatting instruction. Qwen / hauhaucs ChatML output is
+    handled by `_parse_reply_format()` and must NOT pass through this.
+    """
+    if not text:
+        return text
+    text = _bold_quoted_dialogue(text)
+    text = _italicize_pure_narration(text)
+    return text
+
+
 _BREAKS_CHARACTER_RE = re.compile(
     r"(大型語言模型|語言模型|language model|large language model|"
     r"我是\s*(gemma|llama|mistral|qwen|phi|claude|gpt|chatgpt|bard|gemini|deepseek|kimi|copilot)\b|"
@@ -561,12 +670,9 @@ async def chat(
     if not _is_qwen_model(active_model) and effective_system:
         effective_system = (
             effective_system.rstrip()
-            # Discord markdown so the bot's replies render with bold dialogue
-            # and italicised action/thought without needing post-processing.
-            + "\n\nDiscord formatting (required): wrap ALL spoken dialogue in "
-            "**bold** (e.g. **「你好嗎？」**). Wrap action descriptions and "
-            "internal thoughts in *italics* (e.g. *她輕輕嘆了口氣*). "
-            "Never use other markdown — just bold for speech, italics for action/thought."
+            # NOTE: Discord-formatting (bold dialogue + italic narration) is
+            # now applied by _format_for_discord() below, because Mistral-
+            # family models reliably ignore the prompt-level instruction.
             # Language-quality guard: Mistral-family models (Celeste etc.)
             # have weak Chinese tokenization and fall back to underscore-
             # separated romanized pinyin (`_xing_`, `_xiang_ye_mo_`) for
@@ -709,12 +815,25 @@ async def chat(
 
     text = _parse_reply_format(text)
 
+    # Extract the [IMAGE: ...] marker BEFORE running the Discord formatter,
+    # otherwise a marker-only reply would be wrapped in *...* by the
+    # narration-italicising pass, leaving stray `**` after marker removal
+    # and emitting junk text alongside the image.
     marker_match = _IMAGE_MARKER_RE.search(text)
     if marker_match:
         img_prompt = marker_match.group(1).strip()
         clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
+        if clean_text and not _is_qwen_model(active_model):
+            clean_text = _format_for_discord(clean_text)
         print(f"[LMStudio] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
         return (clean_text or None), img_prompt, True, True
+
+    # Plain-prose models (Celeste etc.) ignore the prompt-level Discord-
+    # formatting instruction, so we apply bold-dialogue + italic-narration
+    # in code. Qwen / hauhaucs ChatML output is already formatted by
+    # _parse_reply_format() above and must NOT be re-processed.
+    if not _is_qwen_model(active_model):
+        text = _format_for_discord(text)
 
     if response_declines_image(text, messages=messages):
         img_prompt = user_wants_image(messages)
