@@ -243,17 +243,27 @@ on prior bot messages even after a restart.
 
 **Auto-trigger via `[SCENE]` / `[SCENE: ...]`**
 
-The LM Studio system prompt teaches the model two marker forms it may emit
+The LM Studio system prompt teaches the model three marker forms it may emit
 at the end of a paragraph that is genuinely cinematic:
 
 - **Bare `[SCENE]`** — the bot derives the image prompt from the reply
-  prose itself. Use when the prose already paints the picture.
+  prose itself. Use when the prose already paints the picture and every
+  character is referred to by full name.
 - **`[SCENE: short cinematic description]`** — the body is taken
   **verbatim** as the image-prompt seed; the bot prose is skipped. Use
-  when the model has a clearer picture in its head than the prose conveys
-  (especially when the moment refers to characters by pronoun rather than
-  full name — spelling them out in the body lets the KB photo matching
-  resolve them).
+  when the model has a clearer picture in its head than the prose conveys.
+  Characters should be spelled out by full name so KB photo matching can
+  resolve them.
+- **`[SCENE: short cinematic description | with: Name A, Name B]`** — the
+  `| with:` tail explicitly pins which KB subjects' reference photos to
+  use regardless of how the prose names them. The model is now instructed
+  to emit this form automatically whenever a paragraph refers to a KB
+  subject only by pronoun or short form (e.g. *she*, *him*, *Saki-chan*),
+  when multiple subjects appear and both should be pinned, or when names
+  swap mid-paragraph. Names in the `with:` list must match KB entry titles
+  exactly (case-insensitive on the parser side; examples use KB title
+  casing). Example the model is taught: `[SCENE: she leans close, eyes
+  bright with quiet resolve | with: Saki Nikaido]`.
 
 `lmstudio_ai.chat()` strips whichever marker fired and returns
 `(…, wants_scene_image, scene_prompt)` as the 5th and 6th tuple elements.

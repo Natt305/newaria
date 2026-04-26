@@ -120,14 +120,16 @@ _IMAGE_MARKER_RE = re.compile(
     re.I | re.S,
 )
 
-# Cinematic-moment signal — the model emits `[SCENE]` (no body) or
-# `[SCENE: short cinematic description]` (optional body) at the end of a
-# paragraph when the moment is genuinely worth illustrating. The bare form
-# tells the bot to derive the image prompt from the surrounding prose; the
-# body form lets the model hand the bot a polished prompt seed directly,
-# which is useful when the model has a clearer picture in its head than
-# the prose conveys (and avoids fragile pronoun-vs-name matching against
-# the KB photo titles).
+# Cinematic-moment signal — three forms the model may emit at the end of a
+# paragraph when the moment is genuinely worth illustrating:
+#   [SCENE]                          — derive prompt from surrounding prose.
+#   [SCENE: body]                    — use body as verbatim prompt seed.
+#   [SCENE: body | with: A, B]       — use body as seed AND explicitly pin KB
+#                                      entries A and B as reference photos,
+#                                      bypassing fuzzy matching. The model is
+#                                      taught to use the `with:` tail whenever
+#                                      subjects are referred to by pronoun /
+#                                      short form or names swap mid-paragraph.
 #
 # The marker is stripped from the visible reply; `chat()` returns
 # `wants_scene_image` (True/False) and `scene_prompt` (Optional[str]) so the
@@ -1083,20 +1085,30 @@ def _roleplay_format_directive(target: str, character_name: str = "") -> str:
         " When — and only when — the moment you just wrote is genuinely "
         "cinematic (a vivid action, a charged confrontation, a striking visual "
         "tableau worth illustrating), append a SCENE marker at the very end "
-        "of your reply, on its own line. Two forms are allowed:\n"
+        "of your reply, on its own line. Three forms are allowed:\n"
         "  - `[SCENE]` (no body) — the bot will derive the image prompt from "
-        "your prose. Use this when the prose already paints the picture.\n"
+        "your prose. Use this when the prose already paints the picture and "
+        "every character is referred to by full name.\n"
         "  - `[SCENE: short cinematic description]` — give the bot a single-"
-        "line English image prompt directly. Use this when you have a clearer "
-        "picture in your head than the prose conveys, and especially when the "
-        "characters in the moment are referred to by pronouns or nicknames "
-        "rather than full names. Spell out the relevant characters by full "
-        "name (e.g. `Saki Nikaido on stage…` instead of `she on stage…`) so "
-        "the bot can match reference photos. Keep it under ~30 words.\n"
-        "Examples (one per reply, never both):\n"
+        "line English image prompt directly. Spell out the relevant characters "
+        "by full name (e.g. `Saki Nikaido on stage…` instead of `she on "
+        "stage…`) so the bot can match reference photos. Keep it under ~30 "
+        "words.\n"
+        "  - `[SCENE: short cinematic description | with: Name A, Name B]` — "
+        "identical to the form above, but the `| with:` tail explicitly pins "
+        "which KB subjects' reference photos to use. Add a `| with:` clause "
+        "whenever: (a) the paragraph refers to a KB subject only by pronoun "
+        "or a short form that might not match (e.g. 'she', 'him', 'Saki-chan'), "
+        "(b) multiple characters are mentioned and you want to guarantee both "
+        "are included, or (c) names swap mid-paragraph making it ambiguous. "
+        "Use the exact KB title casing in the list "
+        "(e.g. `| with: Saki Nikaido, Tokyo Tower`).\n"
+        "Examples (one per reply, never more than one SCENE marker):\n"
         "  `[SCENE]`\n"
         "  `[SCENE: Saki Nikaido under the stage spotlight, mic raised, "
         "the crowd a blur of light behind her.]`\n"
+        "  `[SCENE: she leans close, eyes bright with quiet resolve "
+        "| with: Saki Nikaido]`\n"
         "Most replies should NOT have any SCENE marker — only the truly "
         "visual ones."
     )
