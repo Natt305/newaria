@@ -220,12 +220,16 @@ def _bold_quoted_dialogue(text: str) -> str:
     never re-wrapped. After processing, the placeholders are restored.
     Re-running on the helper's own output is a guaranteed no-op.
 
-    For same-char delimiters (straight `"`), nested quotes within a
-    single line — e.g. `"He said "go" quietly"` — would corrupt the
-    markdown, so any line whose `"` count is odd or greater than 2 is
-    left untouched for that pair. Asymmetric delimiters (`「」`, `『』`,
-    curly `""`) are immune to nesting confusion since the open and
-    close characters differ.
+    For same-char delimiters (straight `"`), the regex is non-greedy
+    so quotes are paired in order (1↔2, 3↔4, …). The common Mistral
+    shape ``"…dialogue…" *narration* "…dialogue…"`` has 4 quotes on
+    one line and pairs cleanly; only an ODD count is rejected as
+    unbalanced. Truly nested same-quote dialogue (e.g.
+    ``"He said "go" quietly"``) would mis-pair, but that pattern is
+    virtually never produced by the models we target — they switch to
+    curly or single quotes for nesting. Asymmetric delimiters (`「」`,
+    `『』`, curly `""`) are immune to nesting confusion since the open
+    and close characters differ.
 
     Single-quote `'…'` dialogue is also bolded, gated by negative
     letter-boundary lookarounds so apostrophes inside contractions
@@ -251,7 +255,7 @@ def _bold_quoted_dialogue(text: str) -> str:
             new_lines = []
             for line in masked.split("\n"):
                 count = line.count(open_q)
-                if count == 0 or count % 2 != 0 or count > 2:
+                if count == 0 or count % 2 != 0:
                     new_lines.append(line)
                 else:
                     new_lines.append(pattern.sub(rf"**{open_q}\1{close_q}**", line))
@@ -2243,27 +2247,61 @@ def _salvage_suggestions(text: str, count: int) -> list:
     """
     if not text:
         return []
-    out: list = []
-    for raw_line in text.split("\n"):
-        line = raw_line.strip()
+
+    def _clean(candidate: str) -> Optional[str]:
+        line = candidate.strip()
         if not line:
-            continue
-        # Drop list prefixes
-        line = _SUGGESTION_LIST_PREFIX_RE.sub("", line, count=1).strip()
-        # Drop enclosing quotes (straight or curly) plus a trailing comma
+            return None
+        # Drop a trailing comma left over from JSON-list shapes
         line = line.rstrip(",").strip()
+        # Drop enclosing quotes (straight or curly)
         if len(line) >= 2 and line[0] in "\"'\u201c\u2018" and line[-1] in "\"'\u201d\u2019":
             line = line[1:-1].strip()
         # Drop trailing sentence punctuation per the original suggestion contract
         line = line.rstrip(".!?。！？").strip()
         if not (5 <= len(line) <= 80):
-            continue
-        # Skip lines that look like the wrapper prose ("Here are 3 suggestions:")
+            return None
+        # Skip lines that look like wrapper prose ("Here are 3 suggestions:")
         if line.endswith(":"):
+            return None
+        return line
+
+    out: list = []
+    for raw_line in text.split("\n"):
+        line = raw_line.strip()
+        if not line:
             continue
-        out.append(line)
-        if len(out) >= count:
-            break
+        # Drop list prefixes (numbered/bulleted)
+        line = _SUGGESTION_LIST_PREFIX_RE.sub("", line, count=1).strip()
+        # Mistral-family models often emit each suggestion as its own
+        # one-element JSON array on a separate line:
+        #   ["I didn't mean any harm, really."]
+        #   ["I got lost on my way back."]
+        # The top-level JSON parser fails on the second line, so we land
+        # here. Try to JSON-decode each line first to peel the `[ ]`
+        # (and inner quotes) off cleanly. A list with multiple strings
+        # is also expanded so we don't lose entries.
+        candidates: list[str] = []
+        try:
+            parsed = _json.loads(line)
+            if isinstance(parsed, str):
+                candidates.append(parsed)
+            elif isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, str):
+                        candidates.append(item)
+            # Other JSON scalars (`null`, `false`, numbers, objects) are
+            # dropped — falling back to the raw line would let `false` slip
+            # through as a button label.
+        except Exception:
+            candidates.append(line)
+
+        for cand in candidates:
+            cleaned = _clean(cand)
+            if cleaned is not None:
+                out.append(cleaned)
+                if len(out) >= count:
+                    return out
     return out
 
 

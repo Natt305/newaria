@@ -1493,23 +1493,52 @@ def _salvage_suggestions(text: str, count: int) -> list:
     """
     if not text:
         return []
+    import json as _json
+
+    def _clean(candidate: str) -> Optional[str]:
+        line = candidate.strip()
+        if not line:
+            return None
+        line = line.rstrip(",").strip()
+        if len(line) >= 2 and line[0] in "\"'\u201c\u2018" and line[-1] in "\"'\u201d\u2019":
+            line = line[1:-1].strip()
+        line = line.rstrip(".!?。！？").strip()
+        if not (5 <= len(line) <= 80):
+            return None
+        if line.endswith(":"):
+            return None
+        return line
+
     out: list = []
     for raw_line in text.split("\n"):
         line = raw_line.strip()
         if not line:
             continue
         line = _SUGGESTION_LIST_PREFIX_RE.sub("", line, count=1).strip()
-        line = line.rstrip(",").strip()
-        if len(line) >= 2 and line[0] in "\"'\u201c\u2018" and line[-1] in "\"'\u201d\u2019":
-            line = line[1:-1].strip()
-        line = line.rstrip(".!?。！？").strip()
-        if not (5 <= len(line) <= 80):
-            continue
-        if line.endswith(":"):
-            continue
-        out.append(line)
-        if len(out) >= count:
-            break
+        # Models sometimes emit each suggestion as its own one-element JSON
+        # array on a separate line (e.g. `["Hi there"]`). Try a JSON parse
+        # first so we peel the `[ ]` and inner quotes off cleanly.
+        candidates: list[str] = []
+        try:
+            parsed = _json.loads(line)
+            if isinstance(parsed, str):
+                candidates.append(parsed)
+            elif isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, str):
+                        candidates.append(item)
+            # Other JSON scalars (`null`, `false`, numbers, objects) are
+            # dropped — falling back to the raw line would let `false` slip
+            # through as a button label.
+        except Exception:
+            candidates.append(line)
+
+        for cand in candidates:
+            cleaned = _clean(cand)
+            if cleaned is not None:
+                out.append(cleaned)
+                if len(out) >= count:
+                    return out
     return out
 
 
