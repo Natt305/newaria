@@ -5,7 +5,7 @@ Mirrors the public interface of ollama_ai.py so ai_backend.py can delegate to an
 LM Studio exposes an OpenAI-compatible /v1/chat/completions endpoint.
 Configure via env vars:
   LMSTUDIO_BASE_URL — the ngrok (or local) URL for the LM Studio server
-  LMSTUDIO_MODEL    — the model identifier (defaults to qwen3.5-9b-uncensored-hauhaucs-aggressive)
+  LMSTUDIO_MODEL    — the model identifier (defaults to mn-12b-celeste-v1.9)
 """
 import os
 import re
@@ -610,7 +610,8 @@ async def understand_image(
 
     # Apply /no_think via a tiny system message so the model goes straight to
     # describing the image instead of burning tokens on reasoning.
-    system_msg = _apply_no_think("")
+    # Pass the resolved vision model so the gate checks the right model family.
+    system_msg = _apply_no_think("", model=model)
     messages = []
     if system_msg:
         messages.append({"role": "system", "content": system_msg})
