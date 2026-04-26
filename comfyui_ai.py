@@ -1,13 +1,50 @@
 """
-ComfyUI image generation backend using FLUX.2-klein-4B GGUF via city96's ComfyUI-GGUF extension.
+ComfyUI image generation backend with two selectable engines.
 Activated by setting IMAGE_BACKEND=comfyui in the environment.
 
-Required env vars:
+Engine switch (`COMFYUI_ENGINE`):
+    qwen   — DEFAULT. Phr00t's Qwen-Image-Edit-Rapid AIO repackaged as GGUF
+             (`Qwen-Rapid-NSFW-v23_Q4_K.gguf` etc.). Loads via city96's
+             `UnetLoaderGGUF` + `CLIPLoaderGGUF` (type=qwen_image), and uses
+             `TextEncodeQwenImageEditPlus` so reference images are fed through
+             the Qwen 2.5 VL multimodal encoder — the model literally "sees"
+             the character portrait + KB photos rather than performing a
+             classical img2img denoise.
+    flux   — Original FLUX.2-klein-4B GGUF stack with ReferenceLatent /
+             multiref / Ultimate-Inpaint workflows (see below). Kept for
+             back-compat; pick this when you want the legacy behaviour.
+
+Required env vars (FLUX engine — `COMFYUI_ENGINE=flux`):
     COMFYUI_GGUF     GGUF filename as known to ComfyUI (e.g. flux-2-klein-4b-Q5_K_M.gguf).
     COMFYUI_VAE      VAE filename as known to ComfyUI (e.g. flux2-vae.safetensors).
     COMFYUI_CLIP     Text-encoder filename as known to ComfyUI (e.g. qwen_3_4b.safetensors).
 
-Optional env vars:
+Required env vars (Qwen engine — `COMFYUI_ENGINE=qwen`, the default):
+    COMFYUI_QWEN_GGUF        Qwen-Image-Edit-Rapid AIO GGUF filename
+                             (e.g. `Qwen-Rapid-NSFW-v23_Q4_K.gguf`). Loaded by
+                             `UnetLoaderGGUF` from city96's `ComfyUI-GGUF`.
+    COMFYUI_QWEN_VAE         Qwen-Image VAE filename (e.g. `pig_qwen_image_vae_fp32-f16.gguf`
+                             or any other Qwen-Image-compatible VAE in your `models/vae/`).
+    COMFYUI_QWEN_CLIP_GGUF   Qwen 2.5 VL text encoder GGUF filename
+                             (e.g. `Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf`). Place the
+                             matching `mmproj-f16.gguf` (or `mmproj-Q8_0.gguf`) right
+                             beside it in `models/clip/` — without mmproj the encoder
+                             is text-only and reference images are silently ignored.
+
+Optional env vars (Qwen engine):
+    COMFYUI_QWEN_STEPS       Sampling steps (default: 4 — the Rapid AIO is distilled).
+    COMFYUI_QWEN_SAMPLER     KSampler sampler_name (default: `euler_ancestral`).
+    COMFYUI_QWEN_SCHEDULER   KSampler scheduler (default: `beta`).
+    COMFYUI_QWEN_WIDTH       Output width  (default: 1024 — Qwen-Image native scale).
+    COMFYUI_QWEN_HEIGHT      Output height (default: 1024).
+
+Required ComfyUI custom node packs for the Qwen engine:
+    - `ComfyUI-GGUF` (city96)             → UnetLoaderGGUF + CLIPLoaderGGUF
+    - `comfyui_qwen_image_edit_plus_nodes` (or any pack shipping
+       `TextEncodeQwenImageEditPlus`)     → image-aware text encoder
+    The pig_qwen VAE GGUF loads through stock `VAELoader`, no extra pack required.
+
+Optional env vars (FLUX engine):
     COMFYUI_URL      ComfyUI server address (default: http://127.0.0.1:8188).
     COMFYUI_STEPS    Number of inference steps (default: 4).
     COMFYUI_WIDTH    Output width in pixels (default: 512).
@@ -73,6 +110,15 @@ DEFAULT_WIDTH = 512
 DEFAULT_HEIGHT = 512
 DEFAULT_STRENGTH = 0.75
 DEFAULT_TIMEOUT = 300
+
+# Qwen-Image-Edit-Rapid AIO defaults (Phr00t / phil2sat GGUF stack).
+# 4 steps + CFG 1.0 is the distilled model's intended config; euler_ancestral/beta
+# matches the reference Qwen-Rapid-AIO.json published by Phr00t.
+DEFAULT_QWEN_STEPS = 4
+DEFAULT_QWEN_SAMPLER = "euler_ancestral"
+DEFAULT_QWEN_SCHEDULER = "beta"
+DEFAULT_QWEN_WIDTH = 1024
+DEFAULT_QWEN_HEIGHT = 1024
 
 # Matches diffusers_worker.py — applied to every generation for anatomy quality.
 _ANATOMY_SUFFIX = (
@@ -678,6 +724,389 @@ def _build_per_subject_ref_workflow(
     return workflow
 
 
+# ── Qwen-Image-Edit-Rapid (GGUF) builders ────────────────────────────────────
+#
+# These build small, monolithic ComfyUI graphs for Phr00t's
+# `Qwen-Image-Edit-Rapid AIO` model repackaged as GGUF (e.g.
+# `Qwen-Rapid-NSFW-v23_Q4_K.gguf`).  Edit-mode is achieved via
+# `TextEncodeQwenImageEditPlus`, which routes up to four reference images
+# through the Qwen 2.5 VL multimodal encoder so the model literally consumes
+# the pixels rather than performing a classical img2img denoise.
+#
+# Required custom node packs on the ComfyUI side:
+#   - city96/ComfyUI-GGUF                       → UnetLoaderGGUF, CLIPLoaderGGUF
+#   - any pack shipping TextEncodeQwenImageEditPlus
+# The Qwen-Image VAE GGUF loads through the stock `VAELoader`.
+#
+# Latent shape: Qwen-Image is a 16-channel MMDiT model, so we use
+# `EmptySD3LatentImage` (also 16 channels) rather than `EmptyLatentImage`
+# which only emits 4-channel SD1.5/SDXL-style latents.
+
+def _build_txt2img_workflow_qwen(
+    prompt: str,
+    gguf_path: str,
+    vae_name: str,
+    clip_gguf_name: str,
+    steps: int,
+    width: int,
+    height: int,
+    seed: int,
+    sampler_name: str,
+    scheduler_name: str,
+) -> dict:
+    """Qwen-Image-Edit-Rapid GGUF txt2img graph.
+
+    Stack:
+        UnetLoaderGGUF                            → MODEL
+        CLIPLoaderGGUF (type=qwen_image)          → CLIP
+        VAELoader                                 → VAE
+        CLIPTextEncode (positive + empty negative)
+        EmptySD3LatentImage                       → LATENT (16-channel)
+        KSampler (CFG=1.0, configurable sampler/scheduler/steps)
+        VAEDecode → SaveImage
+
+    Negative is intentionally an empty string — the model is distilled to
+    CFG=1.0 so any negative is multiplied by zero anyway, and matching the
+    reference Qwen-Rapid-AIO.json keeps behaviour predictable.
+    """
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
+    return {
+        "1": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": gguf_path},
+        },
+        "2": {
+            "class_type": "CLIPLoaderGGUF",
+            "inputs": {"clip_name": clip_gguf_name, "type": "qwen_image"},
+        },
+        "3": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": vae_name},
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": enhanced_prompt},
+        },
+        "5": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": ""},
+        },
+        "6": {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {"width": width, "height": height, "batch_size": 1},
+        },
+        "7": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["1", 0],
+                "positive": ["4", 0],
+                "negative": ["5", 0],
+                "latent_image": ["6", 0],
+                "seed": seed,
+                "steps": steps,
+                "cfg": 1.0,
+                "sampler_name": sampler_name,
+                "scheduler": scheduler_name,
+                "denoise": 1.0,
+            },
+        },
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["7", 0], "vae": ["3", 0]},
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {"images": ["8", 0], "filename_prefix": "ariabot_qwen_"},
+        },
+    }
+
+
+def _build_edit_workflow_qwen(
+    prompt: str,
+    gguf_path: str,
+    vae_name: str,
+    clip_gguf_name: str,
+    steps: int,
+    width: int,
+    height: int,
+    seed: int,
+    sampler_name: str,
+    scheduler_name: str,
+    uploaded_image_names: List[str],
+) -> dict:
+    """Qwen-Image-Edit-Rapid GGUF edit-mode graph with up to 4 reference images.
+
+    Each reference image is loaded via `LoadImage` and wired into one of the
+    `image1`..`image4` slots of `TextEncodeQwenImageEditPlus`, which routes
+    them through the Qwen 2.5 VL multimodal encoder so the model truly "sees"
+    the pixels alongside the prompt — true edit-mode, not classical img2img.
+    Negative conditioning is a plain empty `CLIPTextEncode`; with CFG=1.0
+    the negative branch is multiplied by zero.
+
+    Falls back to the txt2img graph if `uploaded_image_names` is empty.
+    """
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
+    n = min(len(uploaded_image_names), 4)
+    if n < 1:
+        return _build_txt2img_workflow_qwen(
+            prompt, gguf_path, vae_name, clip_gguf_name,
+            steps, width, height, seed, sampler_name, scheduler_name,
+        )
+
+    workflow: dict = {
+        "1": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": gguf_path},
+        },
+        "2": {
+            "class_type": "CLIPLoaderGGUF",
+            "inputs": {"clip_name": clip_gguf_name, "type": "qwen_image"},
+        },
+        "3": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": vae_name},
+        },
+        "5": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["2", 0], "text": ""},
+        },
+        "6": {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {"width": width, "height": height, "batch_size": 1},
+        },
+    }
+
+    # LoadImage nodes per reference (IDs 200..203) wired into image1..image4.
+    encoder_inputs: dict = {
+        "clip": ["2", 0],
+        "vae": ["3", 0],
+        "prompt": enhanced_prompt,
+    }
+    for i in range(n):
+        load_id = f"20{i}"
+        workflow[load_id] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": uploaded_image_names[i], "upload": "image"},
+        }
+        encoder_inputs[f"image{i + 1}"] = [load_id, 0]
+
+    workflow["10"] = {
+        "class_type": "TextEncodeQwenImageEditPlus",
+        "inputs": encoder_inputs,
+    }
+    workflow["7"] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": ["1", 0],
+            "positive": ["10", 0],
+            "negative": ["5", 0],
+            "latent_image": ["6", 0],
+            "seed": seed,
+            "steps": steps,
+            "cfg": 1.0,
+            "sampler_name": sampler_name,
+            "scheduler": scheduler_name,
+            "denoise": 1.0,
+        },
+    }
+    workflow["8"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["7", 0], "vae": ["3", 0]},
+    }
+    workflow["9"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["8", 0], "filename_prefix": "ariabot_qwen_"},
+    }
+    return workflow
+
+
+def _submit_and_poll(
+    workflow: dict,
+    base_url: str,
+    client_id: str,
+    timeout: int,
+    requests_mod,
+) -> Optional[Tuple[bytes, str]]:
+    """Submit a workflow to /prompt and poll /history until the job completes.
+
+    Used by the Qwen engine; the FLUX engine has its own (richer) submit-and-
+    poll loop with multiple fallback workflows wired in. Returns
+    (image_bytes, "image/png") on success or None on failure.
+    """
+    try:
+        payload = {"prompt": workflow, "client_id": client_id}
+        resp = requests_mod.post(f"{base_url}/prompt", json=payload, timeout=15)
+        if resp.status_code != 200:
+            print(f"[ComfyUI] /prompt rejected (HTTP {resp.status_code}): {resp.text[:400]}")
+            try:
+                err = resp.json()
+                node_errors = err.get("node_errors", {})
+                for node_id, node_err in node_errors.items():
+                    class_type = workflow.get(node_id, {}).get("class_type", node_id)
+                    for e in node_err.get("errors", []):
+                        print(f"[ComfyUI]   Node {node_id} ({class_type}): "
+                              f"[{e.get('type', '?')}] {e.get('message', '')} — {e.get('details', '')}")
+            except Exception:
+                pass
+            return None
+
+        prompt_id = resp.json().get("prompt_id")
+        if not prompt_id:
+            print(f"[ComfyUI] /prompt returned no prompt_id: {resp.text[:300]}")
+            return None
+        print(f"[ComfyUI] Job queued — prompt_id={prompt_id}")
+
+        deadline = time.time() + timeout
+        last_log = time.time()
+        consecutive_poll_failures = 0
+        MAX_CONSECUTIVE_FAILURES = 30
+
+        while time.time() < deadline:
+            time.sleep(2)
+
+            now = time.time()
+            if now - last_log >= 15:
+                elapsed = int(now - (deadline - timeout))
+                print(f"[ComfyUI] Still waiting… ({elapsed}s elapsed)")
+                last_log = now
+
+            try:
+                hist = requests_mod.get(f"{base_url}/history/{prompt_id}", timeout=30)
+            except Exception:
+                consecutive_poll_failures += 1
+                if consecutive_poll_failures >= MAX_CONSECUTIVE_FAILURES:
+                    print("[ComfyUI] No /history response for ~60s — ComfyUI appears down. Aborting.")
+                    return None
+                continue
+            if hist.status_code != 200:
+                consecutive_poll_failures += 1
+                if consecutive_poll_failures >= MAX_CONSECUTIVE_FAILURES:
+                    print(f"[ComfyUI] /history failing for ~60s (HTTP {hist.status_code}) — aborting.")
+                    return None
+                continue
+            consecutive_poll_failures = 0
+
+            history = hist.json()
+            if prompt_id not in history:
+                continue
+
+            entry = history[prompt_id]
+            status_obj = entry.get("status", {})
+            completed = status_obj.get("completed", False)
+            status_str = status_obj.get("status_str", "")
+            if not completed and status_str != "error":
+                continue
+            if status_str == "error":
+                for msg in status_obj.get("messages", []):
+                    if isinstance(msg, (list, tuple)) and len(msg) >= 2 and msg[0] == "execution_error":
+                        e = msg[1]
+                        print(f"[ComfyUI] Execution error in node {e.get('node_id')} "
+                              f"({e.get('node_type', '?')}): {e.get('exception_message', '')}")
+                return None
+
+            for _, output in entry.get("outputs", {}).items():
+                imgs = output.get("images", [])
+                if not imgs:
+                    continue
+                first = imgs[0]
+                params = {"filename": first["filename"], "type": first.get("type", "output")}
+                if first.get("subfolder"):
+                    params["subfolder"] = first["subfolder"]
+                view = requests_mod.get(f"{base_url}/view", params=params, timeout=30)
+                if view.status_code == 200:
+                    print(f"[ComfyUI] Done — {len(view.content)} bytes ('{first['filename']}')")
+                    return view.content, "image/png"
+            print("[ComfyUI] Job completed but no image output found.")
+            return None
+
+        print(f"[ComfyUI] Timed out after {timeout}s waiting for prompt_id={prompt_id}")
+        return None
+    except Exception as exc:
+        print(f"[ComfyUI] Submit/poll error: {type(exc).__name__}: {exc}")
+        return None
+
+
+def _run_generate_qwen(
+    prompt: str,
+    refs: list,
+    reference_image: Optional[Tuple[bytes, str]],
+    client_id: str,
+    seed: int,
+    steps_override: Optional[int],
+    width_override: Optional[int],
+    height_override: Optional[int],
+    timeout: int,
+    base_url: str,
+    requests_mod,
+) -> Optional[Tuple[bytes, str]]:
+    """Engine-specific runner for the Qwen-Image-Edit-Rapid GGUF stack.
+
+    Reads `COMFYUI_QWEN_*` env vars, uploads up to 4 reference images, builds
+    either a txt2img or an edit-mode workflow, then submits & polls. The FLUX
+    engine path in `_run_generate` is left untouched.
+    """
+    qwen_gguf = os.environ.get("COMFYUI_QWEN_GGUF", "").strip()
+    qwen_vae = os.environ.get("COMFYUI_QWEN_VAE", "").strip()
+    qwen_clip = os.environ.get("COMFYUI_QWEN_CLIP_GGUF", "").strip()
+    if not qwen_gguf or not qwen_vae or not qwen_clip:
+        print("[ComfyUI] Qwen engine requires COMFYUI_QWEN_GGUF, COMFYUI_QWEN_VAE, "
+              "and COMFYUI_QWEN_CLIP_GGUF to all be set.")
+        return None
+
+    qwen_steps = steps_override if steps_override is not None else _get_int(
+        "COMFYUI_QWEN_STEPS", DEFAULT_QWEN_STEPS
+    )
+    qwen_width = width_override if width_override else _get_int(
+        "COMFYUI_QWEN_WIDTH", DEFAULT_QWEN_WIDTH
+    )
+    qwen_height = height_override if height_override else _get_int(
+        "COMFYUI_QWEN_HEIGHT", DEFAULT_QWEN_HEIGHT
+    )
+    qwen_sampler = os.environ.get("COMFYUI_QWEN_SAMPLER", DEFAULT_QWEN_SAMPLER).strip() or DEFAULT_QWEN_SAMPLER
+    qwen_scheduler = os.environ.get("COMFYUI_QWEN_SCHEDULER", DEFAULT_QWEN_SCHEDULER).strip() or DEFAULT_QWEN_SCHEDULER
+
+    print(f"[ComfyUI] Engine: qwen — GGUF: {qwen_gguf!r}, VAE: {qwen_vae!r}, CLIP: {qwen_clip!r}")
+    print(f"[ComfyUI] Qwen settings — sampler: {qwen_sampler}/{qwen_scheduler}, "
+          f"steps: {qwen_steps}, size: {qwen_width}x{qwen_height}")
+    print(f"[ComfyUI] Prompt: {prompt[:200]!r}")
+
+    # Pick reference inputs: prefer the multi-ref list; fall back to the single
+    # legacy `reference_image` tuple. Cap at 4 (TextEncodeQwenImageEditPlus
+    # has slots image1..image4).
+    qwen_input_refs: list = []
+    if refs:
+        qwen_input_refs = list(refs[:4])
+    elif reference_image is not None:
+        qwen_input_refs = [reference_image]
+
+    uploaded: List[str] = []
+    for ref_bytes, _ref_mime in qwen_input_refs:
+        png_bytes = _to_png(ref_bytes) or ref_bytes
+        name = _upload_image(base_url, png_bytes, requests_mod)
+        if name:
+            uploaded.append(name)
+
+    if qwen_input_refs and not uploaded:
+        print("[ComfyUI] Qwen: all reference uploads failed — falling back to txt2img.")
+
+    if uploaded:
+        workflow = _build_edit_workflow_qwen(
+            prompt, qwen_gguf, qwen_vae, qwen_clip,
+            qwen_steps, qwen_width, qwen_height, seed,
+            qwen_sampler, qwen_scheduler, uploaded,
+        )
+        print(f"[ComfyUI] Qwen edit-mode workflow with {len(uploaded)} reference image(s).")
+    else:
+        workflow = _build_txt2img_workflow_qwen(
+            prompt, qwen_gguf, qwen_vae, qwen_clip,
+            qwen_steps, qwen_width, qwen_height, seed,
+            qwen_sampler, qwen_scheduler,
+        )
+        print(f"[ComfyUI] Qwen txt2img workflow ({qwen_width}x{qwen_height}).")
+
+    return _submit_and_poll(workflow, base_url, client_id, timeout, requests_mod)
+
+
 def _run_generate(
     prompt: str,
     reference_image: Optional[Tuple[bytes, str]],
@@ -710,13 +1139,45 @@ def _run_generate(
     custom_workflow_path = os.environ.get("COMFYUI_WORKFLOW", "").strip()
     seed = int(uuid.uuid4().int % (2**31))
 
-    if not gguf_path or not vae_name or not clip_name:
-        print("[ComfyUI] COMFYUI_GGUF, COMFYUI_VAE, and COMFYUI_CLIP must all be set.")
-        return None
-
     # reference_images (list) → native ReferenceLatent multi-ref path
     # reference_image  (single tuple) → legacy img2img path
     refs = reference_images or []
+
+    # ── Engine routing ────────────────────────────────────────────────────────
+    # `qwen` (default) hands the entire request off to `_run_generate_qwen`,
+    # which builds + submits a Qwen-Image-Edit-Rapid GGUF workflow on its own.
+    # `flux` (and any unknown value, with a warning) falls through to the
+    # original FLUX.2 Klein logic below — left byte-for-byte unchanged.
+    engine = os.environ.get("COMFYUI_ENGINE", "qwen").strip().lower()
+    if engine not in ("qwen", "flux"):
+        print(f"[ComfyUI] Unknown COMFYUI_ENGINE={engine!r} — defaulting to qwen.")
+        engine = "qwen"
+
+    # Backward-compat: if the user requested `qwen` but only the FLUX vars are
+    # set (e.g. they upgraded without configuring Qwen), fall back to FLUX with
+    # an explicit warning rather than failing the request.
+    if engine == "qwen":
+        _qwen_set = bool(
+            os.environ.get("COMFYUI_QWEN_GGUF", "").strip()
+            and os.environ.get("COMFYUI_QWEN_VAE", "").strip()
+            and os.environ.get("COMFYUI_QWEN_CLIP_GGUF", "").strip()
+        )
+        if not _qwen_set and gguf_path and vae_name and clip_name:
+            print("[ComfyUI] COMFYUI_ENGINE=qwen but Qwen vars unset — "
+                  "falling back to flux engine.")
+            engine = "flux"
+
+    if engine == "qwen":
+        return _run_generate_qwen(
+            prompt, refs, reference_image, client_id, seed,
+            steps_override, width_override, height_override,
+            timeout, base_url, _requests,
+        )
+
+    # === FLUX engine (existing behaviour, untouched) ==========================
+    if not gguf_path or not vae_name or not clip_name:
+        print("[ComfyUI] COMFYUI_GGUF, COMFYUI_VAE, and COMFYUI_CLIP must all be set.")
+        return None
 
     try:
         # Pre-built flat-chain fallback populated when ReferenceChainConditioning is chosen,
@@ -1498,19 +1959,32 @@ async def generate_image(
 ) -> Optional[Tuple[bytes, str]]:
     """Generate an image via a locally-running ComfyUI instance.
 
+    The active engine is selected by the `COMFYUI_ENGINE` env var:
+        qwen (default) — Qwen-Image-Edit-Rapid AIO GGUF, edit-mode via
+                         TextEncodeQwenImageEditPlus (multimodal: model
+                         literally consumes the reference pixels).
+        flux           — FLUX.2 Klein 4B GGUF with the native ReferenceLatent
+                         multiref / Ultimate-Inpaint workflows.
+    See the module docstring for the full env-var list per engine.
+
     Args:
         prompt:              Text prompt for image generation. An anatomy quality
                              suffix is appended automatically.
         reference_image:     Optional (bytes, mime_type) tuple — kept for backward
-                             compatibility with the img2img fallback path.
-        reference_images:    Optional list of (bytes, mime_type) tuples. When
-                             provided, the native FLUX.2 Klein ReferenceLatent
-                             workflow is used. Takes priority over reference_image.
+                             compatibility with the FLUX img2img fallback path,
+                             also accepted as a single-image input on the Qwen
+                             engine.
+        reference_images:    Optional list of (bytes, mime_type) tuples. On the
+                             Qwen engine the first 4 are wired into the
+                             TextEncodeQwenImageEditPlus image1..image4 slots.
+                             On the FLUX engine they drive the native
+                             ReferenceLatent multi-character workflow.
         reference_subjects:  Optional list of subject labels, parallel to
-                             reference_images.
+                             reference_images. FLUX engine only.
         subject_appearances: Optional dict {subject_name -> appearance_text} used
-                             by the AIO per-segment inpainting workflow to provide
-                             per-character text prompts for each inpaint pass.
+                             by the FLUX AIO per-segment inpainting workflow to
+                             provide per-character text prompts for each pass.
+                             Ignored by the Qwen engine.
         on_progress:         Optional async callable(tag: str) for live progress.
 
     Returns:

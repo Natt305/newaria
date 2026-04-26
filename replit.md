@@ -69,10 +69,51 @@ Set these in `tokens.txt` **or** as Replit Secrets (Secrets take priority):
 | `OLLAMA_VISION_MODEL` | If using Ollama | Vision model (default: `gemma3:12b`) |
 | `CLOUDFLARE_API_TOKEN` | Optional | Image generation |
 | `CLOUDFLARE_ACCOUNT_ID` | Optional | Image generation |
-| `COMFYUI_MODE` | Optional | `multiref` (default, recommended) — spatial-masked multi-character; `refchain` — ReferenceChainConditioning custom node; `ultimate_inpaint` — SAM3 inpaint loop (requires many custom nodes) |
-| `COMFYUI_USE_SAM` | Optional | `true` or `false` (default) — SAM3 auto-segmentation, only relevant for `ultimate_inpaint` mode |
+| `COMFYUI_ENGINE` | Optional | `qwen` (default) or `flux`. `qwen` runs Phr00t's Qwen-Image-Edit-Rapid AIO GGUF in true edit-mode (model literally sees reference photos); `flux` keeps the legacy FLUX.2 Klein workflows below. |
+| `COMFYUI_QWEN_GGUF` | Required for `engine=qwen` | Qwen-Image-Edit-Rapid AIO GGUF filename, e.g. `Qwen-Rapid-NSFW-v23_Q4_K.gguf`, placed in `models/diffusion_models/` (loaded by `UnetLoaderGGUF`). |
+| `COMFYUI_QWEN_VAE` | Required for `engine=qwen` | Qwen-Image VAE filename, e.g. `pig_qwen_image_vae_fp32-f16.gguf` in `models/vae/` (loaded by stock `VAELoader`). |
+| `COMFYUI_QWEN_CLIP_GGUF` | Required for `engine=qwen` | Qwen 2.5 VL text-encoder GGUF filename, e.g. `Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf` in `models/clip/`. **Must** be paired with `mmproj-f16.gguf` (or `mmproj-Q8_0.gguf`) in the same folder — without mmproj the encoder is text-only and reference photos are silently ignored. |
+| `COMFYUI_QWEN_STEPS` | Optional | Qwen sampling steps (default `4` — the Rapid AIO is distilled). |
+| `COMFYUI_QWEN_SAMPLER` | Optional | Qwen KSampler `sampler_name` (default `euler_ancestral`). |
+| `COMFYUI_QWEN_SCHEDULER` | Optional | Qwen KSampler `scheduler` (default `beta`). |
+| `COMFYUI_QWEN_WIDTH` | Optional | Qwen output width  (default `1024` — Qwen-Image native scale). |
+| `COMFYUI_QWEN_HEIGHT` | Optional | Qwen output height (default `1024`). |
+| `COMFYUI_MODE` | Optional (FLUX only) | `multiref` (default, recommended) — spatial-masked multi-character; `refchain` — ReferenceChainConditioning custom node; `ultimate_inpaint` — SAM3 inpaint loop (requires many custom nodes). Ignored when `COMFYUI_ENGINE=qwen`. |
+| `COMFYUI_USE_SAM` | Optional (FLUX only) | `true` or `false` (default) — SAM3 auto-segmentation, only relevant for `ultimate_inpaint` mode. |
 
-### Multi-Character Photo-Referencing Modes
+### ComfyUI Engine: `qwen` (default)
+
+Phr00t's **Qwen-Image-Edit-Rapid AIO** repackaged as a GGUF (e.g. `Qwen-Rapid-NSFW-v23_Q4_K.gguf` from the phil2sat GGUF release).
+Selected via `COMFYUI_ENGINE=qwen` (the new default).
+
+**Why this is the new default:** the Qwen 2.5 VL multimodal text encoder lets `TextEncodeQwenImageEditPlus` route up to four reference images through the same encoder that processes the prompt — so the model literally **sees** her looks (character portrait) and any KB photos rather than nudging a noisy latent toward them via classical img2img denoise.
+
+**Workflow stack (built in `comfyui_ai.py`):**
+
+1. `UnetLoaderGGUF` (city96) → MODEL
+2. `CLIPLoaderGGUF` (city96, `type=qwen_image`) → CLIP — `mmproj-f16.gguf` must sit alongside the encoder GGUF in `models/clip/`, otherwise the encoder runs in text-only mode and the reference photos are silently dropped.
+3. `VAELoader` → VAE (any Qwen-Image VAE; `pig_qwen_image_vae_fp32-f16.gguf` works through the stock loader).
+4. Up to 4 `LoadImage` nodes (one per uploaded reference) wired into `image1..image4` slots of `TextEncodeQwenImageEditPlus` (positive). Negative is a plain empty `CLIPTextEncode`.
+5. `EmptySD3LatentImage` (16-channel — Qwen-Image is a 16-channel MMDiT model).
+6. `KSampler` — `cfg=1.0`, default `steps=4`, sampler `euler_ancestral`, scheduler `beta` (matches Phr00t's reference `Qwen-Rapid-AIO.json`; all overridable via env vars).
+7. `VAEDecode` → `SaveImage`.
+
+**Required ComfyUI custom node packs (manual install):**
+- `ComfyUI-GGUF` (city96) — provides `UnetLoaderGGUF` and `CLIPLoaderGGUF`.
+- Any pack shipping `TextEncodeQwenImageEditPlus` (Phr00t's `nodes_qwen.py` or comparable).
+
+**Backward compatibility:** if `COMFYUI_ENGINE=qwen` is set but the Qwen vars are unset _and_ the FLUX vars (`COMFYUI_GGUF`, `COMFYUI_VAE`, `COMFYUI_CLIP`) are populated, the bot logs a warning and falls back to the FLUX engine. To force FLUX explicitly, set `COMFYUI_ENGINE=flux`.
+
+**Troubleshooting:**
+- `/prompt` returns a node-not-found error mentioning `TextEncodeQwenImageEditPlus` → the custom node pack isn't installed; restart ComfyUI after installing it.
+- Reference images are obviously ignored / output is text-only → `mmproj-*.gguf` is missing from `models/clip/`.
+- `/prompt` complains about CLIP type → confirm city96's `CLIPLoaderGGUF` exposes `qwen_image` in its type dropdown (recent versions do).
+- `KSampler` complains about an invalid sampler / scheduler → the user-supplied `COMFYUI_QWEN_SAMPLER` / `COMFYUI_QWEN_SCHEDULER` doesn't exist on this ComfyUI build; revert to defaults (`euler_ancestral` / `beta`).
+- VRAM-tight machines: drop `COMFYUI_QWEN_WIDTH`/`COMFYUI_QWEN_HEIGHT` to `768` and stay at `COMFYUI_QWEN_STEPS=4`.
+
+### ComfyUI Engine: `flux` (legacy)
+
+Multi-Character Photo-Referencing Modes — only active when `COMFYUI_ENGINE=flux`:
 
 #### `multiref` (default — recommended, no extra node packs needed)
 
