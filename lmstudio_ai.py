@@ -582,6 +582,20 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+_SAMPLING_NEUTRAL = {
+    # Sampler no-ops: at these values llama.cpp / OpenAI-compat samplers
+    # behave as if the parameter weren't supplied at all. Anything inside
+    # `_sampling_overrides()` that resolves to one of these is dropped
+    # from the payload so the model's stack-internal default sampling
+    # (especially Qwen's preferred config) is not perturbed.
+    "top_p": 1.0,
+    "min_p": 0.0,
+    "repetition_penalty": 1.0,
+    "frequency_penalty": 0.0,
+    "presence_penalty": 0.0,
+}
+
+
 def _sampling_overrides(model: str) -> dict:
     """Build the anti-degeneration sampling parameters for the LM Studio request.
 
@@ -591,19 +605,18 @@ def _sampling_overrides(model: str) -> dict:
     family models (e.g. Celeste) are prone to token-loop degeneration
     (``_xing_xing_xing…``) without proper sampling discipline, so they
     get strong defaults; Qwen-family models handle repetition well on
-    their own and get neutral defaults so their preferred sampling is
-    not disturbed. All defaults can be overridden per deployment via
-    env vars so the local Replit machine and the zm1/ngrok machine can
-    be tuned independently without code edits.
+    their own and get fully neutral defaults so their preferred sampling
+    is not disturbed (neutral values are then filtered out before the
+    payload is built — see ``_SAMPLING_NEUTRAL``). All defaults can be
+    overridden per deployment via env vars so the local Replit machine
+    and the zm1/ngrok machine can be tuned independently without code
+    edits; an env-set value is forwarded even when it equals the
+    neutral value (operator intent wins).
     """
     if _is_qwen_model(model):
-        defaults = {
-            "top_p": 0.95,
-            "min_p": 0.0,
-            "repetition_penalty": 1.0,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0,
-        }
+        # Fully neutral — payload will be empty unless the operator sets
+        # one of the LMSTUDIO_* env vars below.
+        defaults = dict(_SAMPLING_NEUTRAL)
     else:
         defaults = {
             "top_p": 0.9,
@@ -619,7 +632,21 @@ def _sampling_overrides(model: str) -> dict:
         "frequency_penalty": "LMSTUDIO_FREQUENCY_PENALTY",
         "presence_penalty": "LMSTUDIO_PRESENCE_PENALTY",
     }
-    return {key: _env_float(env_map[key], defaults[key]) for key in defaults}
+    out = {}
+    for key, default in defaults.items():
+        env_name = env_map[key]
+        env_set = os.environ.get(env_name) is not None
+        value = _env_float(env_name, default)
+        # Drop sampler no-ops UNLESS the operator explicitly asked for
+        # the neutral value via env var. That keeps Qwen requests
+        # untouched by default (no sampling keys at all when no env
+        # vars are set) while still letting the operator force, say,
+        # presence_penalty=0.0 explicitly if they want to override a
+        # non-neutral default.
+        if value == _SAMPLING_NEUTRAL[key] and not env_set:
+            continue
+        out[key] = value
+    return out
 
 
 # Detects runaway repetition in the response text. Mistral Nemo's failure
