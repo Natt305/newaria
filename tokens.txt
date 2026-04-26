@@ -302,7 +302,7 @@ CF_IMAGE_MODEL=flux
 #    local_diffusers — 本機 Diffusers / GGUF（需填入下方 LOCAL_DIFFUSER_MODEL）
 #    comfyui         — 本機 ComfyUI + ComfyUI-GGUF（需填入下方 COMFYUI_GGUF 等設定）
 # ================================================================
-IMAGE_BACKEND=comfyui
+IMAGE_BACKEND=local_diffusers
 
 # ================================================================
 #  HuggingFace Spaces 圖像生成（IMAGE_BACKEND=hf_spaces 時使用）
