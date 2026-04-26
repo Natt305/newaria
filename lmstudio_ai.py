@@ -22,6 +22,25 @@ DEFAULT_MODEL = "mn-12b-celeste-v1.9"
 # retries without the images instead of treating it as a connection error.
 _NO_VISION_SENTINEL = "__LMSTUDIO_MODEL_HAS_NO_VISION__"
 
+# Per-process cache of model names that have already returned the no-vision
+# sentinel. Once a model is in here, chat()/understand_image() skip image
+# attachment up-front instead of paying the round-trip + retry cost on every
+# turn. Cleared on process restart (no persistence needed).
+_NO_VISION_MODELS: set[str] = set()
+
+# User-facing message shown when LM Studio is genuinely unreachable after
+# retries. Module-level so callers can compare against it if they want.
+_FAILED_REPLY_MESSAGE = (
+    "I'm having trouble connecting to LM Studio right now. "
+    "Please make sure LM Studio is running and the ngrok tunnel is active."
+)
+
+# Number of attempts (1 initial + N-1 retries) for transient errors:
+# HTTP 5xx, connection drops, timeouts. HTTP 4xx is not retried — those are
+# real client errors and would just fail the same way again.
+_TRANSIENT_RETRIES = 3
+_BACKOFF_SECONDS = (0.5, 1.5)  # delays before the 2nd and 3rd attempts
+
 IMAGE_TRIGGER_PHRASES = [
     # English declines
     "i can't generate",
@@ -381,68 +400,106 @@ async def _call_lmstudio(
         if len(full_sys) > 2000:
             preview += f"\n…[{len(full_sys) - 2000} more chars]"
         print(f"[LMStudio] System prompt:\n{preview}")
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=180)) as resp:
-                if resp.status != 200:
-                    body = await resp.text()
-                    print(f"[LMStudio] HTTP {resp.status}: {body[:500]}")
-                    # Distinguish "model is text-only" from a real connection
-                    # failure so chat() can retry without images instead of
-                    # showing the user a misleading "trouble connecting"
-                    # message.
-                    if resp.status == 400 and "does not support images" in body.lower():
-                        return _NO_VISION_SENTINEL
-                    return None
-                data = await resp.json()
-                choices = data.get("choices", [])
-                if not choices:
-                    print("[LMStudio] No choices in response")
-                    return None
-                message_obj = choices[0].get("message", {}) or {}
-                raw_content = message_obj.get("content") or ""
-                # Some LM Studio versions split qwen3 reasoning into a separate
-                # `reasoning_content` field while leaving `content` empty. Read
-                # both so we can fall back if needed.
-                reasoning_content = message_obj.get("reasoning_content") or ""
-                # Strip both closed <think>...</think> and any trailing unclosed
-                # <think>... that got cut off by the token limit.
-                content = _THINK_RE.sub("", raw_content)
-                content = _THINK_RE_UNCLOSED.sub("", content).strip()
-                usage = data.get("usage", {})
-                prompt_tokens = usage.get("prompt_tokens", "?")
-                completion_tokens = usage.get("completion_tokens", "?")
-                finish_reason = choices[0].get("finish_reason", "?")
-                print(f"[LMStudio] Response: finish_reason={finish_reason} | prompt_tokens={prompt_tokens} | completion_tokens={completion_tokens}")
-                if not content:
-                    raw_len = len(raw_content)
-                    rc_len = len(reasoning_content)
-                    msg_keys = list(message_obj.keys())
-                    print(f"[LMStudio] Empty content. Raw content len={raw_len}, reasoning_content len={rc_len}, message keys={msg_keys}")
-                    if reasoning_content and finish_reason == "length":
-                        # Reasoning was cut off mid-thought — the salvaged text
-                        # would just be more reasoning, not a real answer (and
-                        # for utility callers like memory/suggestions it would
-                        # break downstream JSON parsing). Surface a clear note
-                        # for the operator and return empty so the caller can
-                        # fall back cleanly.
-                        print(f"[LMStudio] Reasoning ran out of tokens (finish_reason=length, {rc_len}ch in reasoning_content). Bump max_tokens or disable reasoning in LM Studio's UI for this model.")
-                    elif reasoning_content:
-                        # Reasoning finished cleanly but produced no answer.
-                        # Show a snippet so the operator can see what happened.
-                        print(f"[LMStudio] Reasoning completed but no final answer. Reasoning tail: {reasoning_content.strip()[-200:]!r}")
-                    if raw_content:
-                        # `content` had text but it was all inside <think>.
-                        print(f"[LMStudio] Raw content snippet (was all <think>): {raw_content[:300]!r}")
-                    return ""
-                print(f"[LMStudio] Response text: {content[:500]!r}")
-                return content
-    except aiohttp.ClientConnectorError:
-        print(f"[LMStudio] Cannot connect to {_base_url()} — is LM Studio running and ngrok active?")
-        return None
-    except Exception as e:
-        print(f"[LMStudio] Request error: {e}")
-        return None
+
+    # Retry loop for transient failures (HTTP 5xx, connection drops,
+    # timeouts). HTTP 4xx is treated as a real client error and not retried.
+    # ngrok occasionally serves a 503 HTML page when the tunnel is briefly
+    # stressed; a single retry after ~0.5s usually clears it.
+    last_error_reason = "unknown"
+    for attempt in range(_TRANSIENT_RETRIES):
+        if attempt > 0:
+            delay = _BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)]
+            print(f"[LMStudio] Retry {attempt}/{_TRANSIENT_RETRIES - 1} after {delay}s ({last_error_reason})")
+            await asyncio.sleep(delay)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=180)) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        print(f"[LMStudio] HTTP {resp.status}: {body[:500]}")
+                        # Distinguish "model is text-only" from a real connection
+                        # failure so chat() can retry without images instead of
+                        # showing the user a misleading "trouble connecting"
+                        # message. This is a 4xx → never retry.
+                        if resp.status == 400 and "does not support images" in body.lower():
+                            _NO_VISION_MODELS.add(model)
+                            return _NO_VISION_SENTINEL
+                        # 4xx errors are real client problems — retrying
+                        # won't help, the same payload would fail the same way.
+                        if 400 <= resp.status < 500:
+                            return None
+                        # 5xx: transient server-side error (often an ngrok
+                        # interstitial). Fall through to the retry loop.
+                        last_error_reason = f"HTTP {resp.status}"
+                        continue
+                    data = await resp.json()
+                    choices = data.get("choices", [])
+                    if not choices:
+                        print("[LMStudio] No choices in response")
+                        return None
+                    message_obj = choices[0].get("message", {}) or {}
+                    raw_content = message_obj.get("content") or ""
+                    # Some LM Studio versions split qwen3 reasoning into a separate
+                    # `reasoning_content` field while leaving `content` empty. Read
+                    # both so we can fall back if needed.
+                    reasoning_content = message_obj.get("reasoning_content") or ""
+                    # Strip both closed <think>...</think> and any trailing unclosed
+                    # <think>... that got cut off by the token limit.
+                    content = _THINK_RE.sub("", raw_content)
+                    content = _THINK_RE_UNCLOSED.sub("", content).strip()
+                    usage = data.get("usage", {})
+                    prompt_tokens = usage.get("prompt_tokens", "?")
+                    completion_tokens = usage.get("completion_tokens", "?")
+                    finish_reason = choices[0].get("finish_reason", "?")
+                    print(f"[LMStudio] Response: finish_reason={finish_reason} | prompt_tokens={prompt_tokens} | completion_tokens={completion_tokens}")
+                    if not content:
+                        raw_len = len(raw_content)
+                        rc_len = len(reasoning_content)
+                        msg_keys = list(message_obj.keys())
+                        print(f"[LMStudio] Empty content. Raw content len={raw_len}, reasoning_content len={rc_len}, message keys={msg_keys}")
+                        if reasoning_content and finish_reason == "length":
+                            # Reasoning was cut off mid-thought — the salvaged text
+                            # would just be more reasoning, not a real answer (and
+                            # for utility callers like memory/suggestions it would
+                            # break downstream JSON parsing). Surface a clear note
+                            # for the operator and return empty so the caller can
+                            # fall back cleanly.
+                            print(f"[LMStudio] Reasoning ran out of tokens (finish_reason=length, {rc_len}ch in reasoning_content). Bump max_tokens or disable reasoning in LM Studio's UI for this model.")
+                        elif reasoning_content:
+                            # Reasoning finished cleanly but produced no answer.
+                            # Show a snippet so the operator can see what happened.
+                            print(f"[LMStudio] Reasoning completed but no final answer. Reasoning tail: {reasoning_content.strip()[-200:]!r}")
+                        if raw_content:
+                            # `content` had text but it was all inside <think>.
+                            print(f"[LMStudio] Raw content snippet (was all <think>): {raw_content[:300]!r}")
+                        return ""
+                    print(f"[LMStudio] Response text: {content[:500]!r}")
+                    return content
+        except aiohttp.ClientConnectorError as e:
+            print(f"[LMStudio] Cannot connect to {_base_url()} — is LM Studio running and ngrok active? ({e})")
+            last_error_reason = "ClientConnectorError"
+            continue
+        except aiohttp.ServerDisconnectedError as e:
+            print(f"[LMStudio] Server disconnected: {e}")
+            last_error_reason = "ServerDisconnectedError"
+            continue
+        except asyncio.TimeoutError:
+            print("[LMStudio] Request timed out (180s)")
+            last_error_reason = "TimeoutError"
+            continue
+        except aiohttp.ClientError as e:
+            # Generic aiohttp error — payload errors, chunked transfer errors,
+            # etc. Often transient.
+            print(f"[LMStudio] Client error: {e}")
+            last_error_reason = type(e).__name__
+            continue
+        except Exception as e:
+            # Unknown error — don't retry blindly.
+            print(f"[LMStudio] Request error: {e}")
+            return None
+
+    print(f"[LMStudio] All {_TRANSIENT_RETRIES} attempts failed (last: {last_error_reason})")
+    return None
 
 
 def _strip_multimodal(messages: list) -> list:
@@ -466,13 +523,16 @@ async def chat(
     model: str = "",
     context_images: Optional[list] = None,
     max_tokens: int = 1024,
-) -> tuple[str, Optional[str], bool]:
-    """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker).
+) -> tuple[str, Optional[str], bool, bool]:
+    """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
 
     context_images: optional list of (bytes, mime_type) tuples injected as visual
     content into the last user message. When provided, the vision model is used
     automatically (defaults to the same model since the Qwen 3.5 default is multimodal).
     prompt_from_marker=True means the image prompt came from the [IMAGE: ...] tag.
+    success=False means the call ultimately failed and response_text is the
+    user-facing error message — callers should NOT pass it to memory extraction
+    or suggestion generation.
 
     By default the qwen3 reasoning phase is disabled (`/no_think` is appended to
     the system prompt) for snappy roleplay replies. Set LMSTUDIO_THINKING=on to
@@ -485,6 +545,12 @@ async def chat(
         active_model = _vision_model()
     else:
         active_model = _model()
+
+    # If we already learned this model is text-only earlier in the session,
+    # drop the images up-front instead of paying the round-trip cost.
+    if context_images and active_model in _NO_VISION_MODELS:
+        print(f"[LMStudio] {active_model} known to be text-only — skipping image attachment")
+        context_images = None
 
     effective_system = _apply_no_think(system_prompt, model=active_model)
 
@@ -567,7 +633,7 @@ async def chat(
         text = await _call_lmstudio(plain_messages, model=active_model, max_tokens=max_tokens)
 
     if text is None or text == _NO_VISION_SENTINEL:
-        return "I'm having trouble connecting to LM Studio right now. Please make sure LM Studio is running and the ngrok tunnel is active.", None, False
+        return _FAILED_REPLY_MESSAGE, None, False, False
 
     # Empty-response safety net. When thinking is enabled, the model can spend
     # the whole token budget inside <think>...</think> and never produce the
@@ -589,10 +655,10 @@ async def chat(
                 text = retry_text
             else:
                 print("[LMStudio] /no_think retry also empty — giving up")
-                return "", None, False
+                return "", None, False, True
         else:
             print("[LMStudio] Empty answer with thinking already off — giving up")
-            return "", None, False
+            return "", None, False, True
 
     if _BREAKS_CHARACTER_RE.search(text):
         print("[LMStudio] Character break detected — retrying with laser-focused identity prompt")
@@ -648,15 +714,15 @@ async def chat(
         img_prompt = marker_match.group(1).strip()
         clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
         print(f"[LMStudio] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
-        return (clean_text or None), img_prompt, True
+        return (clean_text or None), img_prompt, True, True
 
     if response_declines_image(text, messages=messages):
         img_prompt = user_wants_image(messages)
         if img_prompt:
             print(f"[LMStudio] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
-            return None, img_prompt, False
+            return None, img_prompt, False, True
 
-    return text, None, False
+    return text, None, False, True
 
 
 async def understand_image(
@@ -671,6 +737,13 @@ async def understand_image(
     loaded model isn't actually multimodal, or the server is unreachable).
     """
     model = _vision_model()
+
+    # Short-circuit: if we already learned this model is text-only earlier
+    # in the session, don't bother making the request.
+    if model in _NO_VISION_MODELS:
+        print(f"[LMStudio Vision] {model} known to be text-only — skipping image understanding")
+        return None
+
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{mime_type};base64,{b64}"
 

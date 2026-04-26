@@ -295,12 +295,15 @@ async def chat(
     system_prompt: str = "",
     model: str = "",
     context_images: Optional[list] = None,
-) -> tuple[str, Optional[str], bool]:
-    """Send a chat request to Ollama. Returns (response_text, image_prompt_or_None, prompt_from_marker).
+) -> tuple[str, Optional[str], bool, bool]:
+    """Send a chat request to Ollama. Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
 
     prompt_from_marker=True means the image prompt came from the [IMAGE: ...] tag
     and is already well-crafted English — the caller should skip a full LLM rewrite.
     prompt_from_marker=False means the prompt is raw user text needing enhancement.
+    success=False means the call ultimately failed and response_text is the
+    user-facing error message — callers should NOT pass it to memory extraction
+    or suggestion generation.
     context_images: optional list of (bytes, mime_type) tuples injected as visual
     content into the last user message. Switches to the vision model automatically.
     """
@@ -334,7 +337,7 @@ async def chat(
     text = await _call_ollama(ollama_messages, model=active_model)
 
     if text is None:
-        return "I'm having trouble connecting to Ollama right now. Please make sure Ollama is running.", None, False
+        return "I'm having trouble connecting to Ollama right now. Please make sure Ollama is running.", None, False, False
 
     # Character-break guard: if the model admitted to being an AI/LLM, retry once
     # with a fresh, laser-focused minimal prompt — no extra context to confuse it.
@@ -395,15 +398,15 @@ async def chat(
         img_prompt = marker_match.group(1).strip()
         clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
         print(f"[Ollama] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
-        return (clean_text or None), img_prompt, True
+        return (clean_text or None), img_prompt, True, True
 
     if response_declines_image(text, messages=messages):
         img_prompt = user_wants_image(messages)
         if img_prompt:
             print(f"[Ollama] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
-            return None, img_prompt, False
+            return None, img_prompt, False, True
 
-    return text, None, False
+    return text, None, False, True
 
 
 async def understand_image(

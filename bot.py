@@ -1042,10 +1042,21 @@ async def process_chat(
     )
     history = get_channel_context(channel_id)
 
-    response_text, image_prompt, _prompt_from_marker = await groq_ai.chat(
+    response_text, image_prompt, _prompt_from_marker, chat_success = await groq_ai.chat(
         history, system_prompt=system_prompt,
         context_images=context_images if context_images else None,
     )
+
+    # Hard-stop on a failed chat: send the user-facing error directly, but do
+    # NOT add it to history, do NOT extract memories from it, and do NOT
+    # generate suggestion buttons based on it. Otherwise the error string
+    # ends up persisted as a "fact" about the character (e.g. seen in the
+    # log: 'Kelly Gray 正在遇到連接 LM Studio。') and shows up as suggestion
+    # buttons on the user's next reply.
+    if not chat_success:
+        print("[Bot] Chat call failed — skipping context save, memory extraction, and suggestions")
+        await reply_target.reply(response_text, mention_author=False)
+        return
 
     saved_text = response_text or f"[圖像生成: {image_prompt}]"
     add_to_context(channel_id, "assistant", saved_text)

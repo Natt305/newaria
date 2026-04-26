@@ -1057,7 +1057,7 @@ async def chat(
     model: str = DEFAULT_MODEL,
     context_images: Optional[list] = None,
     max_tokens: int = 1024,
-) -> tuple[str, Optional[str], bool]:
+) -> tuple[str, Optional[str], bool, bool]:
     """
     Send a chat request to Groq.
 
@@ -1065,17 +1065,20 @@ async def chat(
     visual content into the last user message. When provided, a vision-capable
     model is preferred automatically.
 
-    Returns (response_text, image_prompt_or_None, prompt_from_marker).
+    Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
     prompt_from_marker=True means the image prompt came from the [IMAGE: ...]
     tag and is already well-crafted English — the caller should skip a full
     LLM rewrite and only apply KB enrichment or character context injection.
     prompt_from_marker=False means the prompt is raw user text that still
     needs translation/expansion via enhance_image_prompt.
+    success=False means the call ultimately failed and response_text is the
+    user-facing error message — callers should NOT pass it to memory extraction
+    or suggestion generation.
     If image_prompt is set, the caller should generate an image with Cloudflare.
     """
     client = _client()
     if not client:
-        return "Groq API key is not configured. Please set GROQ_API_KEY.", None, False
+        return "Groq API key is not configured. Please set GROQ_API_KEY.", None, False, False
 
     groq_messages = []
     if system_prompt:
@@ -1140,7 +1143,7 @@ async def chat(
                 clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
                 print(f"[Groq] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
                 # If nothing meaningful remains, return no text (fully silent)
-                return (clean_text or None), img_prompt, True
+                return (clean_text or None), img_prompt, True, True
 
             # Fallback: bot said it can't generate — route to image generator anyway
             # Do NOT call enhance_image_prompt here; the caller (bot.py) handles it
@@ -1149,9 +1152,9 @@ async def chat(
                 img_prompt = user_wants_image(messages)
                 if img_prompt:
                     print(f"[Groq] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
-                    return None, img_prompt, False
+                    return None, img_prompt, False, True
 
-            return text, None, False
+            return text, None, False, True
 
         except Exception as e:
             err = str(e).lower()
@@ -1179,7 +1182,7 @@ async def chat(
         )
     except Exception as e:
         print(f"[Groq→Ollama] Fallback also failed: {e}")
-        return "I'm having trouble connecting to my AI right now. Please try again in a moment.", None, False
+        return "I'm having trouble connecting to my AI right now. Please try again in a moment.", None, False, False
 
 
 async def generate_image_comment(
