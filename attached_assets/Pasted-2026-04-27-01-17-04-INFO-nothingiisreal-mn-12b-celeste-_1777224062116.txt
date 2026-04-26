@@ -1,0 +1,95 @@
+2026-04-27 01:17:04  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 0.0%
+2026-04-27 01:17:04  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 0.0%
+2026-04-27 01:17:04  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 100.0%
+2026-04-27 01:17:05 [DEBUG]
+ slot update_slots: id  3 | task 17622 | n_tokens = 264, memory_seq_rm [264, end)
+slot init_sampler: id  3 | task 17622 | init sampler, took 0.08 ms, tokens: text = 353, total = 353
+slot update_slots: id  3 | task 17622 | prompt processing done, n_tokens = 353, batch.n_tokens = 90
+2026-04-27 01:17:05  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 47.0%
+2026-04-27 01:17:05  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 100.0%
+2026-04-27 01:17:10 [DEBUG]
+ slot print_timing: id  3 | task 17622 | 
+prompt eval time =    1227.38 ms /   168 tokens (    7.31 ms per token,   136.88 tokens per second)
+       eval time =    4350.23 ms /    64 tokens (   67.97 ms per token,    14.71 tokens per second)
+      total time =    5577.61 ms /   232 tokens
+slot      release: id  3 | task 17622 | stop processing: n_tokens = 416, truncated = 0
+2026-04-27 01:17:10 [DEBUG]
+ LlamaV4: server assigned slot 3 to task 17622
+2026-04-27 01:17:10  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Model generated tool calls:  []
+2026-04-27 01:17:10  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Generated prediction:  {
+  "id": "chatcmpl-lhj6loo1xtgq0866aacagc",
+  "object": "chat.completion",
+  "created": 1777223824,
+  "model": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "[\n  \"Kelly Gray's eyebrow twitches slightly as she takes in your appearance.\",\n  \"She crouches down to your level, her eyes boring into yours with an intensity that makes you feel exposed.\",\n  \"Her hand reaches out, fingers brushing against the rope binding your wrists together behind your back.\"\n]",
+        "reasoning_content": "",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 353,
+    "completion_tokens": 64,
+    "total_tokens": 417,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf"
+}
+2026-04-27 01:17:12 [DEBUG]
+ slot print_timing: id  0 | task 17621 | 
+prompt eval time =    1018.30 ms /   433 tokens (    2.35 ms per token,   425.22 tokens per second)
+       eval time =    7116.81 ms /   113 tokens (   62.98 ms per token,    15.88 tokens per second)
+      total time =    8135.11 ms /   546 tokens
+slot      release: id  0 | task 17621 | stop processing: n_tokens = 545, truncated = 0
+srv  update_slots: all slots are idle
+2026-04-27 01:17:12 [DEBUG]
+ LlamaV4: server assigned slot 0 to task 17621
+2026-04-27 01:17:12  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Model generated tool calls:  []
+2026-04-27 01:17:12  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Generated prediction:  {
+  "id": "chatcmpl-dvienxivkaqg6pv4monsys",
+  "object": "chat.completion",
+  "created": 1777223824,
+  "model": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "1) \"You must be one of those Vanguard agents I've heard so much about,\" *you say with a sly grin.* \"The rumors don't do you justice.\"\n\n2) \"I hope this isn't how you treat all your guests, Miss Gray.\" *Your voice drips with sarcasm as you try to regain some control over the situation.*\n\n3) \"Enough games. I'm here for what was promised, and I won't leave until I have it.\" *You meet her stare head-on, refusing to back down.*",
+        "reasoning_content": "",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 433,
+    "completion_tokens": 113,
+    "total_tokens": 546,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf"
+}
