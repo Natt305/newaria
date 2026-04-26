@@ -15,7 +15,7 @@ import json as _json
 from typing import Optional
 import aiohttp
 
-DEFAULT_MODEL = "qwen3.5-9b-uncensored-hauhaucs-aggressive"
+DEFAULT_MODEL = "mn-12b-celeste-v1.9"
 
 IMAGE_TRIGGER_PHRASES = [
     # English declines
@@ -119,34 +119,22 @@ _CR_CLOSE_TAG_RE = re.compile(r"</[a-z_][a-z0-9_-]*>", re.I)
 def _parse_reply_format(text: str) -> str:
     """Parse hauhaucs-aggressive ChatML reply format into clean Discord text.
 
-    Handles two forms:
-    - Full wrapper:  <reply>...</reply> in the returned text (no prefill)
-    - Prefill form:  <reply> was in the prefill message, so only the content +
-                     </reply> arrive in the returned text
+    Detects the hauhaucs-aggressive ChatML wrapper format
+    (<reply>...</reply>) and renders it for Discord: strips [Speaking style]
+    headers and "CharacterName: " prefixes, removes emotion tags while keeping
+    their text, converts <subtext>...</subtext> to italics, and bolds dialogue.
 
-    Removes [Speaking style] headers and "CharacterName: " prefixes, strips
-    emotion wrapper tags while keeping their text, converts <subtext>...</subtext>
-    to Discord italics, and bolds the spoken dialogue lines.
-
-    Returns the original text UNCHANGED when no ChatML structure is detected,
-    so plain-text fallback responses are never accidentally bolded.
+    Returns the original text UNCHANGED when no <reply>...</reply> wrapper is
+    detected, so plain-text responses (e.g. from Celeste) are never reformatted.
     """
     found_structure = False
 
     m = _CR_WRAPPER_RE.search(text)
     if m:
-        # Full <reply>...</reply> present in returned text.
         text = m.group(1).strip()
         found_structure = True
     else:
-        # <reply> may have been in the prefill; look for a closing </reply>.
-        close_m = re.search(r"^(.*?)</reply>", text, re.S)
-        if close_m:
-            text = close_m.group(1).strip()
-            found_structure = True
-        else:
-            # Strip any stray <reply> opener (shouldn't happen but be safe).
-            text = _CR_WRAPPER_OPEN_RE.sub("", text)
+        text = _CR_WRAPPER_OPEN_RE.sub("", text)
 
     if not found_structure:
         # No ChatML structure detected — return as-is so plain prose from
@@ -257,23 +245,36 @@ def _vision_model() -> str:
     return os.environ.get("LMSTUDIO_VISION_MODEL", "").strip() or _model()
 
 
+def _is_qwen_model(model: str) -> bool:
+    """Return True when the model name indicates a Qwen-family model.
+
+    Qwen models need several special-case workarounds (thinking prefill,
+    chat_template_kwargs, /no_think directive) that would confuse or break
+    non-Qwen models such as Mistral-based Celeste variants.
+    """
+    return "qwen" in model.lower()
+
+
 def _thinking_enabled() -> bool:
     """Whether the model should be allowed to use its <think>...</think> phase.
 
     Off by default: this is a roleplay chatbot, and the reasoning phase adds
     latency, eats the token budget, and breaks immersion. Set
     LMSTUDIO_THINKING=on (or true/1/yes) to re-enable for debugging or
-    quality-sensitive tasks.
+    quality-sensitive tasks. Only meaningful for Qwen-family models.
     """
     val = os.environ.get("LMSTUDIO_THINKING", "off").strip().lower()
     return val in ("on", "true", "1", "yes", "y")
 
 
-def _apply_no_think(system_prompt: str) -> str:
-    """Append the qwen3 `/no_think` directive to the system prompt when thinking
-    is disabled. The directive is a no-op for non-qwen3 models, so this is safe
-    to apply unconditionally when thinking is off."""
-    if _thinking_enabled():
+def _apply_no_think(system_prompt: str, model: str = "") -> str:
+    """Prepend the Qwen3 `/no_think` directive to the system prompt.
+
+    Only applied when the active model is Qwen-family AND thinking is
+    disabled. For all other models (e.g. Celeste) this is a no-op so the
+    system prompt is returned unchanged.
+    """
+    if not _is_qwen_model(model or _model()) or _thinking_enabled():
         return system_prompt
     base = system_prompt.strip() if system_prompt else ""
     return (base + "\n\n/no_think").strip() if base else "/no_think"
@@ -336,20 +337,22 @@ async def _call_lmstudio(
 ) -> Optional[str]:
     """Make a single chat completion request using LM Studio's OpenAI-compatible endpoint.
 
-    Reasoning-style models (e.g. Qwen 3) emit a `<think>...</think>` block before
-    the actual answer. When thinking is disabled (the default), a closed empty
-    think block is prefilled as a partial assistant message so the model skips
-    the reasoning phase entirely. Both closed and unclosed think blocks are also
+    For Qwen-family models, when thinking is disabled, a closed empty think
+    block is prefilled as a partial assistant message so the model skips the
+    reasoning phase entirely. Both closed and unclosed think blocks are also
     stripped from any content that slips through.
+
+    For non-Qwen models (e.g. Celeste) none of the Qwen3-specific workarounds
+    are applied — the request is sent as a plain chat completion.
     """
     url = f"{_base_url()}/v1/chat/completions"
-    # When thinking is disabled we use the Qwen3 "budget=0" prefill trick:
-    # append a partial assistant message that closes the think phase immediately
-    # AND opens the <reply> block so the model continues in the hauhaucs ChatML
-    # format rather than free-form prose. The model sees this as its own
-    # in-progress message and completes it from the <reply> opening onward.
-    if not _thinking_enabled() and messages and messages[-1].get("role") != "assistant":
-        outgoing = list(messages) + [{"role": "assistant", "content": "<think>\n</think>\n\n<reply>\n"}]
+    is_qwen = _is_qwen_model(model)
+    # Qwen3 "budget=0" prefill: append a closed empty <think> block so the
+    # model skips reasoning and goes straight to the answer. Only applied for
+    # Qwen-family models — non-Qwen models (Celeste etc.) don't use <think>
+    # tokens and would be confused by this assistant message.
+    if is_qwen and not _thinking_enabled() and messages and messages[-1].get("role") != "assistant":
+        outgoing = list(messages) + [{"role": "assistant", "content": "<think>\n</think>\n\n"}]
     else:
         outgoing = messages
     payload = {
@@ -358,8 +361,9 @@ async def _call_lmstudio(
         "stream": False,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "chat_template_kwargs": {"enable_thinking": False},
     }
+    if is_qwen:
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     est = _estimate_tokens(messages)
     sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
     print(f"[LMStudio] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total | max_tokens={max_tokens}")
@@ -464,7 +468,7 @@ async def chat(
     else:
         active_model = _model()
 
-    effective_system = _apply_no_think(system_prompt)
+    effective_system = _apply_no_think(system_prompt, model=active_model)
 
     lm_messages = []
     if effective_system:
