@@ -86,7 +86,7 @@ IMAGE_REQUEST_PATTERNS = [
 ]
 
 _IMAGE_MARKER_RE = re.compile(
-    r"\[(?:IMAGE|圖像生成|圖像|生成圖像|生成图像|图像生成|图像|GENERATE IMAGE|GEN IMAGE):\s*(.+?)\]",
+    r"\[\s*(?:IMAGE|圖像生成|圖像|生成圖像|生成图像|图像生成|图像|GENERATE IMAGE|GEN IMAGE)\s*:\s*<?(.+?)>?\s*\]",
     re.I | re.S,
 )
 
@@ -119,16 +119,39 @@ _CR_CLOSE_TAG_RE = re.compile(r"</[a-z_][a-z0-9_-]*>", re.I)
 def _parse_reply_format(text: str) -> str:
     """Parse hauhaucs-aggressive ChatML reply format into clean Discord text.
 
-    Extracts the content of <reply>...</reply>, removes [Speaking style]
-    headers and "CharacterName: " prefixes, strips emotion wrapper tags while
-    keeping their text, and converts <subtext>...</subtext> to Discord italics.
-    Returns the original text unchanged if no ChatML structure is detected.
+    Handles two forms:
+    - Full wrapper:  <reply>...</reply> in the returned text (no prefill)
+    - Prefill form:  <reply> was in the prefill message, so only the content +
+                     </reply> arrive in the returned text
+
+    Removes [Speaking style] headers and "CharacterName: " prefixes, strips
+    emotion wrapper tags while keeping their text, converts <subtext>...</subtext>
+    to Discord italics, and bolds the spoken dialogue lines.
+
+    Returns the original text UNCHANGED when no ChatML structure is detected,
+    so plain-text fallback responses are never accidentally bolded.
     """
+    found_structure = False
+
     m = _CR_WRAPPER_RE.search(text)
     if m:
+        # Full <reply>...</reply> present in returned text.
         text = m.group(1).strip()
+        found_structure = True
     else:
-        text = _CR_WRAPPER_OPEN_RE.sub("", text)
+        # <reply> may have been in the prefill; look for a closing </reply>.
+        close_m = re.search(r"^(.*?)</reply>", text, re.S)
+        if close_m:
+            text = close_m.group(1).strip()
+            found_structure = True
+        else:
+            # Strip any stray <reply> opener (shouldn't happen but be safe).
+            text = _CR_WRAPPER_OPEN_RE.sub("", text)
+
+    if not found_structure:
+        # No ChatML structure detected — return as-is so plain prose from
+        # other backends or model fallbacks is not accidentally reformatted.
+        return text
 
     text = _CR_STYLE_HEADER_RE.sub("", text)
 
@@ -321,12 +344,12 @@ async def _call_lmstudio(
     """
     url = f"{_base_url()}/v1/chat/completions"
     # When thinking is disabled we use the Qwen3 "budget=0" prefill trick:
-    # append a closed, empty <think> block as a partial assistant message so
-    # the model believes it has already reasoned and jumps straight to the
-    # answer. This works at the model/template level regardless of which LM
-    # Studio version is installed (no UI toggle required).
+    # append a partial assistant message that closes the think phase immediately
+    # AND opens the <reply> block so the model continues in the hauhaucs ChatML
+    # format rather than free-form prose. The model sees this as its own
+    # in-progress message and completes it from the <reply> opening onward.
     if not _thinking_enabled() and messages and messages[-1].get("role") != "assistant":
-        outgoing = list(messages) + [{"role": "assistant", "content": "<think>\n</think>\n\n"}]
+        outgoing = list(messages) + [{"role": "assistant", "content": "<think>\n</think>\n\n<reply>\n"}]
     else:
         outgoing = messages
     payload = {
