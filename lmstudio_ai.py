@@ -582,6 +582,29 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+_TRUE_TOKENS = {"1", "on", "true", "yes", "y", "enable", "enabled"}
+_FALSE_TOKENS = {"0", "off", "false", "no", "n", "disable", "disabled"}
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Read a boolean env var with a forgiving truthy/falsy parser.
+
+    Accepts 1/on/true/yes/y/enable[d] and 0/off/false/no/n/disable[d] case-
+    insensitively. Anything else logs and falls back to the default. Used
+    by the operator-tunable language-strictness switches in `chat()` so
+    deployments can dial individual recovery paths off without code edits.
+    """
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in _TRUE_TOKENS:
+        return True
+    if raw in _FALSE_TOKENS:
+        return False
+    print(f"[LMStudio] Invalid {name}={raw!r} — using default {default}")
+    return default
+
+
 _SAMPLING_NEUTRAL = {
     # Sampler no-ops: at these values llama.cpp / OpenAI-compat samplers
     # behave as if the parameter weren't supplied at all. Anything inside
@@ -996,6 +1019,11 @@ async def chat(
     # Skipped entirely when enforce_user_lang=False — utility callers like
     # extract_memories use English wrapper prompts but want Chinese OUTPUT,
     # so forcing the reply to English would break their downstream parsing.
+    # Operators can also kill the whole language-enforcement subsystem
+    # globally via LMSTUDIO_LANG_ENFORCE=off when debugging or when a
+    # particular model is known to handle language matching on its own.
+    if enforce_user_lang and not _env_bool("LMSTUDIO_LANG_ENFORCE", True):
+        enforce_user_lang = False
     user_lang = _detect_user_language(messages) if enforce_user_lang else ""
     if effective_system and user_lang == "en":
         effective_system = effective_system.rstrip() + (
@@ -1156,12 +1184,22 @@ async def chat(
     #   3. Simplified Chinese (when Traditional was required)
     # Each check runs at most one retry. They operate on the raw text BEFORE
     # `_parse_reply_format` and `_format_for_discord` so the regexes don't
-    # have to fight Discord markdown.
+    # have to fight Discord markdown. Every check is gated by an operator-
+    # tunable env var so deployments can dial individual recoveries off
+    # (e.g. on a model that does not have the underlying failure mode):
+    #   LMSTUDIO_REPETITION_RETRY=on        — repetition retry on/off
+    #   LMSTUDIO_REPETITION_SALVAGE_MIN=50  — min usable salvage length (chars)
+    #   LMSTUDIO_LANG_MISMATCH_RETRY=on     — EN-user/ZH-reply retry on/off
+    #   LMSTUDIO_SIMPLIFIED_CHECK=on        — Simplified→Traditional retry on/off
+    repetition_retry_on = _env_bool("LMSTUDIO_REPETITION_RETRY", True)
+    repetition_salvage_min = max(1, _env_int("LMSTUDIO_REPETITION_SALVAGE_MIN", 50))
+    lang_mismatch_retry_on = _env_bool("LMSTUDIO_LANG_MISMATCH_RETRY", True)
+    simplified_check_on = _env_bool("LMSTUDIO_SIMPLIFIED_CHECK", True)
 
     # 1. Repetition loop. Truncate at the first repetition; if the salvaged
     #    prefix is too short to be a usable reply, retry once with stricter
     #    anti-repetition sampling (lower temperature, higher penalties).
-    if text and text.strip():
+    if text and text.strip() and repetition_retry_on:
         rep_idx = _detect_repetition_loop(text)
         if rep_idx is not None:
             salvaged = text[:rep_idx].rstrip()
@@ -1169,10 +1207,14 @@ async def chat(
                 f"[LMStudio] Repetition loop detected — truncated at {rep_idx}/{len(text)} chars "
                 f"(salvaged tail: {salvaged[-80:]!r})"
             )
-            if len(salvaged) >= 50:
+            if len(salvaged) >= repetition_salvage_min:
                 text = salvaged
             else:
-                print("[LMStudio] Salvaged prefix too short — retrying with stricter sampling")
+                print(
+                    f"[LMStudio] Salvaged prefix too short ({len(salvaged)}ch < "
+                    f"LMSTUDIO_REPETITION_SALVAGE_MIN={repetition_salvage_min}) — "
+                    f"retrying with stricter sampling"
+                )
                 retry_text = await _call_lmstudio(
                     lm_messages,
                     model=active_model,
@@ -1193,7 +1235,7 @@ async def chat(
                     else:
                         retry_salvage = retry_text[:rep_idx2].rstrip()
                         best = retry_salvage if len(retry_salvage) > len(salvaged) else salvaged
-                        if len(best) >= 50:
+                        if len(best) >= repetition_salvage_min:
                             print("[LMStudio] Retry also looped — keeping longer of the two prefixes")
                             text = best
                         else:
@@ -1210,14 +1252,14 @@ async def chat(
                             return _FAILED_REPLY_MESSAGE, None, False, False
                 else:
                     # Retry call returned nothing AND the original salvage
-                    # was already too short (<50 chars). Surface the
-                    # standard failure message instead of a torn fragment.
+                    # was already too short. Surface the standard failure
+                    # message instead of a torn fragment.
                     print("[LMStudio] Repetition retry returned no text — returning user-facing failure message")
                     return _FAILED_REPLY_MESSAGE, None, False, False
 
     # 2. Language mismatch — user wrote English but the reply went Chinese
     #    (the most common failure with mid-conversation language drift).
-    if text and text.strip() and user_lang == "en":
+    if text and text.strip() and user_lang == "en" and lang_mismatch_retry_on:
         if _classify_response_language(text) == "zh":
             print("[LMStudio] Language mismatch — retrying with stronger English directive")
             retry_msgs = list(lm_messages)
@@ -1253,7 +1295,7 @@ async def chat(
     #    Mistral Nemo Celeste sometimes emits Simplified mid-conversation.
     #    Only checked when the user is NOT writing in English (otherwise
     #    we'd want English anyway, and step 2 already handled that).
-    if text and text.strip() and user_lang != "en" and _has_simplified_chinese(text):
+    if text and text.strip() and user_lang != "en" and simplified_check_on and _has_simplified_chinese(text):
         offenders = sorted({c for c in text if c in _SIMPLIFIED_ONLY_CHARS})
         offenders_str = "".join(offenders[:10])
         print(f"[LMStudio] Simplified Chinese detected ({offenders_str!r}) — retrying for Traditional")

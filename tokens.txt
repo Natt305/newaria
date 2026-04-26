@@ -121,6 +121,49 @@ LMSTUDIO_THINKING=off
 # enhancement) pass their own larger budgets and are not affected.
 # LMSTUDIO_MAX_TOKENS=
 
+# ----------------------------------------------------------------
+# 語言嚴格度 / Language-strictness controls
+# ----------------------------------------------------------------
+# 這些開關控制「事後語言/重複偵測 → 自動重試」這一整套防護機制。
+# 預設全部開啟，能擋下 Mistral Nemo Celeste 的兩個典型錯誤：
+#   (a) `_xing_xing_xing…` token 迴圈
+#   (b) 用戶說英文時模型卻用中文（甚至簡體）回覆
+# 若你跑的模型本身就沒有這些問題（例如 Qwen 系列），可以分開關掉
+# 對應的檢查以節省一次 round-trip。接受 1/0、on/off、true/false、
+# yes/no、enable/disable（不分大小寫）。
+#
+# These switches gate the post-generation language/repetition recovery
+# system. Defaults are all ON because they're cheap and only fire when
+# something is actually wrong; turn them off per-model when you don't
+# need them. Accepts 1/0, on/off, true/false, yes/no, enable/disable
+# (case-insensitive).
+#
+#   LMSTUDIO_LANG_ENFORCE         全域開關，關掉等於同時關掉 (1)+(2)+(3)
+#                                 並停止注入 user_lang 偵測的覆蓋指令。
+#                                 Master switch — off disables (1)+(2)+(3)
+#                                 below AND stops injecting the user_lang
+#                                 directive into the system prompt.
+#   LMSTUDIO_REPETITION_RETRY     (1) Mistral 風格 token 迴圈截斷+重試。
+#                                 Off = 連截斷都不做，原文直送。
+#                                 The repetition-loop retry path.
+#   LMSTUDIO_REPETITION_SALVAGE_MIN
+#                                 預設 50。當截斷後剩下的可用文字少於這
+#                                 個字元數時才會觸發第二次重試 / 失敗
+#                                 訊息回傳。設大一點（例如 100）會更積
+#                                 極重試，設小（例如 20）會更寬容。
+#                                 Min usable salvage length (chars).
+#                                 Higher = more aggressive retries.
+#   LMSTUDIO_LANG_MISMATCH_RETRY  (2) 用戶英文/模型中文時的重試。
+#                                 The EN-user / ZH-reply retry path.
+#   LMSTUDIO_SIMPLIFIED_CHECK     (3) 偵測簡體字並重試要求繁體。
+#                                 The Simplified→Traditional retry path.
+#
+# LMSTUDIO_LANG_ENFORCE=on
+# LMSTUDIO_REPETITION_RETRY=on
+# LMSTUDIO_REPETITION_SALVAGE_MIN=50
+# LMSTUDIO_LANG_MISMATCH_RETRY=on
+# LMSTUDIO_SIMPLIFIED_CHECK=on
+
 # ================================================================
 #  Cloudflare 圖像生成（可選）
 # ================================================================
