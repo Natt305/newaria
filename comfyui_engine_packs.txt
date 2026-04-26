@@ -1,0 +1,73 @@
+# ================================================================
+#  comfyui_engine_packs.txt
+#
+#  Engine-scoped custom-node manifest for AriaBot.
+#
+#  start.bat reads this file BEFORE launching ComfyUI and toggles
+#  the on-disk presence of pack folders inside
+#      <COMFYUI_PATH>/custom_nodes/
+#  so ComfyUI only imports the packs the active COMFYUI_ENGINE
+#  actually needs. This stops heavy FLUX-only packs (SAM3,
+#  GroundingDINO, IP-Adapter, etc.) from loading their own models
+#  into VRAM at boot when you've selected COMFYUI_ENGINE=qwen.
+#
+#  Toggling = renaming. We rename
+#      custom_nodes/<pack>           ->  custom_nodes/<pack>.disabled
+#  to disable, and
+#      custom_nodes/<pack>.disabled  ->  custom_nodes/<pack>
+#  to re-enable. Recent ComfyUI versions skip any folder ending in
+#  `.disabled` during the custom-node scan. Nothing is ever deleted.
+#  Model files (under <COMFYUI_PATH>/models/) are NEVER touched.
+#
+#  Format: one entry per line, "<engine>: <pack_folder_name>"
+#  Recognized engines:
+#      flux:      pack is needed only by the FLUX engine
+#      qwen:      pack is needed only by the Qwen engine
+#      both:      pack is needed by both (no-op — same as not listing it)
+#      shared:    alias for `both:`
+#  Lines beginning with `#` and blank lines are ignored. Inline `#`
+#  comments after the value are stripped.
+#
+#  Switching engines:
+#      1. Edit COMFYUI_ENGINE in tokens.txt (qwen | flux)
+#      2. Close ComfyUI window if it's open
+#      3. Re-run start.bat — packs are toggled automatically
+#
+#  Adding entries:
+#      Inspect <COMFYUI_PATH>/custom_nodes/ on your machine. Any
+#      pack folder that loads its own model at import time and is
+#      only used by one engine should be listed here. Packs not
+#      listed are left alone (treated as shared / safe).
+#
+# ================================================================
+
+# --- FLUX-only packs (heavy on VRAM at idle) ---
+# These are the common Ultimate-Inpaint-Pro-Ultra dependencies.
+# Folder names below are typical defaults — adjust to whatever the
+# folders are actually called inside YOUR custom_nodes/ directory
+# (different installers / Manager versions name things differently).
+flux: ComfyUI-SAM3
+flux: ComfyUI-segment-anything-2
+flux: comfyui_segment_anything
+flux: ComfyUI-GroundingDINO
+flux: comfyui_groundingdino
+flux: ComfyUI_IPAdapter_plus
+flux: ComfyUI-IPAdapter-Flux
+flux: ComfyUI_InstantID
+flux: ComfyUI-Impact-Pack
+flux: ComfyUI-Impact-Subpack
+flux: comfyui-reactor-node
+flux: ComfyUI-Inspire-Pack
+flux: ComfyUI-Ultimate-SD-Upscale
+flux: ComfyUI_UltimateSDUpscale
+flux: comfyui_controlnet_aux
+
+# --- Qwen-only packs ---
+# Add here if you ever install Qwen-only helper packs that should
+# stay disabled while you're on the FLUX engine.
+# qwen: comfyui_qwen_image_edit_plus_nodes
+
+# --- Shared / always-on packs (informational only — no toggling) ---
+# Listing as `both:` is a no-op; we never disable shared packs.
+# both: ComfyUI-GGUF
+# both: ComfyUI-Manager

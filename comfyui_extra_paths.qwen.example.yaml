@@ -1,0 +1,43 @@
+# ================================================================
+#  comfyui_extra_paths.qwen.example.yaml  (OPT-IN TEMPLATE)
+#
+#  TO ACTIVATE: copy or rename this file to
+#      comfyui_extra_paths.qwen.yaml
+#  (drop the `.example` segment) and uncomment + adjust the
+#  `qwen_engine:` block below. start.bat looks for the non-example
+#  filename — until you rename it, nothing happens, which keeps
+#  this strictly opt-in.
+#
+#  When the activated file exists at the repo root AND
+#  COMFYUI_ENGINE=qwen, start.bat will pass
+#  `--extra-model-paths-config` to ComfyUI so the Manager
+#  dropdowns only show your Qwen-side model files.
+#
+#  This is COSMETIC ONLY — it does NOT free any VRAM. The actual
+#  VRAM hygiene is done by the engine-scoped custom-node manifest
+#  (`comfyui_engine_packs.txt`), which keeps the heavy FLUX packs
+#  from loading their models at all. Use this yaml only if you
+#  *also* want to declutter the file dropdowns.
+#
+#  To use this file you must physically split your model files into
+#  per-engine subfolders, e.g.:
+#      <COMFYUI_PATH>/models/qwen/unet/
+#      <COMFYUI_PATH>/models/qwen/clip/
+#      <COMFYUI_PATH>/models/qwen/vae/
+#      <COMFYUI_PATH>/models/flux/unet/
+#      <COMFYUI_PATH>/models/flux/clip/
+#      <COMFYUI_PATH>/models/flux/vae/
+#  Then uncomment the section below and adjust paths to match your
+#  install. ComfyUI's default paths (everything under `models/`)
+#  remain available — these entries are ADDITIVE.
+#
+#  See https://docs.comfy.org/development/comfyui-server/model-paths
+#  for the full schema.
+# ================================================================
+
+# qwen_engine:
+#     base_path: E:/comfyui/resources/ComfyUI/models/qwen
+#     unet: unet/
+#     clip: clip/
+#     vae: vae/
+#     loras: loras/

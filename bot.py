@@ -1890,6 +1890,14 @@ async def on_ready():
                     f"see the per-node install hints above, then restart ComfyUI. "
                     f"Run /diagcomfyui to re-check."
                 )
+            _disabled_packs = _diag.get("disabled_packs") or []
+            if _disabled_packs:
+                _packs_str = ", ".join(_disabled_packs)
+                print(
+                    f"[ComfyUI] Engine-scoped packs disabled for "
+                    f"engine={_diag.get('engine', '?')}: "
+                    f"{len(_disabled_packs)} ({_packs_str})"
+                )
         except Exception as _diag_exc:
             print(f"[Bot] ComfyUI diagnose() raised: {type(_diag_exc).__name__}: {_diag_exc}")
     elif _IMAGE_BACKEND == "local_diffusers":
@@ -3562,6 +3570,20 @@ async def diagcomfyui_cmd(ctx):
                 value="⚠ 無法解析 `/object_info` 回應結構（ComfyUI 版本可能過舊）。",
                 inline=False,
             )
+
+    # Engine-scoped custom-node packs disabled by start.bat / scope_comfy_packs.py.
+    # Populated only when COMFYUI_PATH is set and custom_nodes/ exists.
+    disabled_packs = diag.get("disabled_packs", [])
+    if disabled_packs:
+        names = ", ".join(f"`{n}`" for n in disabled_packs)
+        # Discord embed field value cap is 1024 chars — truncate gracefully.
+        if len(names) > 1000:
+            names = names[:997] + "..."
+        embed.add_field(
+            name=f"已停用的自訂節點包（engine={engine} 限定）— {len(disabled_packs)} 個",
+            value=names,
+            inline=False,
+        )
 
     if missing:
         hint_lines = [f"• `{n}` — {h}" for n, h in missing]

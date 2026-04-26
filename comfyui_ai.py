@@ -1966,12 +1966,16 @@ def diagnose() -> dict:
     Discord command can render the same information in chat:
 
         {
-            "engine":     "qwen" | "flux",
-            "base_url":   "http://...",
-            "reachable":  bool,                         # /system_stats responded
-            "nodes":      {"NodeName": True/False, ...},
-            "missing":    [(node_name, install_hint), ...],
-            "clip_types": [...]   # only for the Qwen engine; [] otherwise
+            "engine":         "qwen" | "flux",
+            "base_url":       "http://...",
+            "reachable":      bool,                       # /system_stats responded
+            "nodes":          {"NodeName": True/False, ...},
+            "missing":        [(node_name, install_hint), ...],
+            "clip_types":     [...],   # only for the Qwen engine; [] otherwise
+            "disabled_packs": [...]    # `<pack>.disabled` folder names found
+                                       # in <COMFYUI_PATH>/custom_nodes/ —
+                                       # populated only when COMFYUI_PATH is
+                                       # set; empty otherwise.
         }
     """
     base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
@@ -1981,15 +1985,43 @@ def diagnose() -> dict:
     required = _REQUIRED_NODES_QWEN if engine == "qwen" else _REQUIRED_NODES_FLUX
 
     result: dict = {
-        "engine":     engine,
-        "base_url":   base_url,
-        "reachable":  False,
-        "nodes":      {},
-        "missing":    [],
-        "clip_types": [],
+        "engine":         engine,
+        "base_url":       base_url,
+        "reachable":      False,
+        "nodes":          {},
+        "missing":        [],
+        "clip_types":     [],
+        "disabled_packs": [],
     }
 
+    # --- Engine-scoped pack scan (best-effort, never raises) -----------------
+    # When COMFYUI_PATH is set, list folders inside custom_nodes/ that end in
+    # `.disabled` so the user can verify start.bat's engine-scoped toggling
+    # took effect. ComfyUI itself skips these folders during its custom-node
+    # scan, so they consume zero VRAM.
+    comfy_path = os.environ.get("COMFYUI_PATH", "").strip()
+    if comfy_path:
+        custom_nodes_dir = os.path.join(comfy_path, "custom_nodes")
+        if os.path.isdir(custom_nodes_dir):
+            try:
+                disabled = sorted(
+                    entry[: -len(".disabled")]
+                    for entry in os.listdir(custom_nodes_dir)
+                    if entry.endswith(".disabled")
+                    and os.path.isdir(os.path.join(custom_nodes_dir, entry))
+                )
+                result["disabled_packs"] = disabled
+            except OSError as exc:
+                print(f"[ComfyUI] Diagnose: could not scan {custom_nodes_dir} "
+                      f"for .disabled packs ({type(exc).__name__}: {exc})")
+
     print(f"[ComfyUI] Diagnose: engine={engine}  url={base_url}")
+    if result["disabled_packs"]:
+        _names = ", ".join(result["disabled_packs"])
+        print(f"[ComfyUI] Engine-scoped packs disabled: "
+              f"{len(result['disabled_packs'])} ({_names})")
+    elif comfy_path:
+        print("[ComfyUI] Engine-scoped packs disabled: 0")
 
     try:
         import requests as _requests

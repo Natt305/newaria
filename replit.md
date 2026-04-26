@@ -105,13 +105,36 @@ Selected via `COMFYUI_ENGINE=qwen` (the new default).
 
 **Backward compatibility:** by default the bot **does not** auto-switch engines when `COMFYUI_ENGINE=qwen` is set but the Qwen vars are missing — it logs a clear WARNING and fails fast, so the active engine can never silently drift to something the user didn't ask for. If you actually want the old "fall back to FLUX" behavior, set `COMFYUI_ALLOW_ENGINE_FALLBACK=1`. To force FLUX explicitly, set `COMFYUI_ENGINE=flux`.
 
+**Engine-scoped startup (VRAM hygiene):**
+
+ComfyUI itself does not preload diffusion models, but several custom-node packs do — most notably the FLUX-side Ultimate-Inpaint stack (`SAM3`, `GroundingDINO`, `IPAdapter`, `Impact-Pack` detectors, etc.) which load their own models into VRAM at *import time*, regardless of which engine is actually generating. On a 16 GB GPU this is enough to eat ~12 GB at idle and leave no headroom for the engine you actually selected. The bot solves this by toggling pack folders **on disk** before ComfyUI boots:
+
+- Manifest file `comfyui_engine_packs.txt` (repo root) lists each heavy pack folder with the engine it belongs to (`flux:`, `qwen:`, or `both:`/`shared:`). Packs not listed are left alone (treated as shared / safe).
+- `start.bat` reads `COMFYUI_ENGINE` from `tokens.txt` (default `qwen`) and runs `scripts/scope_comfy_packs.py` *before* it launches ComfyUI. The script renames every pack listed under a non-matching engine to `<pack>.disabled` (a suffix recent ComfyUI versions skip during the custom-node scan), and strips that suffix from packs needed by the active engine. Nothing is ever deleted, and nothing under `<COMFYUI_PATH>/models/` is ever touched.
+- Switching engines is therefore: **edit `COMFYUI_ENGINE` in `tokens.txt` → close ComfyUI → re-run `start.bat`**. The console prints exactly which packs were toggled before the ComfyUI window opens; if ComfyUI is already running on port 8188 the bat skips both the launch *and* the toggle (and says so) so you don't pull the rug out from under a live process.
+
+Example manifest entries (the shipped file pre-populates the common FLUX-only packs):
+```
+flux: ComfyUI-SAM3
+flux: ComfyUI-GroundingDINO
+flux: ComfyUI_IPAdapter_plus
+flux: ComfyUI-Impact-Pack
+# qwen: comfyui_qwen_image_edit_plus_nodes   # add Qwen-only packs here
+```
+Adjust the folder names to match what's actually in your `<COMFYUI_PATH>/custom_nodes/` (different installers name folders differently) — the script logs any manifest entries it can't find so typos surface immediately.
+
+**Optional model-path scoping (cosmetic).** If you also want the Manager / KSampler dropdowns to only list the active engine's model files, drop your models into engine-specific subfolders (e.g. `models/qwen/unet/`, `models/flux/unet/`), then **copy** `comfyui_extra_paths.qwen.example.yaml` → `comfyui_extra_paths.qwen.yaml` (and/or the FLUX one), drop the `.example` segment from the filename, and uncomment + edit the engine block inside. `start.bat` only looks for the non-example filename, so until you rename a template the feature stays completely off. When the engine-matching activated yaml exists, `start.bat` passes `--extra-model-paths-config` to ComfyUI. **This is purely cosmetic — it does not free any VRAM**; the pack toggling above is what actually fixes the idle-VRAM problem.
+
+You can verify the toggling took effect from Discord with `/diagcomfyui` — the embed includes a "已停用的自訂節點包" field listing every `.disabled` folder currently in `custom_nodes/`. The boot console also prints the same one-line summary right after the per-node `✅/❌` block.
+
 **Troubleshooting:**
-- **First step for any "node-not-found 400" error: run `/diagcomfyui`.** The bot also runs the same probe automatically at startup (when `IMAGE_BACKEND=comfyui`) via `comfyui_ai.diagnose()` — it hits `/object_info` once for each required custom node and prints `✅ found / ❌ MISSING` per node, plus the `CLIPLoaderGGUF` `type` choices so you can verify `qwen_image` is one of them. If anything is missing it logs a single prominent `[WARNING]` line telling you which custom-node pack to install (the bot still starts — the FLUX engine may still be usable). Re-run `/diagcomfyui` in any channel after installing/updating a pack and restarting ComfyUI.
+- **First step for any "node-not-found 400" error: run `/diagcomfyui`.** The bot also runs the same probe automatically at startup (when `IMAGE_BACKEND=comfyui`) via `comfyui_ai.diagnose()` — it hits `/object_info` once for each required custom node and prints `✅ found / ❌ MISSING` per node, plus the `CLIPLoaderGGUF` `type` choices so you can verify `qwen_image` is one of them, plus the count and names of any engine-scoped packs currently disabled (see above). If anything is missing it logs a single prominent `[WARNING]` line telling you which custom-node pack to install (the bot still starts — the FLUX engine may still be usable). Re-run `/diagcomfyui` in any channel after installing/updating a pack and restarting ComfyUI.
 - `/prompt` returns a node-not-found error mentioning `TextEncodeQwenImageEditPlus` → the custom node pack isn't installed; restart ComfyUI after installing it.
 - Reference images are obviously ignored / output is text-only → `mmproj-*.gguf` is missing from `models/clip/`.
 - `/prompt` complains about CLIP type → confirm city96's `CLIPLoaderGGUF` exposes `qwen_image` in its type dropdown (recent versions do).
 - `KSampler` complains about an invalid sampler / scheduler → the user-supplied `COMFYUI_QWEN_SAMPLER` / `COMFYUI_QWEN_SCHEDULER` doesn't exist on this ComfyUI build; revert to defaults (`euler_ancestral` / `beta`).
-- VRAM-tight machines: drop `COMFYUI_QWEN_WIDTH`/`COMFYUI_QWEN_HEIGHT` to `768` and stay at `COMFYUI_QWEN_STEPS=4`.
+- VRAM-tight machines: drop `COMFYUI_QWEN_WIDTH`/`COMFYUI_QWEN_HEIGHT` to `768` and stay at `COMFYUI_QWEN_STEPS=4`. **Most importantly, audit `comfyui_engine_packs.txt`** so every heavy FLUX-only pack you actually have installed is listed under `flux:` — the shipped defaults cover the common Ultimate-Inpaint stack, but unique installs may have other VRAM-hungry packs.
+- A FLUX node that *should* be present is reported missing after switching to `flux` → check that the corresponding pack isn't still listed `flux:` in the manifest but somehow got missed during re-enable; `/diagcomfyui`'s "已停用的自訂節點包" field will show any leftover `.disabled` folders you can rename back manually.
 
 ### ComfyUI Engine: `flux` (legacy)
 

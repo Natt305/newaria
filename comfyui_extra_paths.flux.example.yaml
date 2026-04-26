@@ -1,0 +1,33 @@
+# ================================================================
+#  comfyui_extra_paths.flux.example.yaml  (OPT-IN TEMPLATE)
+#
+#  TO ACTIVATE: copy or rename this file to
+#      comfyui_extra_paths.flux.yaml
+#  (drop the `.example` segment) and uncomment + adjust the
+#  `flux_engine:` block below. start.bat looks for the non-example
+#  filename — until you rename it, nothing happens, which keeps
+#  this strictly opt-in.
+#
+#  When the activated file exists at the repo root AND
+#  COMFYUI_ENGINE=flux, start.bat will pass
+#  `--extra-model-paths-config` to ComfyUI so the Manager
+#  dropdowns only show your FLUX-side model files.
+#
+#  This is COSMETIC ONLY — it does NOT free any VRAM. The actual
+#  VRAM hygiene is done by the engine-scoped custom-node manifest
+#  (`comfyui_engine_packs.txt`), which keeps the heavy FLUX packs
+#  from loading their models at all. Use this yaml only if you
+#  *also* want to declutter the file dropdowns.
+#
+#  To use this file you must physically split your model files into
+#  per-engine subfolders — see comfyui_extra_paths.qwen.yaml for
+#  the full layout. Uncomment the section below and adjust paths
+#  to match your install.
+# ================================================================
+
+# flux_engine:
+#     base_path: E:/comfyui/resources/ComfyUI/models/flux
+#     unet: unet/
+#     clip: clip/
+#     vae: vae/
+#     loras: loras/
