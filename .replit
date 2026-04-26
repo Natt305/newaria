@@ -28,7 +28,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python launcher.py"
+args = "python3 launcher.py"
 
 [userenv]
 
