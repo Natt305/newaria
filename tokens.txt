@@ -450,3 +450,25 @@ COMFYUI_USE_SAM=true
 #  Flux2Scheduler, ImageScaleToTotalPixels are all built-in core nodes).
 # ================================================================
 
+# ================================================================
+#  Qwen 引擎設定 / Qwen Engine Configuration
+#  (COMFYUI_ENGINE=qwen 時使用 / used when COMFYUI_ENGINE=qwen)
+# ================================================================
+
+# 引擎選擇：qwen（預設）或 flux / Engine selection: qwen (default) or flux
+COMFYUI_ENGINE=qwen
+
+# Qwen UNET GGUF 檔名（放在 ComfyUI models/diffusion_models/ 目錄）
+# Qwen UNET GGUF filename (place in ComfyUI's models/diffusion_models/ directory)
+COMFYUI_QWEN_GGUF=Qwen-Rapid-NSFW-v23_Q4_K.gguf
+
+# Qwen VAE 檔名（放在 ComfyUI models/vae/ 目錄）
+# Qwen VAE filename (place in ComfyUI's models/vae/ directory)
+COMFYUI_QWEN_VAE=pig_qwen_image_vae_fp32-f16.gguf
+
+# Qwen CLIP 文字編碼器 GGUF 檔名（放在 ComfyUI models/clip/ 目錄）
+# 注意：mmproj-f16.gguf 必須放在同一目錄，否則參考圖將被忽略
+# Qwen CLIP text encoder GGUF filename (place in ComfyUI's models/clip/ directory)
+# Note: mmproj-f16.gguf must be in the same folder, otherwise reference images are silently ignored
+COMFYUI_QWEN_CLIP_GGUF=Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf
+
