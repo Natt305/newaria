@@ -882,7 +882,7 @@ async def chat(
     system_prompt: str = "",
     model: str = "",
     context_images: Optional[list] = None,
-    max_tokens: int = 1024,
+    max_tokens: Optional[int] = None,
     enforce_user_lang: bool = True,
 ) -> tuple[str, Optional[str], bool, bool]:
     """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
@@ -909,6 +909,14 @@ async def chat(
     the system prompt) for snappy roleplay replies. Set LMSTUDIO_THINKING=on to
     re-enable it.
     """
+    # Resolve max_tokens via env when the caller didn't pin it explicitly, so
+    # operators can cap chat replies via LMSTUDIO_MAX_TOKENS without touching
+    # code. Doing the resolution here (rather than letting _call_lmstudio do
+    # it) means every internal retry call below uses the same number, and the
+    # value also flows into the per-call logging line in _call_lmstudio.
+    if max_tokens is None:
+        max_tokens = _env_int("LMSTUDIO_MAX_TOKENS", 1024)
+
     # Pick the model: explicit > vision (when images attached) > default chat
     if model:
         active_model = model
