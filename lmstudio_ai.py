@@ -368,7 +368,14 @@ async def _call_lmstudio(
     sys_len = len(messages[0].get("content", "")) if messages and messages[0]["role"] == "system" else 0
     print(f"[LMStudio] Sending to {model} | sys_prompt={sys_len}ch | ~{est} tokens total | max_tokens={max_tokens}")
     if messages and messages[0]["role"] == "system":
-        print(f"[LMStudio] System prompt start: {messages[0]['content'][:200]!r}")
+        full_sys = messages[0]["content"]
+        # Log enough of the system prompt to cover personality / speaking-style
+        # sections (where character-specific phrases originate). Capped at 2000
+        # chars to avoid flooding the console on very long prompts.
+        preview = full_sys[:2000]
+        if len(full_sys) > 2000:
+            preview += f"\n…[{len(full_sys) - 2000} more chars]"
+        print(f"[LMStudio] System prompt:\n{preview}")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=180)) as resp:
@@ -417,7 +424,7 @@ async def _call_lmstudio(
                         # `content` had text but it was all inside <think>.
                         print(f"[LMStudio] Raw content snippet (was all <think>): {raw_content[:300]!r}")
                     return ""
-                print(f"[LMStudio] Response text: {content[:200]!r}")
+                print(f"[LMStudio] Response text: {content[:500]!r}")
                 return content
     except aiohttp.ClientConnectorError:
         print(f"[LMStudio] Cannot connect to {_base_url()} — is LM Studio running and ngrok active?")
@@ -469,6 +476,20 @@ async def chat(
         active_model = _model()
 
     effective_system = _apply_no_think(system_prompt, model=active_model)
+
+    # For plain-prose models (anything that is NOT a Qwen/hauhaucs ChatML
+    # fine-tune), inject a Discord formatting reminder so the model bolds spoken
+    # dialogue and italicises actions without needing post-processing.
+    # Qwen/hauhaucs models use their own <reply>/<subtext> ChatML format which
+    # _parse_reply_format() converts, so they must NOT get this instruction.
+    if not _is_qwen_model(active_model) and effective_system:
+        effective_system = (
+            effective_system.rstrip()
+            + "\n\nDiscord formatting (required): wrap ALL spoken dialogue in "
+            "**bold** (e.g. **「你好嗎？」**). Wrap action descriptions and "
+            "internal thoughts in *italics* (e.g. *她輕輕嘆了口氣*). "
+            "Never use other markdown — just bold for speech, italics for action/thought."
+        )
 
     lm_messages = []
     if effective_system:
