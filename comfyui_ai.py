@@ -821,7 +821,7 @@ def _build_txt2img_workflow_qwen(
     }
 
 
-def _build_edit_workflow_qwen(
+def _build_multi_edit_workflow_qwen(
     prompt: str,
     gguf_path: str,
     vae_name: str,
@@ -834,15 +834,19 @@ def _build_edit_workflow_qwen(
     scheduler_name: str,
     uploaded_image_names: List[str],
 ) -> dict:
-    """Qwen-Image-Edit-Rapid GGUF edit-mode graph with up to 4 reference images.
+    """Qwen-Image-Edit-Rapid GGUF multi-reference edit-mode graph (2–4 refs).
 
     Each reference image is loaded via `LoadImage` and wired into one of the
     `image1`..`image4` slots of `TextEncodeQwenImageEditPlus`, which routes
     them through the Qwen 2.5 VL multimodal encoder so the model truly "sees"
-    the pixels alongside the prompt — true edit-mode, not classical img2img.
+    every reference alongside the prompt — true edit-mode, not classical
+    img2img. Inputs beyond 4 are silently dropped (encoder only has 4 slots).
     Negative conditioning is a plain empty `CLIPTextEncode`; with CFG=1.0
     the negative branch is multiplied by zero.
 
+    Used by `_run_generate_qwen` whenever there are 2 or more refs. For the
+    single-ref case prefer `_build_edit_workflow_qwen`, which is a thin
+    wrapper around this function.
     Falls back to the txt2img graph if `uploaded_image_names` is empty.
     """
     enhanced_prompt = prompt + _ANATOMY_SUFFIX
@@ -918,6 +922,35 @@ def _build_edit_workflow_qwen(
         "inputs": {"images": ["8", 0], "filename_prefix": "ariabot_qwen_"},
     }
     return workflow
+
+
+def _build_edit_workflow_qwen(
+    prompt: str,
+    gguf_path: str,
+    vae_name: str,
+    clip_gguf_name: str,
+    steps: int,
+    width: int,
+    height: int,
+    seed: int,
+    sampler_name: str,
+    scheduler_name: str,
+    uploaded_image_name: str,
+) -> dict:
+    """Qwen-Image-Edit-Rapid GGUF single-reference edit-mode graph.
+
+    Thin convenience wrapper around `_build_multi_edit_workflow_qwen`: routes
+    the one uploaded image into the `image1` slot of
+    `TextEncodeQwenImageEditPlus` (slots `image2`..`image4` left empty) so
+    the model sees the single reference pixel-perfect. Used by
+    `_run_generate_qwen` whenever exactly one reference image is supplied
+    (typically: only the bot's own portrait, no KB matches).
+    """
+    return _build_multi_edit_workflow_qwen(
+        prompt, gguf_path, vae_name, clip_gguf_name,
+        steps, width, height, seed, sampler_name, scheduler_name,
+        [uploaded_image_name],
+    )
 
 
 def _submit_and_poll(
@@ -1089,13 +1122,25 @@ def _run_generate_qwen(
     if qwen_input_refs and not uploaded:
         print("[ComfyUI] Qwen: all reference uploads failed — falling back to txt2img.")
 
-    if uploaded:
+    # Dispatch by reference count to the matching named builder, so each
+    # variant has an explicit, self-documenting entry point:
+    #   0 refs   → _build_txt2img_workflow_qwen
+    #   1 ref    → _build_edit_workflow_qwen      (single-image edit-mode)
+    #   2–4 refs → _build_multi_edit_workflow_qwen (image1..image4)
+    if len(uploaded) == 1:
         workflow = _build_edit_workflow_qwen(
+            prompt, qwen_gguf, qwen_vae, qwen_clip,
+            qwen_steps, qwen_width, qwen_height, seed,
+            qwen_sampler, qwen_scheduler, uploaded[0],
+        )
+        print("[ComfyUI] Qwen edit-mode workflow with 1 reference image.")
+    elif len(uploaded) >= 2:
+        workflow = _build_multi_edit_workflow_qwen(
             prompt, qwen_gguf, qwen_vae, qwen_clip,
             qwen_steps, qwen_width, qwen_height, seed,
             qwen_sampler, qwen_scheduler, uploaded,
         )
-        print(f"[ComfyUI] Qwen edit-mode workflow with {len(uploaded)} reference image(s).")
+        print(f"[ComfyUI] Qwen multi-edit workflow with {len(uploaded)} reference image(s).")
     else:
         workflow = _build_txt2img_workflow_qwen(
             prompt, qwen_gguf, qwen_vae, qwen_clip,
