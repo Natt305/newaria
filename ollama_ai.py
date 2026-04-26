@@ -1028,7 +1028,7 @@ async def generate_suggestions(
             if len(s) > 80:
                 s = s[:77] + "..."
             clean.append(s)
-        print(f"[Ollama] Suggestion: salvaged {len(clean)} from non-JSON output")
+        print(f"[Ollama] Suggestion: salvaged {len(clean)} from non-JSON output — raw: {_suggestion_log_snippet(text)!r}")
         return clean
 
     print(f"[Ollama] Suggestion: salvage failed too — raw: {_suggestion_log_snippet(text)!r}")
