@@ -1206,19 +1206,35 @@ def _run_generate(
         print(f"[ComfyUI] Unknown COMFYUI_ENGINE={engine!r} — defaulting to qwen.")
         engine = "qwen"
 
-    # Backward-compat: if the user requested `qwen` but only the FLUX vars are
-    # set (e.g. they upgraded without configuring Qwen), fall back to FLUX with
-    # an explicit warning rather than failing the request.
+    # Backward-compat fallback: if the user requested `qwen` but only the
+    # FLUX vars are set (e.g. they upgraded without configuring Qwen), we can
+    # fall back to the FLUX engine. By default this fallback is OFF — we
+    # fail fast inside `_run_generate_qwen` so a misconfiguration cannot
+    # silently drift the engine in production. To opt back in to the old
+    # silent-fallback behavior, set COMFYUI_ALLOW_ENGINE_FALLBACK=1 (true,
+    # yes, on are also accepted).
     if engine == "qwen":
         _qwen_set = bool(
             os.environ.get("COMFYUI_QWEN_GGUF", "").strip()
             and os.environ.get("COMFYUI_QWEN_VAE", "").strip()
             and os.environ.get("COMFYUI_QWEN_CLIP_GGUF", "").strip()
         )
+        _allow_fallback = os.environ.get("COMFYUI_ALLOW_ENGINE_FALLBACK", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
         if not _qwen_set and gguf_path and vae_name and clip_name:
-            print("[ComfyUI] COMFYUI_ENGINE=qwen but Qwen vars unset — "
-                  "falling back to flux engine.")
-            engine = "flux"
+            if _allow_fallback:
+                print("[ComfyUI] COMFYUI_ENGINE=qwen but Qwen vars unset — "
+                      "COMFYUI_ALLOW_ENGINE_FALLBACK is on, falling back to flux engine.")
+                engine = "flux"
+            else:
+                print("[ComfyUI] WARNING: COMFYUI_ENGINE=qwen but Qwen vars are unset "
+                      "(COMFYUI_QWEN_GGUF / _VAE / _CLIP_GGUF). Refusing to silently "
+                      "drift to the FLUX engine. Either configure the Qwen vars, set "
+                      "COMFYUI_ENGINE=flux explicitly, or set "
+                      "COMFYUI_ALLOW_ENGINE_FALLBACK=1 to re-enable auto-fallback.")
+                # Fall through to qwen path; it will fail-fast with the same
+                # missing-vars error message.
 
     if engine == "qwen":
         return _run_generate_qwen(

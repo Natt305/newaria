@@ -78,6 +78,7 @@ Set these in `tokens.txt` **or** as Replit Secrets (Secrets take priority):
 | `COMFYUI_QWEN_SCHEDULER` | Optional | Qwen KSampler `scheduler` (default `beta`). |
 | `COMFYUI_QWEN_WIDTH` | Optional | Qwen output width  (default `1024` — Qwen-Image native scale). |
 | `COMFYUI_QWEN_HEIGHT` | Optional | Qwen output height (default `1024`). |
+| `COMFYUI_ALLOW_ENGINE_FALLBACK` | Optional | `1`/`true`/`yes`/`on` re-enables the auto qwen→flux fallback when `COMFYUI_ENGINE=qwen` but the Qwen vars are unset. Off by default — the bot fails fast on misconfiguration so the active engine never silently drifts. |
 | `COMFYUI_MODE` | Optional (FLUX only) | `multiref` (default, recommended) — spatial-masked multi-character; `refchain` — ReferenceChainConditioning custom node; `ultimate_inpaint` — SAM3 inpaint loop (requires many custom nodes). Ignored when `COMFYUI_ENGINE=qwen`. |
 | `COMFYUI_USE_SAM` | Optional (FLUX only) | `true` or `false` (default) — SAM3 auto-segmentation, only relevant for `ultimate_inpaint` mode. |
 
@@ -102,7 +103,7 @@ Selected via `COMFYUI_ENGINE=qwen` (the new default).
 - `ComfyUI-GGUF` (city96) — provides `UnetLoaderGGUF` and `CLIPLoaderGGUF`.
 - Any pack shipping `TextEncodeQwenImageEditPlus` (Phr00t's `nodes_qwen.py` or comparable).
 
-**Backward compatibility:** if `COMFYUI_ENGINE=qwen` is set but the Qwen vars are unset _and_ the FLUX vars (`COMFYUI_GGUF`, `COMFYUI_VAE`, `COMFYUI_CLIP`) are populated, the bot logs a warning and falls back to the FLUX engine. To force FLUX explicitly, set `COMFYUI_ENGINE=flux`.
+**Backward compatibility:** by default the bot **does not** auto-switch engines when `COMFYUI_ENGINE=qwen` is set but the Qwen vars are missing — it logs a clear WARNING and fails fast, so the active engine can never silently drift to something the user didn't ask for. If you actually want the old "fall back to FLUX" behavior, set `COMFYUI_ALLOW_ENGINE_FALLBACK=1`. To force FLUX explicitly, set `COMFYUI_ENGINE=flux`.
 
 **Troubleshooting:**
 - `/prompt` returns a node-not-found error mentioning `TextEncodeQwenImageEditPlus` → the custom node pack isn't installed; restart ComfyUI after installing it.
