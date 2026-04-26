@@ -85,6 +85,38 @@ LMSTUDIO_VISION_MODEL=
 #                   Slower but deeper answers.
 LMSTUDIO_THINKING=off
 
+# ----------------------------------------------------------------
+# 採樣設定 / Sampling knobs (anti-degeneration)
+# ----------------------------------------------------------------
+# 這些變數控制 LM Studio 的採樣參數，主要用來防止 Mistral Nemo 系列模型
+# (例如 nothingiisreal/mn-12b-celeste-v1.9-gguf) 在長篇對話中陷入 token 迴圈，
+# 例如 `_xing_xing_xing…`。留空時使用內建預設（依模型族群自動切換）：
+#   Mistral Nemo (Celeste 等)：top_p=0.9 min_p=0.05 rep_penalty=1.08
+#                              freq_penalty=0.3 presence_penalty=0.0
+#   Qwen 系列                ：top_p=0.95 min_p=0.0 rep_penalty=1.0
+#                              freq_penalty=0.0 presence_penalty=0.0
+#
+# These tune the LM Studio sampler. Defaults are model-aware (strong anti-
+# repetition for Mistral Nemo Celeste, neutral for Qwen). Override here if
+# the bot still loops or feels too repetitive on your machine. Recommended
+# tweak for very stubborn loops on Celeste:
+#   LMSTUDIO_REPETITION_PENALTY=1.12
+#   LMSTUDIO_FREQUENCY_PENALTY=0.4
+# LMSTUDIO_TEMPERATURE=
+# LMSTUDIO_TOP_P=
+# LMSTUDIO_MIN_P=
+# LMSTUDIO_REPETITION_PENALTY=
+# LMSTUDIO_FREQUENCY_PENALTY=
+# LMSTUDIO_PRESENCE_PENALTY=
+
+# 回覆長度上限 / Reply length cap (default 1024 tokens for chat replies).
+# 若你想更早切斷潛在的 runaway 輸出，可以設低一點（例如 512 或 768）。
+# Lower this (e.g. 512–768) if you want to cut runaway generations off
+# sooner — the bot will still scan for repetition loops and salvage what
+# it can. Utility callers (memory extraction, suggestions, image-prompt
+# enhancement) pass their own larger budgets and are not affected.
+# LMSTUDIO_MAX_TOKENS=
+
 # ================================================================
 #  Cloudflare 圖像生成（可選）
 # ================================================================

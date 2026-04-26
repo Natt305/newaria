@@ -349,11 +349,15 @@ def _detect_user_language(messages: list) -> str:
     """Detect the language of the most recent user message.
 
     Returns:
-      ``"en"`` when the latest user turn is plain English (no Han
-      characters AND at least 2 Latin words OR a single word ≥ 5 chars).
+      ``"en"`` when the latest user turn contains ZERO Han characters
+      AND at least one Latin word — even short interjections like
+      ``ok``, ``hi``, ``yes``, ``wtf`` qualify. Mid-conversation
+      Mistral Nemo Celeste tends to anchor on the language of the
+      previous ~20 assistant turns (typically Chinese in this bot),
+      so any English signal at all needs to flip the override on.
       ``""`` otherwise — leaves the static language policy alone, so
-      Chinese turns and ambiguous one-word replies (`ok`, `hi`, `好`)
-      keep the model's default behaviour.
+      Chinese turns and mixed Chinese/English turns keep the model's
+      default behaviour.
 
     Chinese detection is intentionally not returned: the static policy
     already defaults to Traditional Chinese, and overriding on every
@@ -385,9 +389,7 @@ def _detect_user_language(messages: list) -> str:
     words = _LATIN_WORD_RE.findall(last_user_text)
     if not words:
         return ""
-    if len(words) >= 2 or len(words[0]) >= 5:
-        return "en"
-    return ""
+    return "en"
 
 
 _BREAKS_CHARACTER_RE = re.compile(
@@ -557,11 +559,148 @@ def _estimate_tokens(messages: list) -> int:
     return total // 4
 
 
+def _env_float(name: str, default: float) -> float:
+    """Read a float env var with a fallback; logs and falls back on parse error."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        print(f"[LMStudio] Invalid {name}={raw!r} — using default {default}")
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"[LMStudio] Invalid {name}={raw!r} — using default {default}")
+        return default
+
+
+def _sampling_overrides(model: str) -> dict:
+    """Build the anti-degeneration sampling parameters for the LM Studio request.
+
+    LM Studio's OpenAI-compatible API accepts both the OpenAI-style
+    ``frequency_penalty`` / ``presence_penalty`` and the llama.cpp-style
+    ``top_p`` / ``min_p`` / ``repetition_penalty`` knobs.  Mistral Nemo–
+    family models (e.g. Celeste) are prone to token-loop degeneration
+    (``_xing_xing_xing…``) without proper sampling discipline, so they
+    get strong defaults; Qwen-family models handle repetition well on
+    their own and get neutral defaults so their preferred sampling is
+    not disturbed. All defaults can be overridden per deployment via
+    env vars so the local Replit machine and the zm1/ngrok machine can
+    be tuned independently without code edits.
+    """
+    if _is_qwen_model(model):
+        defaults = {
+            "top_p": 0.95,
+            "min_p": 0.0,
+            "repetition_penalty": 1.0,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+        }
+    else:
+        defaults = {
+            "top_p": 0.9,
+            "min_p": 0.05,
+            "repetition_penalty": 1.08,
+            "frequency_penalty": 0.3,
+            "presence_penalty": 0.0,
+        }
+    env_map = {
+        "top_p": "LMSTUDIO_TOP_P",
+        "min_p": "LMSTUDIO_MIN_P",
+        "repetition_penalty": "LMSTUDIO_REPETITION_PENALTY",
+        "frequency_penalty": "LMSTUDIO_FREQUENCY_PENALTY",
+        "presence_penalty": "LMSTUDIO_PRESENCE_PENALTY",
+    }
+    return {key: _env_float(env_map[key], defaults[key]) for key in defaults}
+
+
+# Detects runaway repetition in the response text. Mistral Nemo's failure
+# mode is the same short fragment repeated many times in a row — typically
+# underscored romanized pinyin like `_xing_xing_xing_…`. The pattern
+# requires at least 6 total repetitions (\1{5,} = 5 backreference matches
+# plus the initial one) of either:
+#   • a 5–12 char Latin/underscore/digit fragment (catches `_xing_`,
+#     `xing_`, `_ye_mo_`, etc., but NOT short laughter like `haha`,
+#     `lol`, `lmao`)
+#   • a 3–5 char Han sequence (catches looped phrases like
+#     `你說啊你說啊…` but ignores common 2-char emphatic reduplication
+#     like `好的好的`, `不要不要`, and natural single-char stacking like
+#     `啊啊啊啊啊` / `哈哈哈哈哈`).
+_REPETITION_RE = re.compile(
+    r"((?:[A-Za-z_][A-Za-z_0-9]{4,11}|[\u3400-\u4dbf\u4e00-\u9fff]{3,5}))\1{5,}"
+)
+
+
+def _detect_repetition_loop(text: str) -> Optional[int]:
+    """Return the start index of the first runaway repetition, or None."""
+    if not text:
+        return None
+    m = _REPETITION_RE.search(text)
+    return m.start() if m else None
+
+
+# Curated set of Simplified-only Han characters whose Traditional forms
+# differ. Hitting any one of these in a reply that is supposed to be
+# Traditional Chinese is a definite signal that the model produced
+# Simplified output. Not exhaustive — it does not need to be; we only
+# need a reliable trigger to fire the retry path.
+#
+# Characters intentionally excluded because they are valid in Traditional
+# usage too: 台 (台北/台灣 in Traditional), 只 (means "only" in both
+# scripts), 啰 (used in Hong Kong Traditional), 呐 (commonly used in
+# Traditional 呐喊). False positives here would trigger spurious retries
+# on perfectly fine Traditional output.
+_SIMPLIFIED_ONLY_CHARS = frozenset(
+    "级执还让谁话这钟时开来给说进过请头顾爱亲东车马鸟鱼龙贝见对"
+    "学习难页称价个们国会实写听体风长报书业兴义买乱争万丽举么"
+    "乌乐乡币华协单卖卢卫厂厅历压厌厨厦县参双发变叙号叹叶"
+    "吗启员响哗哑喷嗳团园围图圆圣场坏块坚坛垦垫垒"
+)
+
+
+def _has_simplified_chinese(text: str) -> bool:
+    """Return True if text contains any character from the Simplified-only set."""
+    if not text:
+        return False
+    return any(c in _SIMPLIFIED_ONLY_CHARS for c in text)
+
+
+def _classify_response_language(text: str) -> str:
+    """Roughly classify the dominant script of a response.
+
+    Returns ``"zh"`` if Han characters dominate, ``"en"`` if Latin letters
+    dominate with no Han, and ``""`` for short / mixed / unclassifiable.
+    Used only to detect language mismatch against the user's message — it
+    intentionally errs on the side of returning ``""`` rather than calling
+    a borderline reply mismatched.
+    """
+    if not text:
+        return ""
+    han = sum(1 for c in text if "\u3400" <= c <= "\u9fff")
+    latin = sum(1 for c in text if c.isascii() and c.isalpha())
+    if han == 0 and latin == 0:
+        return ""
+    if han >= 3 and han > latin:
+        return "zh"
+    if han == 0 and latin >= 2:
+        return "en"
+    return ""
+
+
 async def _call_lmstudio(
     messages: list,
     model: str,
-    temperature: float = 0.8,
-    max_tokens: int = 1024,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    extra_sampling: Optional[dict] = None,
 ) -> Optional[str]:
     """Make a single chat completion request using LM Studio's OpenAI-compatible endpoint.
 
@@ -575,6 +714,14 @@ async def _call_lmstudio(
     """
     url = f"{_base_url()}/v1/chat/completions"
     is_qwen = _is_qwen_model(model)
+    # Resolve env-driven defaults when the caller didn't pass an explicit value.
+    # Existing call sites that pass a hard-coded temperature (e.g. 0.6 in the
+    # character-break retry) keep their override; everything else picks up the
+    # operator-tunable LMSTUDIO_TEMPERATURE / LMSTUDIO_MAX_TOKENS knobs.
+    if temperature is None:
+        temperature = _env_float("LMSTUDIO_TEMPERATURE", 0.8)
+    if max_tokens is None:
+        max_tokens = _env_int("LMSTUDIO_MAX_TOKENS", 1024)
     # Qwen3 "budget=0" prefill: append a closed empty <think> block so the
     # model skips reasoning and goes straight to the answer. Only applied for
     # Qwen-family models — non-Qwen models (Celeste etc.) don't use <think>
@@ -590,6 +737,15 @@ async def _call_lmstudio(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    # Anti-degeneration sampling. Defaults are model-aware (strong for
+    # Mistral-family, neutral for Qwen) and every key is independently
+    # overridable via env var — see _sampling_overrides().
+    sampling = _sampling_overrides(model)
+    if extra_sampling:
+        # Per-call retry overrides win over both env and defaults. Used by
+        # chat() to apply stricter sampling on the repetition retry path.
+        sampling.update(extra_sampling)
+    payload.update(sampling)
     if is_qwen:
         payload["chat_template_kwargs"] = {"enable_thinking": False}
     est = _estimate_tokens(messages)
@@ -727,6 +883,7 @@ async def chat(
     model: str = "",
     context_images: Optional[list] = None,
     max_tokens: int = 1024,
+    enforce_user_lang: bool = True,
 ) -> tuple[str, Optional[str], bool, bool]:
     """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
 
@@ -737,6 +894,16 @@ async def chat(
     success=False means the call ultimately failed and response_text is the
     user-facing error message — callers should NOT pass it to memory extraction
     or suggestion generation.
+
+    enforce_user_lang: when True (default — the user-facing roleplay path),
+    detect the user's message language and force the reply to match (system
+    prompt override + reinforcement reminder before the last user turn +
+    one-shot retry on language mismatch). The user-facing chat call needs
+    this to combat mid-conversation language drift on Mistral Nemo. Utility
+    callers inside this module (memory extraction, suggestion generation,
+    image-prompt enhancement, image comments) MUST pass False so that an
+    English-language wrapper prompt does not force the LLM to reply in
+    English when the system prompt asks for a Chinese-language output.
 
     By default the qwen3 reasoning phase is disabled (`/no_think` is appended to
     the system prompt) for snappy roleplay replies. Set LMSTUDIO_THINKING=on to
@@ -790,16 +957,19 @@ async def chat(
     # and reply in Chinese to short English greetings like "hello there".
     # When we detect a plain-English user turn, append a hard directive
     # that beats the static policy.
-    if effective_system:
-        user_lang = _detect_user_language(messages)
-        if user_lang == "en":
-            effective_system = effective_system.rstrip() + (
-                "\n\nLANGUAGE FOR THIS REPLY (overrides the default): the "
-                "user's latest message is in English. Reply ENTIRELY in "
-                "fluent English — every word of dialogue, narration, and "
-                "action description must be English. Do NOT include ANY "
-                "Chinese characters, romanized pinyin, or other languages."
-            )
+    #
+    # Skipped entirely when enforce_user_lang=False — utility callers like
+    # extract_memories use English wrapper prompts but want Chinese OUTPUT,
+    # so forcing the reply to English would break their downstream parsing.
+    user_lang = _detect_user_language(messages) if enforce_user_lang else ""
+    if effective_system and user_lang == "en":
+        effective_system = effective_system.rstrip() + (
+            "\n\nLANGUAGE FOR THIS REPLY (overrides the default): the "
+            "user's latest message is in English. Reply ENTIRELY in "
+            "fluent English — every word of dialogue, narration, and "
+            "action description must be English. Do NOT include ANY "
+            "Chinese characters, romanized pinyin, or other languages."
+        )
 
     lm_messages = []
     if effective_system:
@@ -828,6 +998,25 @@ async def chat(
     else:
         plain_recent = _strip_multimodal(recent)
         lm_messages.extend(plain_recent)
+
+    # Stronger language injection for the English override: insert an extra
+    # system reminder right before the final user turn. The static system
+    # prompt sits ~20 assistant turns of Chinese history away from where the
+    # model is sampling its next token, and Mistral-family models tend to
+    # anchor on the local context. Putting the reminder one position before
+    # the user message gives it the weight it needs to actually flip output.
+    if user_lang == "en":
+        for _idx in range(len(lm_messages) - 1, -1, -1):
+            if lm_messages[_idx].get("role") == "user":
+                lm_messages.insert(_idx, {
+                    "role": "system",
+                    "content": (
+                        "REMINDER: the user's latest message above is in English. "
+                        "Reply ENTIRELY in fluent English. Do NOT use Chinese "
+                        "characters, romanized pinyin, or any other language."
+                    ),
+                })
+                break
 
     text = await _call_lmstudio(lm_messages, model=active_model, max_tokens=max_tokens)
 
@@ -917,12 +1106,135 @@ async def chat(
         if not any(m["role"] == "user" for m in retry_msgs[1:]) and last_user_text:
             retry_msgs.append({"role": "user", "content": last_user_text})
 
-        retry_text = await _call_lmstudio(retry_msgs, model=active_model, temperature=0.6)
+        retry_text = await _call_lmstudio(retry_msgs, model=active_model, temperature=0.6, max_tokens=max_tokens)
         if retry_text:
             if _BREAKS_CHARACTER_RE.search(retry_text):
                 print("[LMStudio] Retry also broke character — using retry result anyway")
             else:
                 print("[LMStudio] Retry succeeded — character restored")
+            text = retry_text
+
+    # ----- Quality recovery -----
+    # Three post-generation defences against the Mistral Nemo failure modes:
+    #   1. Runaway repetition (`_xing_xing_xing…` token loops)
+    #   2. Language mismatch (replies in Chinese when the user wrote English)
+    #   3. Simplified Chinese (when Traditional was required)
+    # Each check runs at most one retry. They operate on the raw text BEFORE
+    # `_parse_reply_format` and `_format_for_discord` so the regexes don't
+    # have to fight Discord markdown.
+
+    # 1. Repetition loop. Truncate at the first repetition; if the salvaged
+    #    prefix is too short to be a usable reply, retry once with stricter
+    #    anti-repetition sampling (lower temperature, higher penalties).
+    if text and text.strip():
+        rep_idx = _detect_repetition_loop(text)
+        if rep_idx is not None:
+            salvaged = text[:rep_idx].rstrip()
+            print(
+                f"[LMStudio] Repetition loop detected — truncated at {rep_idx}/{len(text)} chars "
+                f"(salvaged tail: {salvaged[-80:]!r})"
+            )
+            if len(salvaged) >= 50:
+                text = salvaged
+            else:
+                print("[LMStudio] Salvaged prefix too short — retrying with stricter sampling")
+                retry_text = await _call_lmstudio(
+                    lm_messages,
+                    model=active_model,
+                    temperature=0.6,
+                    max_tokens=max_tokens,
+                    extra_sampling={
+                        "repetition_penalty": 1.15,
+                        "frequency_penalty": 0.5,
+                        "presence_penalty": 0.2,
+                        "top_p": 0.85,
+                        "min_p": 0.07,
+                    },
+                )
+                if retry_text and retry_text.strip():
+                    rep_idx2 = _detect_repetition_loop(retry_text)
+                    if rep_idx2 is not None:
+                        retry_salvage = retry_text[:rep_idx2].rstrip()
+                        print(f"[LMStudio] Retry also looped — keeping longer of the two prefixes")
+                        text = retry_salvage if len(retry_salvage) > len(salvaged) else salvaged
+                    else:
+                        text = retry_text
+                else:
+                    # Retry produced nothing usable — fall back to whatever
+                    # salvage we have so the user at least gets a partial reply.
+                    text = salvaged or text
+
+    # 2. Language mismatch — user wrote English but the reply went Chinese
+    #    (the most common failure with mid-conversation language drift).
+    if text and text.strip() and user_lang == "en":
+        if _classify_response_language(text) == "zh":
+            print("[LMStudio] Language mismatch — retrying with stronger English directive")
+            retry_msgs = list(lm_messages)
+            for _idx in range(len(retry_msgs) - 1, -1, -1):
+                if retry_msgs[_idx].get("role") == "user":
+                    retry_msgs.insert(_idx, {
+                        "role": "system",
+                        "content": (
+                            "CRITICAL LANGUAGE OVERRIDE: the previous reply was rejected "
+                            "because it used the wrong language. The user is writing in "
+                            "English. Your reply MUST contain ONLY English words and "
+                            "ASCII punctuation. Do NOT include ANY Han / Chinese "
+                            "characters (no 漢字, no 中文), no romanized pinyin, no "
+                            "other languages. A single Chinese character means the "
+                            "reply is wrong."
+                        ),
+                    })
+                    break
+            retry_text = await _call_lmstudio(
+                retry_msgs,
+                model=active_model,
+                temperature=0.6,
+                max_tokens=max_tokens,
+            )
+            if retry_text and retry_text.strip():
+                if _classify_response_language(retry_text) == "zh":
+                    print("[LMStudio] Retry still in Chinese — using retry result anyway")
+                else:
+                    print("[LMStudio] Retry produced English — language restored")
+                text = retry_text
+
+    # 3. Simplified Chinese. The static prompt requires Traditional, but
+    #    Mistral Nemo Celeste sometimes emits Simplified mid-conversation.
+    #    Only checked when the user is NOT writing in English (otherwise
+    #    we'd want English anyway, and step 2 already handled that).
+    if text and text.strip() and user_lang != "en" and _has_simplified_chinese(text):
+        offenders = sorted({c for c in text if c in _SIMPLIFIED_ONLY_CHARS})
+        offenders_str = "".join(offenders[:10])
+        print(f"[LMStudio] Simplified Chinese detected ({offenders_str!r}) — retrying for Traditional")
+        retry_msgs = list(lm_messages)
+        for _idx in range(len(retry_msgs) - 1, -1, -1):
+            if retry_msgs[_idx].get("role") == "user":
+                retry_msgs.insert(_idx, {
+                    "role": "system",
+                    "content": (
+                        "CRITICAL SCRIPT OVERRIDE: the previous reply was rejected "
+                        "because it used Simplified Chinese characters. You MUST "
+                        "write in Traditional Chinese (繁體中文 / 正體字) only. "
+                        f"The following Simplified characters are FORBIDDEN: "
+                        f"{offenders_str}. Use their Traditional forms instead "
+                        "(e.g. 级→級, 执→執, 还→還, 让→讓, 这→這, 时→時, 开→開, "
+                        "来→來, 给→給, 说→說, 进→進, 过→過, 请→請, 头→頭, "
+                        "顾→顧, 爱→愛, 东→東, 车→車, 国→國, 会→會, 个→個, "
+                        "们→們). Every Han character must be Traditional."
+                    ),
+                })
+                break
+        retry_text = await _call_lmstudio(
+            retry_msgs,
+            model=active_model,
+            temperature=0.6,
+            max_tokens=max_tokens,
+        )
+        if retry_text and retry_text.strip():
+            if _has_simplified_chinese(retry_text):
+                print("[LMStudio] Retry still contains Simplified — using retry result anyway")
+            else:
+                print("[LMStudio] Retry produced Traditional — script restored")
             text = retry_text
 
     text = _parse_reply_format(text)
@@ -1031,7 +1343,12 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
         # Larger budget than chat() default — qwen3 reasoning often needs
         # 2-3K tokens before producing the JSON output. Falls back gracefully
         # to [] when LM Studio still hides everything in reasoning_content.
-        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096)
+        # enforce_user_lang=False: the user-message wrapper here is English
+        # ("Extract memorable facts: …") but the system prompt requires the
+        # extracted facts to be written in Traditional Chinese. Letting the
+        # language enforcer kick in would force English facts and break the
+        # downstream JSON consumers.
+        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096, enforce_user_lang=False)
         if not text:
             return []
         start = text.find("[")
@@ -1187,6 +1504,11 @@ async def enhance_image_prompt(
             system_prompt=system,
             context_images=reference_images if has_images else None,
             max_tokens=8192,
+            # The system prompt mandates English output and the user message
+            # often contains both English ("Image request:") and Chinese
+            # (character description) — the language enforcer's heuristic
+            # is meaningless here, so we disable it.
+            enforce_user_lang=False,
         )
         if enhanced:
             enhanced = _THINK_RE.sub("", enhanced)
@@ -1252,7 +1574,10 @@ async def generate_image_comment(
 
     messages = [{"role": "user", "content": msg}]
     try:
-        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096)
+        # enforce_user_lang=False: the user message is the English instruction
+        # "Write your one-sentence reaction…" but the system prompt asks for
+        # Traditional Chinese (or whatever language the conversation is in).
+        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096, enforce_user_lang=False)
         if text and len(text.strip()) > 2:
             return text.strip()
     except Exception as e:
@@ -1300,7 +1625,11 @@ async def generate_suggestions(
     try:
         # Suggestions need a bigger budget than chat() default since the model
         # reasons about language matching and tone before producing JSON.
-        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096)
+        # enforce_user_lang=False: language matching is handled by the
+        # `language_sample` directive in the system prompt; the user message
+        # wrapper is English ("Generate {count} natural follow-up messages…")
+        # but the suggestions themselves should follow `language_sample`.
+        text, *_ = await chat(messages, system_prompt=system, max_tokens=4096, enforce_user_lang=False)
         if not text:
             return []
         start = text.find("[")
