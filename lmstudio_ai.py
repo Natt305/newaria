@@ -1022,7 +1022,12 @@ async def chat(
     # Operators can also kill the whole language-enforcement subsystem
     # globally via LMSTUDIO_LANG_ENFORCE=off when debugging or when a
     # particular model is known to handle language matching on its own.
-    if enforce_user_lang and not _env_bool("LMSTUDIO_LANG_ENFORCE", True):
+    # We capture the resolved master switch here so the post-generation
+    # recovery block below can also honor it (master-gates all three
+    # checks: repetition, language mismatch, Simplified — matching the
+    # behavior advertised in tokens.txt).
+    lang_enforce_master = _env_bool("LMSTUDIO_LANG_ENFORCE", True)
+    if enforce_user_lang and not lang_enforce_master:
         enforce_user_lang = False
     user_lang = _detect_user_language(messages) if enforce_user_lang else ""
     if effective_system and user_lang == "en":
@@ -1191,10 +1196,14 @@ async def chat(
     #   LMSTUDIO_REPETITION_SALVAGE_MIN=50  — min usable salvage length (chars)
     #   LMSTUDIO_LANG_MISMATCH_RETRY=on     — EN-user/ZH-reply retry on/off
     #   LMSTUDIO_SIMPLIFIED_CHECK=on        — Simplified→Traditional retry on/off
-    repetition_retry_on = _env_bool("LMSTUDIO_REPETITION_RETRY", True)
+    # Each individual gate AND the master `lang_enforce_master` switch
+    # must be true for the corresponding recovery to run, so an operator
+    # can kill the entire subsystem with a single LMSTUDIO_LANG_ENFORCE=off
+    # without having to also flip the three sub-gates.
+    repetition_retry_on = lang_enforce_master and _env_bool("LMSTUDIO_REPETITION_RETRY", True)
     repetition_salvage_min = max(1, _env_int("LMSTUDIO_REPETITION_SALVAGE_MIN", 50))
-    lang_mismatch_retry_on = _env_bool("LMSTUDIO_LANG_MISMATCH_RETRY", True)
-    simplified_check_on = _env_bool("LMSTUDIO_SIMPLIFIED_CHECK", True)
+    lang_mismatch_retry_on = lang_enforce_master and _env_bool("LMSTUDIO_LANG_MISMATCH_RETRY", True)
+    simplified_check_on = lang_enforce_master and _env_bool("LMSTUDIO_SIMPLIFIED_CHECK", True)
 
     # 1. Repetition loop. Truncate at the first repetition; if the salvaged
     #    prefix is too short to be a usable reply, retry once with stricter
