@@ -203,43 +203,83 @@ _DIALOGUE_QUOTE_PAIRS: tuple[tuple[str, str], ...] = (
 )
 
 
+# Patterns for detecting already-formatted spans. Used to mask them out
+# before applying quote-bolding so we never re-wrap quotes that are
+# already inside **bold** or *italic* spans (or merely adjacent to them).
+_PROTECTED_BOLD_RE = re.compile(r"\*\*[^*\n]+?\*\*")
+_PROTECTED_ITALIC_RE = re.compile(r"\*[^*\n]+?\*")
+_PLACEHOLDER_RE = re.compile(r"\x00(\d+)\x00")
+
+
 def _bold_quoted_dialogue(text: str) -> str:
     """Wrap quoted dialogue segments in **bold** when not already wrapped.
 
-    Idempotent per-segment: a segment already preceded and followed by `*`
-    (i.e. inside an existing `**...**` wrapper) is skipped, so re-running
-    the helper on its own output is a no-op.
+    Idempotency strategy: before processing, all existing `**...**` and
+    `*...*` spans are extracted into placeholders, so quotes that already
+    live inside formatted spans (or are merely adjacent to them) are
+    never re-wrapped. After processing, the placeholders are restored.
+    Re-running on the helper's own output is a guaranteed no-op.
 
-    For same-char delimiters (straight `"`), nested quotes within a single
-    line — e.g. `"He said "go" quietly"` — would corrupt the markdown,
-    so any line that contains an odd or larger-than-pair count of that
-    delimiter is left untouched for that pair only. Asymmetric delimiters
-    (`「」`, `『』`, curly `""`) are immune to nesting confusion because
-    the open and close characters differ.
+    For same-char delimiters (straight `"`), nested quotes within a
+    single line — e.g. `"He said "go" quietly"` — would corrupt the
+    markdown, so any line whose `"` count is odd or greater than 2 is
+    left untouched for that pair. Asymmetric delimiters (`「」`, `『』`,
+    curly `""`) are immune to nesting confusion since the open and
+    close characters differ.
+
+    Single-quote `'…'` dialogue is also bolded, gated by negative
+    letter-boundary lookarounds so apostrophes inside contractions
+    (`Kelly's`, `You're`, `don't`) are never matched as dialogue quotes.
+    Lines with more than 4 single-quote chars are skipped to avoid
+    contraction-heavy prose accidentally triggering matches.
     """
+    placeholders: list[str] = []
+
+    def _stash(m: re.Match) -> str:
+        placeholders.append(m.group(0))
+        return f"\x00{len(placeholders) - 1}\x00"
+
+    masked = _PROTECTED_BOLD_RE.sub(_stash, text)
+    masked = _PROTECTED_ITALIC_RE.sub(_stash, masked)
+
     for open_q, close_q in _DIALOGUE_QUOTE_PAIRS:
         if open_q == close_q:
-            # Same-char pair: process line-by-line and skip lines that
-            # don't have a clean pair count (≤ 2 occurrences, even count).
             inner = rf"[^{re.escape(close_q)}\n]+?"
             pattern = re.compile(
-                rf"(?<!\*){re.escape(open_q)}({inner}){re.escape(close_q)}(?!\*)"
+                rf"{re.escape(open_q)}({inner}){re.escape(close_q)}"
             )
             new_lines = []
-            for line in text.split("\n"):
+            for line in masked.split("\n"):
                 count = line.count(open_q)
                 if count == 0 or count % 2 != 0 or count > 2:
                     new_lines.append(line)
                 else:
                     new_lines.append(pattern.sub(rf"**{open_q}\1{close_q}**", line))
-            text = "\n".join(new_lines)
+            masked = "\n".join(new_lines)
         else:
             inner = rf"[^{re.escape(open_q)}{re.escape(close_q)}\n]+?"
             pattern = re.compile(
-                rf"(?<!\*){re.escape(open_q)}({inner}){re.escape(close_q)}(?!\*)"
+                rf"{re.escape(open_q)}({inner}){re.escape(close_q)}"
             )
-            text = pattern.sub(rf"**{open_q}\1{close_q}**", text)
-    return text
+            masked = pattern.sub(rf"**{open_q}\1{close_q}**", masked)
+
+    # Single-quote dialogue: open `'` must NOT be preceded by a letter,
+    # close `'` must NOT be followed by a letter. This filters out every
+    # apostrophe inside a word.
+    sq_pattern = re.compile(r"(?<![A-Za-z])'([^'\n]+?)'(?![A-Za-z])")
+    new_lines = []
+    for line in masked.split("\n"):
+        count = line.count("'")
+        if count == 0 or count > 4:
+            new_lines.append(line)
+        else:
+            new_lines.append(sq_pattern.sub(r"**'\1'**", line))
+    masked = "\n".join(new_lines)
+
+    def _unstash(m: re.Match) -> str:
+        return placeholders[int(m.group(1))]
+
+    return _PLACEHOLDER_RE.sub(_unstash, masked)
 
 
 def _italicize_pure_narration(text: str) -> str:
