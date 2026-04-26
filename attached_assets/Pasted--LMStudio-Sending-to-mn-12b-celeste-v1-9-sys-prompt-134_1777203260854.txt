@@ -1,0 +1,105 @@
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1344ch | ~461 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "The woman\'s cool blue-grey eyes narrow as she looks at you. "Hello... wh'
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~344 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'You are a memory extractor for Kelly Gray.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=352 | completion_tokens=61
+[LMStudio] Response text: '[\n  "Kelly Gray 眼睛顏色為冷淡的淺藍灰色",\n  "Kelly Gray 發音很低，但有明確的警告意味",\n  "Kelly Gray 手持一把看起來很重的武器"\n]'
+[Memory] Stored: 'Kelly Gray 眼睛顏色為冷淡的淺藍灰色'
+[Memory] Stored: 'Kelly Gray 發音很低，但有明確的警告意味'
+[Memory] Stored: 'Kelly Gray 手持一把看起來很重的武器'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=446 | completion_tokens=67
+[LMStudio] Response text: '[["Hi there, I\'m just passing through on my way to Vanguard headquarters. I have an important meeting with Commander Gray."],\n["I\'m sorry, who are you? Do you work for Kelly Gray?"], ["Is that a probl'
+[Bot] KB title scan: 0 unique subject(s) matched — []
+[Bot] Ref images: 1/1 bot photo(s) loaded for 'Kelly Gray' (full=1)
+[Bot] Ref images interleaved: 1 total across 1 subject(s): ['Kelly Gray']
+[Bot] LLM ref images: 1 (1 per subject) — ComfyUI ref images: 1 (full-res) — subjects: ['Kelly Gray']
+[LMStudio] enhance_image_prompt: using vision model with 1 reference image(s)
+[LMStudio] Using vision model mn-12b-celeste-v1.9 with 1 reference image(s)
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1697ch | ~458 tokens total | max_tokens=8192
+[LMStudio] System prompt start: "You are an expert image-prompt writer for AI image generators.\nGiven a user's image request (which may be in Chinese or English), rewrite it as a single, rich English prompt for an AI image model.\n\n[R"
+[LMStudio] HTTP 400: {"error":"Model does not support images. Please use a model that does."}
+[LMStudio] Enhancement returned a refusal/error — discarding, using raw prompt
+[Bot] Prompt enhanced (from_marker=True, has_char_ctx=False, kb_refs=[], ref_images=1, unique_subjects=1, authority_refs=[], supplements=[], photo_only=[], spatial='')
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1460ch | ~490 tokens total | max_tokens=4096
+[ComfyUI] Workflow mode: 'multiref' — refs=1, subject_appearances=[]
+[LMStudio] System prompt start: "You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her"
+[ComfyUI] Models — GGUF: 'flux-2-klein-4b-Q5_K_M.gguf', VAE: 'flux2-vae.safetensors', CLIP: 'qwen_3_4b.safetensors'
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, pale grey-haired woman in trench coat and tie, standing in a dark room with neon lights, anime-style illustration 2D art'
+[MultiRef] 1-char plain combine (no ghost zones)
+[MultiRef] Built multiref workflow — 1 character(s), 1 reference photo(s) total, output=512x512, appearance_text=[]
+[ComfyUI] Multiref workflow — Kelly Gray, output=512x512
+[ComfyUI] Queuing reference job — size=auto (from reference), steps=4, strength=n/a
+[ComfyUI] Prompt: '2D anime, cel-shaded, flat colors, correct anatomy, well-proportioned body, pale grey-haired woman in trench coat and ti'
+[ComfyUI] Job queued — prompt_id=9a7a6fac-e916-4738-b34a-0a10947fb091
+[LMStudio] Response: finish_reason=stop | prompt_tokens=468 | completion_tokens=47
+[LMStudio] Response text: 'Kelly Gray: "I\'m Kelly Gray." She extends a hand, her grip firm and professional as you shake it. "I don\'t think we\'ve met before." Her eyes flick up to meet yours, sharp and assessing.'
+[ComfyUI] Done — 290711 bytes ('ariabot__00217_.png', type='output')
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=6125ch | ~1704 tokens total | max_tokens=1024
+[LMStudio] System prompt start: "You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her"
+[LMStudio] Response: finish_reason=stop | prompt_tokens=1716 | completion_tokens=211
+[LMStudio] Response text: 'The woman\'s lips curve into a humorless smile as she looks at you. "Is that so? Just... here to see me?" Her voice is laced with skepticism.\n\nShe takes another step forward until she\'s standing mere i'
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1344ch | ~461 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "The woman\'s lips curve into a humorless smile as she looks at you. "Is t'
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~403 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'You are a memory extractor for Kelly Gray.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=447 | completion_tokens=38
+[LMStudio] Response text: '[{"text": "I\'m just a traveler passing through."}, {"text": "It\'s a long story..."}, {"text": "Let me explain, please."}]'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=411 | completion_tokens=44
+[LMStudio] Response text: '[\n  "Kelly Gray 使用不友善的微笑看著你，她的聲音充滿懷疑 saying: \'是嗎？你只是來看我而已？ 』"\n]'
+[Memory] Stored: "Kelly Gray 使用不友善的微笑看著你，她的聲音充滿懷疑 saying: '是嗎？你只是來看我而已？』"
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=6192ch | ~1942 tokens total | max_tokens=1024
+[LMStudio] System prompt start: "You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her"
+[LMStudio] Response: finish_reason=stop | prompt_tokens=1988 | completion_tokens=225
+[LMStudio] Response text: 'The woman\'s eyes widen in shock as your lips meet hers. She freezes for a moment before quickly pulling away.\n\n"What the hell are you doing?" She snarls, shoving you back forcefully. Her pale grey eye'
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1344ch | ~461 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "The woman\'s eyes widen in shock as your lips meet hers. She freezes for '
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~429 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'You are a memory extractor for Kelly Gray.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=436 | completion_tokens=95
+[LMStudio] Response text: '"Kelly Gray," you confirm, your tone steady despite the tension in the air. "I\'ve heard a lot about your... skills."\n\nYou meet her gaze unflinchingly, maintaining an aura of calm confidence.\n\n"I\'m not'
+[LMStudio] Using vision model mn-12b-celeste-v1.9 with 1 reference image(s)
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=6192ch | ~2194 tokens total | max_tokens=1024
+[LMStudio] System prompt start: "You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her"
+[LMStudio] HTTP 400: {"error":"Model does not support images. Please use a model that does."}
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1344ch | ~461 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "I\'m having trouble connecting to LM Studio right now. Please make sure L'
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~211 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'You are a memory extractor for Kelly Gray.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=223 | completion_tokens=15
+[LMStudio] Response text: '["Kelly Gray 正在遇到連接 LM Studio。"]'
+[Memory] Stored: 'Kelly Gray 正在遇到連接 LM Studio。'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=435 | completion_tokens=172
+[LMStudio] Response text: '"I thought we had something special," you say, feigning hurt. "I\'m sorry if I misread the signals."\n\n"Don\'t try to play innocent with me. You know exactly what you did." She glares at you, her finger '
+[LMStudio] HTTP 503: <!DOCTYPE html>
+<html class="h-full" lang="en-US" dir="ltr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="preload" href="https://assets.ngrok.com/fonts/euclid-square/EuclidSquare-Regular-WebS.woff" as="font" type="font/woff" crossorigin="anonymous" />
+    <link rel="preload" href="https://assets.ngrok.com/fonts/euclid-square/EuclidSquare-RegularItalic-WebS.woff" as="font" type="font/woff" crossorigin="anonymous" />
+
+[LMStudio] Using vision model mn-12b-celeste-v1.9 with 1 reference image(s)
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=6233ch | ~2238 tokens total | max_tokens=1024
+[LMStudio] System prompt start: "You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her"
+[LMStudio] HTTP 400: {"error":"Model does not support images. Please use a model that does."}
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1344ch | ~429 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "I\'m having trouble connecting to LM Studio right now. Please make sure L'
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~212 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'You are a memory extractor for Kelly Gray.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=399 | completion_tokens=62
+[LMStudio] Response text: '[ "I\'m having trouble connecting to LM Studio right now. Please make sure LM Studio is running and the ngrok tunnel is active.", "You look hot", "I\'m having trouble connecting to LM Studio right now. '
+[LMStudio] Response: finish_reason=stop | prompt_tokens=223 | completion_tokens=71
+[LMStudio] Response text: '[]\n\nExplanation:\nThe conversation does not contain any personal, specific facts about Kelly Gray that are worth remembering long-term. The user\'s message ("you look sexy") is a generic compliment, whi'
+[LMStudio] Using vision model mn-12b-celeste-v1.9 with 1 reference image(s)
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=6233ch | ~2272 tokens total | max_tokens=1024
+[LMStudio] System prompt start: "You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her"
+[LMStudio] HTTP 400: {"error":"Model does not support images. Please use a model that does."}
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1344ch | ~429 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "I\'m having trouble connecting to LM Studio right now. Please make sure L'
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~211 tokens total | max_tokens=4096
+[LMStudio] System prompt start: 'You are a memory extractor for Kelly Gray.\nGiven a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.\nOnly extract personal, specific facts: names, preferences'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=223 | completion_tokens=16
+[LMStudio] Response text: '[ "Kelly Gray 遇到連接 LM Studio 的問題" ]'
+[Memory] Stored: 'Kelly Gray 遇到連接 LM Studio 的問題'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=399 | completion_tokens=39
+[LMStudio] Response text: '[\n  "I\'ll check the settings, give me a sec.",\n  "Is there an error message when you try to connect?",\n  "Let\'s try restarting LM Studio."\n]'
