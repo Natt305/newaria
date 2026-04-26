@@ -1,15 +1,16 @@
 """Shared chat-formatting utilities for AI backends.
 
-Centralises the suggestion-salvage parser and the Discord post-processor
-(quote bolding, narration italicising, self-name prefix stripping) that
-were previously duplicated across `lmstudio_ai.py`, `groq_ai.py`, and
-`ollama_ai.py`. Backend modules should import from here so any fix lands
-in one place.
+Centralises the suggestion-salvage parser, the suggestion-button generator
+pipeline, and the Discord post-processor (quote bolding, narration
+italicising, self-name prefix stripping) that were previously duplicated
+across `lmstudio_ai.py`, `groq_ai.py`, and `ollama_ai.py`. Backend modules
+should import from here so any fix lands in one place.
 
 Public surface:
 
 * `salvage_suggestions(text, count)`
 * `suggestion_log_snippet(text, limit=200)`
+* `generate_suggestions(chat_fn, log_prefix, *, ...)`
 * `SUGGESTION_LIST_PREFIX_RE`
 * `bold_quoted_dialogue(text)`
 * `italicize_pure_narration(text)`
@@ -23,7 +24,7 @@ from __future__ import annotations
 
 import json as _json
 import re
-from typing import Optional
+from typing import Any, Awaitable, Callable, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -367,3 +368,203 @@ def format_for_discord(text: str, character_name: str = "") -> str:
     text = bold_quoted_dialogue(text)
     text = italicize_pure_narration(text)
     return text
+
+
+# ---------------------------------------------------------------------------
+# Shared suggestion-button generator pipeline
+# ---------------------------------------------------------------------------
+# The three backend modules (`lmstudio_ai`, `groq_ai`, `ollama_ai`) used to
+# carry near-identical ~100-line `generate_suggestions` implementations.
+# They diverged only in (a) which `chat()` flavour they invoked, (b) their
+# `[Backend]` log prefix, and (c) whether the prompt asked for an `{"items":
+# [...]}` object root or a bare JSON array. Every other line — prompt
+# construction, JSON-parse → bracket-extract → salvage → 80-char clamp —
+# was copy-pasted three times, which is exactly the bug pattern the
+# `salvage_suggestions` consolidation just fixed. Anything that flows
+# through the JSON-or-prose recovery pipeline now lives here so a future
+# tweak (length cap, language-detection nudge, log shape) lands in one
+# place.
+
+# Discord button labels are hard-capped at 80 visible characters; the
+# 77-char ellipsis trim is part of the "behaviour is identical" contract.
+_BUTTON_LABEL_MAX = 80
+_BUTTON_LABEL_ELLIPSIS_AT = 77
+
+
+def _clamp_button_label(s: str) -> str:
+    """Clamp a button label to 80 chars, replacing the tail with `...`."""
+    if len(s) > _BUTTON_LABEL_MAX:
+        s = s[:_BUTTON_LABEL_ELLIPSIS_AT] + "..."
+    return s
+
+
+def _clean_json_label(s: Any) -> str:
+    """Normalise a JSON-extracted label: stringify, strip, drop trailing dot, clamp."""
+    return _clamp_button_label(str(s).strip().rstrip("."))
+
+
+def _parse_json_array_payload(text: str) -> Optional[list]:
+    """Extract a list-of-strings payload from `text`.
+
+    Mirrors the per-backend helpers of the same name. Handles both shapes
+    that flow through `generate_suggestions`:
+      - JSON-Schema / json_object mode wraps the array in `{"items":[...]}`
+        (the schema's root must be an object for OpenAI strict-mode
+        compatibility).
+      - Free-form mode emits a bare JSON array, possibly with surrounding
+        prose; we bracket-extract from the first `[` to the last `]`.
+    Returns ``None`` when neither shape parses, so the caller can fall
+    through to its salvage path.
+    """
+    if not text:
+        return None
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            for key in ("items", "suggestions", "memories", "facts"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return value
+        elif isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    start = text.find("[")
+    end = text.rfind("]") + 1
+    if start != -1 and end > start:
+        try:
+            data = _json.loads(text[start:end])
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return None
+
+
+# Type alias for the per-backend chat callable supplied to
+# `generate_suggestions`. The wrapper is responsible for applying any
+# backend-specific kwargs (max_tokens, response_format, enforce_user_lang)
+# and returning just the model's raw text reply.
+ChatFn = Callable[[list, str], Awaitable[str]]
+
+
+async def generate_suggestions(
+    chat_fn: ChatFn,
+    log_prefix: str,
+    *,
+    topic: str,
+    bot_name: str,
+    character_background: str,
+    count: int = 3,
+    guiding_prompt: str = "",
+    language_sample: str = "",
+    prompt_object_root: bool = False,
+) -> list:
+    """Generate short follow-up suggestion buttons (max 80 chars each).
+
+    Backend-agnostic implementation of the JSON-parse → bracket-extract →
+    salvage pipeline previously copy-pasted across the three AI modules.
+
+    Parameters
+    ----------
+    chat_fn:
+        Async callable ``(messages, system_prompt) -> str`` that invokes
+        the backend's underlying `chat()` with whatever extra kwargs that
+        backend needs (e.g. `response_format`, `max_tokens=4096`,
+        `enforce_user_lang=False` on LM Studio). Must return the model's
+        raw text reply, or an empty string on failure.
+    log_prefix:
+        Bracketed backend name used in log lines (e.g. ``"LMStudio"``,
+        ``"Groq"``, ``"Ollama"``).
+    prompt_object_root:
+        When True, the "Return ONLY ..." line in the system prompt asks
+        for a ``{"items":[...]}`` object root instead of a bare array.
+        Set this when the backend has constrained-decoding mode active
+        (Groq json_object, Ollama format=json). Leave False on LM Studio:
+        its JSON Schema mode wraps the array in `items` automatically and
+        the prompt has historically always asked for a bare array.
+    """
+    lang_instruction = ""
+    if language_sample and language_sample.strip():
+        lang_instruction = (
+            f"IMPORTANT: Write every suggestion in the EXACT same language as this sample text "
+            f"(detect it automatically — do NOT translate): \"{language_sample[:120]}\"\n"
+        )
+
+    if prompt_object_root:
+        return_line = (
+            'Return ONLY a valid JSON object of the shape {"items": [<suggestion strings>]}. '
+            'No markdown, no code fences.\n'
+        )
+    else:
+        return_line = "Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
+
+    base = (
+        f"{lang_instruction}"
+        f"You are {bot_name}. {character_background}\n"
+        f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
+        f"Write them as the USER speaking to you — casual, warm, and conversational.\n"
+        f"Each should be 10–75 characters. No punctuation at the end. No quotes.\n"
+        f"{return_line}"
+    )
+    if guiding_prompt:
+        system = f"{guiding_prompt}\n\n{base}"
+    else:
+        system = base
+
+    if topic and topic.strip():
+        prompt = (
+            f"Context of the conversation so far:\n{topic[:400]}\n\n"
+            f"Generate {count} natural follow-up messages the user might send next."
+        )
+    else:
+        prompt = (
+            f"Generate {count} casual opening messages someone might send to start chatting with {bot_name}."
+        )
+
+    messages = [{"role": "user", "content": prompt}]
+
+    text = ""
+    try:
+        text = await chat_fn(messages, system)
+        if not text:
+            print(f"[{log_prefix}] Suggestion: empty model response — no buttons")
+            return []
+        # Schema / json_object mode emits `{"items":[...]}`; legacy mode
+        # emits a bare array. The shared parser handles both shapes.
+        parsed = _parse_json_array_payload(text)
+        if parsed is not None and len(parsed) > 0:
+            return [_clean_json_label(s) for s in parsed[:count]]
+        # Bracket-extract fallback for prose with an embedded array.
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start != -1 and end > start:
+            arr = _json.loads(text[start:end])
+            if isinstance(arr, list) and len(arr) > 0:
+                return [_clean_json_label(s) for s in arr[:count]]
+    except Exception as e:
+        print(
+            f"[{log_prefix}] Suggestion JSON parse error: {e} — "
+            f"raw: {suggestion_log_snippet(text)!r}"
+        )
+
+    # Salvage path: when JSON extraction fails, recover suggestions from a
+    # numbered/bulleted list or plain newline-separated lines. The salvage
+    # parser already strips quotes/punctuation/length-filters to 5–80
+    # chars, so we only re-clamp here (mirrors the original behaviour:
+    # JSON path runs `.strip().rstrip(".")` + clamp; salvage path only
+    # clamps).
+    salvaged = salvage_suggestions(text, count)
+    if salvaged:
+        clean = [_clamp_button_label(s) for s in salvaged]
+        print(
+            f"[{log_prefix}] Suggestion: salvaged {len(clean)} from non-JSON output — "
+            f"raw: {suggestion_log_snippet(text)!r}"
+        )
+        return clean
+
+    print(
+        f"[{log_prefix}] Suggestion: salvage failed too — "
+        f"raw: {suggestion_log_snippet(text)!r}"
+    )
+    return []  # silently return no buttons rather than wrong-language fallbacks

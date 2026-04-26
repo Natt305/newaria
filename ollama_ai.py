@@ -11,8 +11,7 @@ from typing import Optional
 import aiohttp
 
 from reply_format import (
-    salvage_suggestions as _salvage_suggestions,
-    suggestion_log_snippet as _suggestion_log_snippet,
+    generate_suggestions as _shared_generate_suggestions,
 )
 
 DEFAULT_MODEL = "gemma3:12b"
@@ -1165,95 +1164,35 @@ async def generate_suggestions(
 ) -> list:
     """Generate short follow-up suggestion buttons (max 80 chars each).
 
+    Thin wrapper around `reply_format.generate_suggestions` that supplies
+    Ollama's chat-call shape and format=json toggle. The shared helper
+    owns the prompt construction, JSON-parse → salvage pipeline, and
+    `[Ollama]` log lines.
+
     language_sample should be a snippet of the bot's latest reply so the AI
     can detect and mirror the correct language automatically.
     """
-    lang_instruction = ""
-    if language_sample and language_sample.strip():
-        lang_instruction = (
-            f"IMPORTANT: Write every suggestion in the EXACT same language as this sample text "
-            f"(detect it automatically — do NOT translate): \"{language_sample[:120]}\"\n"
-        )
-
     use_json_format = _json_format_enabled()
-    if use_json_format:
-        # Ask for `{"items":[...]}` so format=json (object root) works and
-        # the shared parser shape matches LM Studio / Groq.
-        return_line = (
-            'Return ONLY a valid JSON object of the shape {"items": [<suggestion strings>]}. '
-            'No markdown, no code fences.\n'
-        )
-    else:
-        return_line = "Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
-
-    base = (
-        f"{lang_instruction}"
-        f"You are {bot_name}. {character_background}\n"
-        f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
-        f"Write them as the USER speaking to you — casual, warm, and conversational.\n"
-        f"Each should be 10–75 characters. No punctuation at the end. No quotes.\n"
-        f"{return_line}"
-    )
-    if guiding_prompt:
-        system = f"{guiding_prompt}\n\n{base}"
-    else:
-        system = base
-
-    if topic and topic.strip():
-        prompt = f"Context of the conversation so far:\n{topic[:400]}\n\nGenerate {count} natural follow-up messages the user might send next."
-    else:
-        prompt = f"Generate {count} casual opening messages someone might send to start chatting with {bot_name}."
-
-    messages = [{"role": "user", "content": prompt}]
+    # When format=json is on Ollama forces an OBJECT root, so ask the
+    # prompt for `{"items":[...]}` to match LM Studio / Groq's shape.
     response_format = {"type": "json_object"} if use_json_format else None
 
-    text = ""
-    try:
+    async def _chat(messages: list, system_prompt: str) -> str:
         text, *_ = await chat(
             messages,
-            system_prompt=system,
+            system_prompt=system_prompt,
             response_format=response_format,
         )
-        if not text:
-            print("[Ollama] Suggestion: empty model response — no buttons")
-            return []
-        # Schema mode emits `{"items":[...]}`; legacy mode emits a bare array.
-        # The shared helper accepts both shapes.
-        parsed = _parse_json_array_payload(text)
-        if parsed is not None and len(parsed) > 0:
-            clean = []
-            for s in parsed[:count]:
-                s = str(s).strip().rstrip(".")
-                if len(s) > 80:
-                    s = s[:77] + "..."
-                clean.append(s)
-            return clean
-        start = text.find("[")
-        end = text.rfind("]") + 1
-        if start != -1 and end > start:
-            arr = _json.loads(text[start:end])
-            if isinstance(arr, list) and len(arr) > 0:
-                clean = []
-                for s in arr[:count]:
-                    s = str(s).strip().rstrip(".")
-                    if len(s) > 80:
-                        s = s[:77] + "..."
-                    clean.append(s)
-                return clean
-    except Exception as e:
-        print(f"[Ollama] Suggestion JSON parse error: {e} — raw: {_suggestion_log_snippet(text)!r}")
+        return text
 
-    # Salvage path: when JSON extraction fails, try to recover suggestions
-    # from a numbered/bulleted list or plain newline-separated lines.
-    salvaged = _salvage_suggestions(text, count)
-    if salvaged:
-        clean = []
-        for s in salvaged:
-            if len(s) > 80:
-                s = s[:77] + "..."
-            clean.append(s)
-        print(f"[Ollama] Suggestion: salvaged {len(clean)} from non-JSON output — raw: {_suggestion_log_snippet(text)!r}")
-        return clean
-
-    print(f"[Ollama] Suggestion: salvage failed too — raw: {_suggestion_log_snippet(text)!r}")
-    return []  # silently return no buttons rather than wrong-language fallbacks
+    return await _shared_generate_suggestions(
+        _chat,
+        "Ollama",
+        topic=topic,
+        bot_name=bot_name,
+        character_background=character_background,
+        count=count,
+        guiding_prompt=guiding_prompt,
+        language_sample=language_sample,
+        prompt_object_root=use_json_format,
+    )

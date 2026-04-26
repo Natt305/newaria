@@ -18,8 +18,7 @@ import aiohttp
 from reply_format import (
     CR_NAME_PREFIX_RE as _CR_NAME_PREFIX_RE,
     format_for_discord as _format_for_discord,
-    salvage_suggestions as _salvage_suggestions,
-    suggestion_log_snippet as _suggestion_log_snippet,
+    generate_suggestions as _shared_generate_suggestions,
 )
 
 DEFAULT_MODEL = "mn-12b-celeste-v1.9"
@@ -2006,34 +2005,13 @@ async def generate_suggestions(
     guiding_prompt: str = "",
     language_sample: str = "",
 ) -> list:
-    """Generate short follow-up suggestion buttons (max 80 chars each)."""
-    lang_instruction = ""
-    if language_sample and language_sample.strip():
-        lang_instruction = (
-            f"IMPORTANT: Write every suggestion in the EXACT same language as this sample text "
-            f"(detect it automatically — do NOT translate): \"{language_sample[:120]}\"\n"
-        )
+    """Generate short follow-up suggestion buttons (max 80 chars each).
 
-    base = (
-        f"{lang_instruction}"
-        f"You are {bot_name}. {character_background}\n"
-        f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
-        f"Write them as the USER speaking to you — casual, warm, and conversational.\n"
-        f"Each should be 10–75 characters. No punctuation at the end. No quotes.\n"
-        f"Return ONLY a valid JSON array of strings. No markdown, no code fences.\n"
-    )
-    if guiding_prompt:
-        system = f"{guiding_prompt}\n\n{base}"
-    else:
-        system = base
-
-    if topic and topic.strip():
-        prompt = f"Context of the conversation so far:\n{topic[:400]}\n\nGenerate {count} natural follow-up messages the user might send next."
-    else:
-        prompt = f"Generate {count} casual opening messages someone might send to start chatting with {bot_name}."
-
-    messages = [{"role": "user", "content": prompt}]
-
+    Thin wrapper around `reply_format.generate_suggestions` that supplies
+    LM Studio's chat-call shape and structured-output toggle. The shared
+    helper owns the prompt construction, JSON-parse → salvage pipeline,
+    and `[LMStudio]` log lines.
+    """
     # Structured-output mode: ask LM Studio to constrain decoding to a
     # `{"items":[exactly N short strings]}` schema when LMSTUDIO_USE_JSON_SCHEMA
     # is on. The salvage path stays in place so the bot still recovers
@@ -2043,8 +2021,7 @@ async def generate_suggestions(
         _suggestion_response_format(count) if _json_schema_enabled() else None
     )
 
-    text = ""
-    try:
+    async def _chat(messages: list, system_prompt: str) -> str:
         # Suggestions need a bigger budget than chat() default since the model
         # reasons about language matching and tone before producing JSON.
         # enforce_user_lang=False: language matching is handled by the
@@ -2053,52 +2030,25 @@ async def generate_suggestions(
         # but the suggestions themselves should follow `language_sample`.
         text, *_ = await chat(
             messages,
-            system_prompt=system,
+            system_prompt=system_prompt,
             max_tokens=4096,
             enforce_user_lang=False,
             response_format=response_format,
         )
-        if not text:
-            print("[LMStudio] Suggestion: empty model response — no buttons")
-            return []
-        # Schema-mode replies arrive as `{"items":[...]}`; the helper also
-        # accepts a bare `[...]` so legacy free-text replies still parse.
-        parsed = _parse_json_array_payload(text)
-        if parsed is not None and len(parsed) > 0:
-            clean = []
-            for s in parsed[:count]:
-                s = str(s).strip().rstrip(".")
-                if len(s) > 80:
-                    s = s[:77] + "..."
-                clean.append(s)
-            return clean
-        start = text.find("[")
-        end = text.rfind("]") + 1
-        if start != -1 and end > start:
-            arr = _json.loads(text[start:end])
-            if isinstance(arr, list) and len(arr) > 0:
-                clean = []
-                for s in arr[:count]:
-                    s = str(s).strip().rstrip(".")
-                    if len(s) > 80:
-                        s = s[:77] + "..."
-                    clean.append(s)
-                return clean
-    except Exception as e:
-        print(f"[LMStudio] Suggestion JSON parse error: {e} — raw: {_suggestion_log_snippet(text)!r}")
+        return text
 
-    # Salvage path: Mistral-family models often emit a numbered or bulleted
-    # list instead of a JSON array. Rather than show no buttons at all, try
-    # to recover whatever the model gave us.
-    salvaged = _salvage_suggestions(text, count)
-    if salvaged:
-        clean = []
-        for s in salvaged:
-            if len(s) > 80:
-                s = s[:77] + "..."
-            clean.append(s)
-        print(f"[LMStudio] Suggestion: salvaged {len(clean)} from non-JSON output — raw: {_suggestion_log_snippet(text)!r}")
-        return clean
-
-    print(f"[LMStudio] Suggestion: salvage failed too — raw: {_suggestion_log_snippet(text)!r}")
-    return []
+    # LM Studio's prompt has historically always asked for a bare JSON array
+    # even when JSON Schema mode is on — the schema wraps the array in
+    # `items` automatically and the shared parser recovers it. Keeping
+    # `prompt_object_root=False` preserves the exact prompt text.
+    return await _shared_generate_suggestions(
+        _chat,
+        "LMStudio",
+        topic=topic,
+        bot_name=bot_name,
+        character_background=character_background,
+        count=count,
+        guiding_prompt=guiding_prompt,
+        language_sample=language_sample,
+        prompt_object_root=False,
+    )

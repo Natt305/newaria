@@ -20,7 +20,7 @@ A Discord AI bot powered by a configurable AI backend (Ollama or Groq), Cloudfla
 | `ai_backend.py` | Router — delegates AI calls to groq_ai or ollama_ai based on `AI_BACKEND` env var |
 | `groq_ai.py` | Groq API client — text chat, image understanding, memory extraction |
 | `ollama_ai.py` | Ollama API client — same interface as groq_ai, uses local Ollama server |
-| `reply_format.py` | Shared chat-formatting helpers (suggestion salvage parser + Discord post-processor — bold dialogue, italicise narration, strip self-name prefix). Used by `lmstudio_ai.py`, `groq_ai.py`, and `ollama_ai.py` so each fix lands in one place. |
+| `reply_format.py` | Shared chat-formatting helpers (suggestion salvage parser, suggestion-button generator pipeline, Discord post-processor — bold dialogue, italicise narration, strip self-name prefix). Used by `lmstudio_ai.py`, `groq_ai.py`, and `ollama_ai.py` so each fix lands in one place. |
 | `cloudflare_ai.py` | Cloudflare Workers AI — image generation |
 | `database.py` | File-based storage for character, memories, knowledge; SQLite for history |
 | `views.py` | Discord UI components (buttons, modals, paginated views) |
