@@ -1159,47 +1159,51 @@ async def chat(
     # Qwen/hauhaucs models use their own <reply>/<subtext> ChatML format which
     # _parse_reply_format() converts, so they must NOT get these instructions.
     if not _is_qwen_model(active_model) and effective_system:
-        effective_system = (
-            effective_system.rstrip()
-            # NOTE: Discord-formatting (bold dialogue + italic narration) is
-            # now applied by _format_for_discord() below, because Mistral-
-            # family models reliably ignore the prompt-level instruction.
-            # Language-quality guard: Mistral-family models (Celeste etc.)
-            # have weak Chinese tokenization and fall back to underscore-
-            # separated romanized pinyin (`_xing_`, `_xiang_ye_mo_`) for
-            # syllables they can't decode, producing gibberish like
-            # `你是新_xing_人_xiang_ye_mo?`. Forbid this explicitly and
-            # require an English fallback when Chinese fails.
-            + "\n\nLanguage quality (CRITICAL): write ONLY in real Traditional "
-            "Chinese characters (漢字) or English. NEVER produce romanized "
-            "pinyin or transliteration like `_xing_`, `_xiang_`, `_ye_mo_`, "
-            "`xing人`, or any underscore-separated syllables. If you cannot "
-            "write a phrase entirely in real Chinese characters, write the "
-            "WHOLE reply in fluent English instead. Mixing English narration "
-            "with broken Chinese dialogue is forbidden — pick one language "
-            "per reply and commit to it."
-        )
-
-        # Roleplay-format directive: nudges Mistral-family models to produce
-        # multi-paragraph replies with bolded quoted dialogue and italicised
-        # narration instead of a single bare line. The post-processing
-        # formatter (`_format_for_discord` below) only bolds/italicises what
-        # the model actually emits, so a prompt-level nudge is needed to
-        # make the structure appear in the raw output.
-        #
-        # Gated on `enforce_user_lang` (= the user-facing roleplay path)
-        # so utility callers — `extract_memories`, `enhance_image_prompt`,
-        # `generate_image_comment`, `generate_suggestions` — which all pass
-        # `enforce_user_lang=False` and rely on bespoke structured-output
-        # prompts (JSON arrays, single-sentence replies, English-only
-        # Flux prompts) do NOT receive the roleplay shape directive. Those
-        # callers would otherwise have their structured output corrupted
-        # into 2–3 paragraphs of in-character roleplay narration.
-        #
-        # Density is operator-tunable via
-        # LMSTUDIO_NARRATION_TARGET=rich|standard|terse and defaults to
-        # "rich" for plain-prose models.
+        # Both the language-quality guard and the roleplay-format directive
+        # are user-facing roleplay concerns and MUST NOT be appended to
+        # utility callers' system prompts. Utility callers — `extract_memories`,
+        # `enhance_image_prompt`, `generate_image_comment`,
+        # `generate_suggestions` — all pass `enforce_user_lang=False` and
+        # rely on bespoke structured-output prompts (JSON arrays, single-
+        # sentence replies, English-only Flux prompts). Mistral-family models
+        # are particularly sensitive to extra system-prompt content when
+        # asked for structured output: appending the long
+        # "Language quality (CRITICAL)…" block to a JSON-array request was
+        # observed to push Mistral Nemo Celeste off the structured-output
+        # rails, producing prose where a JSON list was expected and so
+        # silently emptying the suggestion bar.
         if enforce_user_lang:
+            effective_system = (
+                effective_system.rstrip()
+                # NOTE: Discord-formatting (bold dialogue + italic narration) is
+                # now applied by _format_for_discord() below, because Mistral-
+                # family models reliably ignore the prompt-level instruction.
+                # Language-quality guard: Mistral-family models (Celeste etc.)
+                # have weak Chinese tokenization and fall back to underscore-
+                # separated romanized pinyin (`_xing_`, `_xiang_ye_mo_`) for
+                # syllables they can't decode, producing gibberish like
+                # `你是新_xing_人_xiang_ye_mo?`. Forbid this explicitly and
+                # require an English fallback when Chinese fails.
+                + "\n\nLanguage quality (CRITICAL): write ONLY in real Traditional "
+                "Chinese characters (漢字) or English. NEVER produce romanized "
+                "pinyin or transliteration like `_xing_`, `_xiang_`, `_ye_mo_`, "
+                "`xing人`, or any underscore-separated syllables. If you cannot "
+                "write a phrase entirely in real Chinese characters, write the "
+                "WHOLE reply in fluent English instead. Mixing English narration "
+                "with broken Chinese dialogue is forbidden — pick one language "
+                "per reply and commit to it."
+            )
+
+            # Roleplay-format directive: nudges Mistral-family models to produce
+            # multi-paragraph replies with bolded quoted dialogue and italicised
+            # narration instead of a single bare line. The post-processing
+            # formatter (`_format_for_discord` below) only bolds/italicises what
+            # the model actually emits, so a prompt-level nudge is needed to
+            # make the structure appear in the raw output.
+            #
+            # Density is operator-tunable via
+            # LMSTUDIO_NARRATION_TARGET=rich|standard|terse and defaults to
+            # "rich" for plain-prose models.
             effective_system = effective_system + _roleplay_format_directive(
                 _narration_target_for(active_model),
                 character_name=character_name,
@@ -1560,7 +1564,11 @@ async def chat(
     if marker_match:
         img_prompt = marker_match.group(1).strip()
         clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
-        if clean_text and not _is_qwen_model(active_model):
+        # Discord formatting is gated on `enforce_user_lang` because the four
+        # utility callers (suggestion/memory/image-prompt/image-comment) want
+        # the raw model text — bolding quoted strings inside a JSON array or
+        # italicising a single-sentence reaction would corrupt their parsers.
+        if clean_text and not _is_qwen_model(active_model) and enforce_user_lang:
             clean_text = _format_for_discord(clean_text, character_name=character_name)
         print(f"[LMStudio] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
         return (clean_text or None), img_prompt, True, True
@@ -1568,8 +1576,10 @@ async def chat(
     # Plain-prose models (Celeste etc.) ignore the prompt-level Discord-
     # formatting instruction, so we apply bold-dialogue + italic-narration
     # in code. Qwen / hauhaucs ChatML output is already formatted by
-    # _parse_reply_format() above and must NOT be re-processed.
-    if not _is_qwen_model(active_model):
+    # _parse_reply_format() above and must NOT be re-processed. Utility
+    # callers (`enforce_user_lang=False`) are also skipped — see comment
+    # on the marker-path branch above for why.
+    if not _is_qwen_model(active_model) and enforce_user_lang:
         text = _format_for_discord(text, character_name=character_name)
 
     if response_declines_image(text, messages=messages):
@@ -1899,6 +1909,56 @@ async def generate_image_comment(
     return ""
 
 
+# Strips numbered/bulleted list prefixes ("1.", "1)", "1:", "-", "*", "•")
+# so the salvage parser can recover suggestions from non-JSON output shapes
+# that Mistral-family models often emit instead of a clean JSON array.
+_SUGGESTION_LIST_PREFIX_RE = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.):])\s+")
+
+
+def _salvage_suggestions(text: str, count: int) -> list:
+    """Recover up to ``count`` suggestions from non-JSON model output.
+
+    Handles the common Mistral-family output shapes that appear when JSON
+    extraction fails: numbered lists (``1. Hi``, ``1) Hi``, ``1: Hi``),
+    bullet lists (``- Hi``, ``* Hi``, ``• Hi``), and plain newline-
+    separated lines. Strips enclosing ASCII or curly quotes, trailing
+    punctuation, and only keeps lines whose visible text is between 5 and
+    80 characters (Discord button label hard limit).
+    """
+    if not text:
+        return []
+    out: list = []
+    for raw_line in text.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Drop list prefixes
+        line = _SUGGESTION_LIST_PREFIX_RE.sub("", line, count=1).strip()
+        # Drop enclosing quotes (straight or curly) plus a trailing comma
+        line = line.rstrip(",").strip()
+        if len(line) >= 2 and line[0] in "\"'\u201c\u2018" and line[-1] in "\"'\u201d\u2019":
+            line = line[1:-1].strip()
+        # Drop trailing sentence punctuation per the original suggestion contract
+        line = line.rstrip(".!?。！？").strip()
+        if not (5 <= len(line) <= 80):
+            continue
+        # Skip lines that look like the wrapper prose ("Here are 3 suggestions:")
+        if line.endswith(":"):
+            continue
+        out.append(line)
+        if len(out) >= count:
+            break
+    return out
+
+
+def _suggestion_log_snippet(text: str, limit: int = 200) -> str:
+    """Collapse newlines + truncate raw model output for a one-line log."""
+    if not text:
+        return ""
+    flat = " ".join(text.split())
+    return flat[:limit] + ("…" if len(flat) > limit else "")
+
+
 async def generate_suggestions(
     topic: str,
     bot_name: str,
@@ -1935,6 +1995,7 @@ async def generate_suggestions(
 
     messages = [{"role": "user", "content": prompt}]
 
+    text = ""
     try:
         # Suggestions need a bigger budget than chat() default since the model
         # reasons about language matching and tone before producing JSON.
@@ -1944,6 +2005,7 @@ async def generate_suggestions(
         # but the suggestions themselves should follow `language_sample`.
         text, *_ = await chat(messages, system_prompt=system, max_tokens=4096, enforce_user_lang=False)
         if not text:
+            print("[LMStudio] Suggestion: empty model response — no buttons")
             return []
         start = text.find("[")
         end = text.rfind("]") + 1
@@ -1958,6 +2020,20 @@ async def generate_suggestions(
                     clean.append(s)
                 return clean
     except Exception as e:
-        print(f"[LMStudio] Suggestion parse error: {e}")
+        print(f"[LMStudio] Suggestion JSON parse error: {e} — raw: {_suggestion_log_snippet(text)!r}")
 
+    # Salvage path: Mistral-family models often emit a numbered or bulleted
+    # list instead of a JSON array. Rather than show no buttons at all, try
+    # to recover whatever the model gave us.
+    salvaged = _salvage_suggestions(text, count)
+    if salvaged:
+        clean = []
+        for s in salvaged:
+            if len(s) > 80:
+                s = s[:77] + "..."
+            clean.append(s)
+        print(f"[LMStudio] Suggestion: salvaged {len(clean)} from non-JSON output")
+        return clean
+
+    print(f"[LMStudio] Suggestion: salvage failed too — raw: {_suggestion_log_snippet(text)!r}")
     return []

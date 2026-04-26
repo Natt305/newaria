@@ -915,6 +915,49 @@ async def generate_image_comment(
     return ""
 
 
+# Strips numbered/bulleted list prefixes ("1.", "1)", "1:", "-", "*", "•")
+# so the salvage parser can recover suggestions from non-JSON output shapes.
+_SUGGESTION_LIST_PREFIX_RE = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.):])\s+")
+
+
+def _salvage_suggestions(text: str, count: int) -> list:
+    """Recover up to ``count`` suggestions from non-JSON model output.
+
+    Handles numbered lists (``1. Hi``, ``1) Hi``, ``1: Hi``), bullet lists
+    (``- Hi``, ``* Hi``, ``• Hi``), and plain newline-separated lines.
+    Strips enclosing ASCII or curly quotes, trailing punctuation, and only
+    keeps lines whose visible text is between 5 and 80 characters.
+    """
+    if not text:
+        return []
+    out: list = []
+    for raw_line in text.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = _SUGGESTION_LIST_PREFIX_RE.sub("", line, count=1).strip()
+        line = line.rstrip(",").strip()
+        if len(line) >= 2 and line[0] in "\"'\u201c\u2018" and line[-1] in "\"'\u201d\u2019":
+            line = line[1:-1].strip()
+        line = line.rstrip(".!?。！？").strip()
+        if not (5 <= len(line) <= 80):
+            continue
+        if line.endswith(":"):
+            continue
+        out.append(line)
+        if len(out) >= count:
+            break
+    return out
+
+
+def _suggestion_log_snippet(text: str, limit: int = 200) -> str:
+    """Collapse newlines + truncate raw model output for a one-line log."""
+    if not text:
+        return ""
+    flat = " ".join(text.split())
+    return flat[:limit] + ("…" if len(flat) > limit else "")
+
+
 async def generate_suggestions(
     topic: str,
     bot_name: str,
@@ -955,9 +998,11 @@ async def generate_suggestions(
 
     messages = [{"role": "user", "content": prompt}]
 
+    text = ""
     try:
         text, *_ = await chat(messages, system_prompt=system)
         if not text:
+            print("[Ollama] Suggestion: empty model response — no buttons")
             return []
         start = text.find("[")
         end = text.rfind("]") + 1
@@ -972,6 +1017,19 @@ async def generate_suggestions(
                     clean.append(s)
                 return clean
     except Exception as e:
-        print(f"[Ollama] Suggestion parse error: {e}")
+        print(f"[Ollama] Suggestion JSON parse error: {e} — raw: {_suggestion_log_snippet(text)!r}")
 
+    # Salvage path: when JSON extraction fails, try to recover suggestions
+    # from a numbered/bulleted list or plain newline-separated lines.
+    salvaged = _salvage_suggestions(text, count)
+    if salvaged:
+        clean = []
+        for s in salvaged:
+            if len(s) > 80:
+                s = s[:77] + "..."
+            clean.append(s)
+        print(f"[Ollama] Suggestion: salvaged {len(clean)} from non-JSON output")
+        return clean
+
+    print(f"[Ollama] Suggestion: salvage failed too — raw: {_suggestion_log_snippet(text)!r}")
     return []  # silently return no buttons rather than wrong-language fallbacks

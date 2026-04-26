@@ -1608,6 +1608,22 @@ _passive_memory_length: int = 200
 _command_roles: dict = {}
 
 
+def _get_bool_setting(key: str, default: bool) -> bool:
+    """Read a boolean setting, treating "unset" as ``default``.
+
+    `database.get_setting()` already merges `_SETTINGS_DEFAULTS` so for the
+    keys defined there this just returns the documented default. This helper
+    exists so a future setting that is *not* in `_SETTINGS_DEFAULTS` (or one
+    that gets corrupted to None) does not silently flip the toggle to OFF
+    via the surrounding `bool(get_setting(...))` idiom — `bool(None)` is
+    False, which would disable suggestions / memory unexpectedly.
+    """
+    val = database.get_setting(key)
+    if val is None:
+        return default
+    return bool(val)
+
+
 def _memory_age(created_at: str) -> str:
     """Return a human-friendly age string for a memory timestamp."""
     try:
@@ -1867,7 +1883,7 @@ async def on_ready():
     print(f"[Bot]   character.json     — character name & background")
     # Restore persisted suggestions settings
     global _suggestions_enabled, _suggestion_prompt
-    _suggestions_enabled = bool(database.get_setting("suggestions_enabled"))
+    _suggestions_enabled = _get_bool_setting("suggestions_enabled", default=True)
     _suggestion_prompt = database.get_setting("suggestion_prompt") or ""
     print(f"[Bot] 建議按鈕: {'開啟' if _suggestions_enabled else '關閉'}")
     if _suggestion_prompt:
@@ -1882,9 +1898,9 @@ async def on_ready():
 
     # Restore persisted memory settings
     global _memory_enabled, _memory_length, _passive_memory_enabled, _passive_memory_length
-    _memory_enabled = bool(database.get_setting("memory_enabled"))
+    _memory_enabled = _get_bool_setting("memory_enabled", default=True)
     _memory_length = int(database.get_setting("memory_length") or 50)
-    _passive_memory_enabled = bool(database.get_setting("passive_memory_enabled"))
+    _passive_memory_enabled = _get_bool_setting("passive_memory_enabled", default=True)
     _passive_memory_length = int(database.get_setting("passive_memory_length") or 200)
     mem_count = database.count_memories()
     print(f"[Bot] 長期記憶: {'開啟' if _memory_enabled else '關閉'} (近期 {_memory_length} 條 | 深層記憶: {'開啟' if _passive_memory_enabled else '關閉'} 最多 {_passive_memory_length} 條 | 已儲存 {mem_count} 條)")
