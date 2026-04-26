@@ -335,6 +335,61 @@ def _format_for_discord(text: str) -> str:
     return text
 
 
+# Per-turn language detector. Mistral-family models read the static
+# "default Traditional Chinese — switch when user writes a full sentence
+# in another language" rule too literally and treat short English
+# greetings like "hello there" as not-a-full-sentence, producing mixed-
+# language replies. We detect plain-English user turns in code and
+# inject a hard override directive that beats the static policy.
+_HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]+")
+
+
+def _detect_user_language(messages: list) -> str:
+    """Detect the language of the most recent user message.
+
+    Returns:
+      ``"en"`` when the latest user turn is plain English (no Han
+      characters AND at least 2 Latin words OR a single word ≥ 5 chars).
+      ``""`` otherwise — leaves the static language policy alone, so
+      Chinese turns and ambiguous one-word replies (`ok`, `hi`, `好`)
+      keep the model's default behaviour.
+
+    Chinese detection is intentionally not returned: the static policy
+    already defaults to Traditional Chinese, and overriding on every
+    Chinese-leaning turn would risk forcing zh on bilingual messages
+    that contain only a Chinese name plus English context.
+    """
+    last_user_text = ""
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            last_user_text = content
+        elif isinstance(content, list):
+            parts = [
+                p.get("text", "")
+                for p in content
+                if isinstance(p, dict) and p.get("type") == "text"
+            ]
+            last_user_text = " ".join(parts)
+        break
+
+    if not last_user_text or not last_user_text.strip():
+        return ""
+
+    if _HAN_RE.search(last_user_text):
+        return ""
+
+    words = _LATIN_WORD_RE.findall(last_user_text)
+    if not words:
+        return ""
+    if len(words) >= 2 or len(words[0]) >= 5:
+        return "en"
+    return ""
+
+
 _BREAKS_CHARACTER_RE = re.compile(
     r"(大型語言模型|語言模型|language model|large language model|"
     r"我是\s*(gemma|llama|mistral|qwen|phi|claude|gpt|chatgpt|bard|gemini|deepseek|kimi|copilot)\b|"
@@ -728,6 +783,23 @@ async def chat(
             "with broken Chinese dialogue is forbidden — pick one language "
             "per reply and commit to it."
         )
+
+    # Per-turn language override. The static character prompt says "default
+    # Traditional Chinese, switch when the user writes a full sentence in
+    # another language", but Mistral-family models read that too literally
+    # and reply in Chinese to short English greetings like "hello there".
+    # When we detect a plain-English user turn, append a hard directive
+    # that beats the static policy.
+    if effective_system:
+        user_lang = _detect_user_language(messages)
+        if user_lang == "en":
+            effective_system = effective_system.rstrip() + (
+                "\n\nLANGUAGE FOR THIS REPLY (overrides the default): the "
+                "user's latest message is in English. Reply ENTIRELY in "
+                "fluent English — every word of dialogue, narration, and "
+                "action description must be English. Do NOT include ANY "
+                "Chinese characters, romanized pinyin, or other languages."
+            )
 
     lm_messages = []
     if effective_system:
