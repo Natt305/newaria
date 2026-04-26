@@ -171,6 +171,35 @@ LMSTUDIO_THINKING=off
 # LMSTUDIO_LANG_MISMATCH_RETRY=on
 # LMSTUDIO_SIMPLIFIED_CHECK=on
 
+# ----------------------------------------------------------------
+# 角色扮演格式 / Roleplay reply format
+# ----------------------------------------------------------------
+# 控制非 Qwen 系列（純文字提示）模型在系統提示裡會被注入多少
+# 「多段落 + 引號對白 + 動作旁白」的格式指引。預設值依模型族群
+# 自動切換：Mistral Nemo（Celeste 等）→ rich，Qwen → standard
+# (Qwen 路徑本來就用自己的 <reply>/<subtext> 格式，所以這個指引
+# 在 Qwen 上不會被注入)。
+#
+#   rich      預設 (Mistral)。要求模型每次回覆 2–3 個短段落，
+#             把口語對白放在直雙引號內 ("…")，並在對白前後寫
+#             動作/表情/環境/內心想法等敘事。系統提示會包含
+#             一個簡短示範。最適合 Celeste 之類的角色扮演微調。
+#   standard  簡化版指引 (一句話、無示範)。仍要求引號對白和
+#             一句以上敘事，但不強制 2–3 段。適合反應較慢或
+#             token 預算較緊的模型。
+#   terse     完全關閉這段指引 (不影響語言保護或反迴圈機制)。
+#             適合自己已經會輸出正確格式、不需要額外提示的模型。
+#
+# Operator-tunable density of the roleplay-format directive injected
+# for plain-prose (non-Qwen) models. Defaults: "rich" for Mistral and
+# other plain-prose models, "standard" for Qwen (the directive is
+# gated off on the Qwen path anyway). "rich" asks for 2–3 short
+# paragraphs interleaving italic narration with bolded quoted
+# dialogue and includes a one-line shape example. "standard" drops
+# the example and the paragraph count. "terse" disables the
+# directive entirely.
+# LMSTUDIO_NARRATION_TARGET=
+
 # ================================================================
 #  Cloudflare 圖像生成（可選）
 # ================================================================

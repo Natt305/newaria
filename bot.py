@@ -1045,6 +1045,7 @@ async def process_chat(
     response_text, image_prompt, _prompt_from_marker, chat_success = await groq_ai.chat(
         history, system_prompt=system_prompt,
         context_images=context_images if context_images else None,
+        character_name=bot_name,
     )
 
     # Hard-stop on a failed chat: send the user-facing error directly, but do

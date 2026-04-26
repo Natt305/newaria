@@ -316,10 +316,94 @@ def _italicize_pure_narration(text: str) -> str:
     return "\n\n".join(out_paragraphs)
 
 
-def _format_for_discord(text: str) -> str:
+# Punctuation that Mistral-family models put between their own character
+# name and the rest of a reply when they ignore the "no name prefix"
+# instruction. Covers `:`, em-dash `—`, en-dash `–`, and ASCII `-`.
+_SELF_NAME_SEP_CLASS = r"[:\u2014\u2013\-]"
+
+
+def _strip_self_name_prefix(text: str, character_name: str = "") -> str:
+    """Strip a leading self-name label from each paragraph of `text`.
+
+    Mistral-family models (Celeste etc.) frequently begin a reply (or each
+    paragraph of a reply) with the bot's own character name as a label, e.g.
+    ``Kelly Gray: ...``, ``Kelly Gray — ...``, or just ``Kelly: ...``. The
+    Discord-formatter then has nothing to do with the line — there are no
+    quotes to bold — and `_italicize_pure_narration` wraps the whole thing
+    in ``*...*``, producing the redundant ``*Kelly Gray: ...*`` look
+    reported by users.
+
+    Two modes:
+
+    * **Name-aware** (`character_name` provided): strip ONLY exact matches
+      of the bot's own name (including the first token of a multi-word
+      name, so ``Kelly Gray`` also matches a bare ``Kelly:``). This is
+      safe to apply unconditionally because legitimate prefixes like
+      ``Note:`` or another character's quoted line cannot match.
+
+    * **Heuristic fallback** (no name): use the same Title-Case heuristic
+      that `_parse_reply_format` already uses on the Qwen path
+      (`_CR_NAME_PREFIX_RE`). Conservative — accepts a single word or
+      two-word Title-Case label followed by ``: ``.
+
+    Operates per paragraph (split on ``\\n\\n``), so a colon in the middle
+    of narration (e.g. ``She glanced at the clock: 11:47 PM.``) is never
+    touched. A leading ``*`` from pre-existing italics is preserved by
+    re-attaching it after the strip.
+    """
+    if not text:
+        return text
+
+    name = (character_name or "").strip()
+    name_pattern: Optional[re.Pattern] = None
+    if name:
+        # Build the per-name pattern once. Match either the full name
+        # (case-insensitive) or just its first token, followed by an
+        # optional `*` (preceding italic marker survives re-attachment),
+        # one of the separator characters, and optional whitespace.
+        first_token = name.split()[0]
+        alternatives = [re.escape(name)]
+        if first_token and first_token.lower() != name.lower():
+            alternatives.append(re.escape(first_token))
+        name_pattern = re.compile(
+            rf"^\s*({'|'.join(alternatives)})\s*{_SELF_NAME_SEP_CLASS}\s*",
+            re.IGNORECASE,
+        )
+
+    out_paragraphs: list[str] = []
+    for para in text.split("\n\n"):
+        # Preserve a leading `*` (italic opener) so the rest of the
+        # formatter still sees the same wrapping after the strip.
+        leading_star = ""
+        body = para
+        stripped_body = body.lstrip()
+        if stripped_body.startswith("*") and not stripped_body.startswith("**"):
+            leading_ws = body[: len(body) - len(stripped_body)]
+            leading_star = leading_ws + "*"
+            body = stripped_body[1:]
+
+        if name_pattern is not None:
+            new_body = name_pattern.sub("", body, count=1)
+        else:
+            # Heuristic: Title-Case word, optional second Title-Case
+            # word, then `: `. Re-uses the existing Qwen-path constant
+            # so the two paths stay in lockstep.
+            new_body = _CR_NAME_PREFIX_RE.sub("", body, count=1)
+
+        if leading_star:
+            new_body = f"{leading_star}{new_body}"
+        out_paragraphs.append(new_body)
+
+    return "\n\n".join(out_paragraphs)
+
+
+def _format_for_discord(text: str, character_name: str = "") -> str:
     """Convert plain-prose roleplay output into Discord-ready markdown.
 
-    Two passes:
+    Three passes:
+      0. Strip a leading self-name label from each paragraph
+         (e.g. ``Kelly Gray: ...`` → ``...``) so the bolder/italicizer
+         doesn't have to deal with a redundant prefix.
       1. Bold any quoted dialogue segments not already inside **...**.
       2. Italicise paragraphs that are pure narration with no existing
          formatting and no dialogue quotes.
@@ -330,6 +414,7 @@ def _format_for_discord(text: str) -> str:
     """
     if not text:
         return text
+    text = _strip_self_name_prefix(text, character_name=character_name)
     text = _bold_quoted_dialogue(text)
     text = _italicize_pure_narration(text)
     return text
@@ -927,6 +1012,91 @@ def _strip_multimodal(messages: list) -> list:
     return result
 
 
+_NARRATION_TARGETS = ("rich", "standard", "terse")
+
+
+def _narration_target_for(active_model: str) -> str:
+    """Return the desired roleplay narration density for `active_model`.
+
+    Operator override: ``LMSTUDIO_NARRATION_TARGET=rich|standard|terse``.
+    Defaults are model-aware:
+
+    * Mistral-family / other plain-prose models → ``rich`` (multi-paragraph,
+      interleaved bolded dialogue and italicised narration).
+    * Qwen / hauhaucs ChatML models → ``standard`` (the directive is
+      gated off entirely on the Qwen path anyway, but this keeps the
+      helper safe to call from non-gated contexts).
+
+    Anything outside the known set falls back to the model-aware default.
+    """
+    raw = os.environ.get("LMSTUDIO_NARRATION_TARGET", "").strip().lower()
+    if raw in _NARRATION_TARGETS:
+        return raw
+    if raw:
+        print(f"[LMStudio] Invalid LMSTUDIO_NARRATION_TARGET={raw!r} — using model default")
+    return "standard" if _is_qwen_model(active_model) else "rich"
+
+
+def _roleplay_format_directive(target: str, character_name: str = "") -> str:
+    """Build the system-prompt addendum that nudges plain-prose models
+    toward the user-requested rich roleplay shape.
+
+    Returns ``""`` for ``terse`` (operator opt-out) so the addendum can be
+    string-concatenated unconditionally without padding the prompt with
+    blank guidance.
+    """
+    if target == "terse":
+        return ""
+
+    name_label = character_name.strip() if character_name else "your character"
+    self_prefix_rule = (
+        f"Do NOT prefix replies with your own name "
+        f"(no '{name_label}:' or '{name_label} —' at the start of the reply or any paragraph). "
+        if character_name
+        else "Do NOT prefix replies with your own name as a label "
+             "(no 'CharacterName:' at the start of the reply or any paragraph). "
+    )
+
+    if target == "standard":
+        # Lighter directive — one line, no example.
+        return (
+            "\n\nReply format (CRITICAL): "
+            + self_prefix_rule
+            + "Wrap every spoken line in straight double quotes (\"like this\") "
+            "and write at least one sentence of in-character narration around the "
+            "dialogue (action, expression, body language, what you notice or feel) "
+            "instead of replying with a single bare line."
+        )
+
+    # target == "rich"
+    #
+    # The example below deliberately puts AT MOST ONE quoted dialogue
+    # snippet per line. The post-processing bolder (_bold_quoted_dialogue)
+    # skips any line whose straight-`"` count exceeds 2 (a defensive guard
+    # against nested quotes like `"He said "go" quietly"`), so multiple
+    # `"…"` snippets crammed on one line would not be rendered as bold.
+    # Encouraging the model to break dialogue beats across paragraphs keeps
+    # the bolder happy and produces the rendered shape the user asked for.
+    return (
+        "\n\nReply format (CRITICAL): write each reply as 2–3 short paragraphs "
+        "of in-character roleplay, NEVER a single bare line. "
+        + self_prefix_rule
+        + "Every spoken line MUST be wrapped in straight double quotes "
+        "(\"like this\"). Around the dialogue write vivid in-character "
+        "narration — actions, expressions, body language, the room, what "
+        "you notice, what you're thinking — interleaved with the spoken "
+        "lines. Put at most ONE quoted line per paragraph (split a back-and-"
+        "forth into separate paragraphs). Even a snippy or dismissive "
+        "reply (\"What do you want?\") needs at least one sentence of "
+        "narration around the dialogue. Plain assertions about feelings "
+        "belong in narration, not dialogue.\n"
+        "Example shape (write your own content; do not copy the wording):\n"
+        "  Her eyebrow twitches at the interruption, a flicker of surprise crossing her stoic features. She tilts her head, studying him.\n\n"
+        "  \"Stupid?\" she repeats, voice low and measured.\n\n"
+        "  She steps closer, invading his space, eyes never leaving his. \"That's an interesting choice of words.\""
+    )
+
+
 async def chat(
     messages: list,
     system_prompt: str = "",
@@ -934,6 +1104,7 @@ async def chat(
     context_images: Optional[list] = None,
     max_tokens: Optional[int] = None,
     enforce_user_lang: bool = True,
+    character_name: str = "",
 ) -> tuple[str, Optional[str], bool, bool]:
     """Send a chat request to LM Studio. Returns (response_text, image_prompt_or_None, prompt_from_marker, success).
 
@@ -1008,6 +1179,31 @@ async def chat(
             "with broken Chinese dialogue is forbidden — pick one language "
             "per reply and commit to it."
         )
+
+        # Roleplay-format directive: nudges Mistral-family models to produce
+        # multi-paragraph replies with bolded quoted dialogue and italicised
+        # narration instead of a single bare line. The post-processing
+        # formatter (`_format_for_discord` below) only bolds/italicises what
+        # the model actually emits, so a prompt-level nudge is needed to
+        # make the structure appear in the raw output.
+        #
+        # Gated on `enforce_user_lang` (= the user-facing roleplay path)
+        # so utility callers — `extract_memories`, `enhance_image_prompt`,
+        # `generate_image_comment`, `generate_suggestions` — which all pass
+        # `enforce_user_lang=False` and rely on bespoke structured-output
+        # prompts (JSON arrays, single-sentence replies, English-only
+        # Flux prompts) do NOT receive the roleplay shape directive. Those
+        # callers would otherwise have their structured output corrupted
+        # into 2–3 paragraphs of in-character roleplay narration.
+        #
+        # Density is operator-tunable via
+        # LMSTUDIO_NARRATION_TARGET=rich|standard|terse and defaults to
+        # "rich" for plain-prose models.
+        if enforce_user_lang:
+            effective_system = effective_system + _roleplay_format_directive(
+                _narration_target_for(active_model),
+                character_name=character_name,
+            )
 
     # Per-turn language override. The static character prompt says "default
     # Traditional Chinese, switch when the user writes a full sentence in
@@ -1365,7 +1561,7 @@ async def chat(
         img_prompt = marker_match.group(1).strip()
         clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
         if clean_text and not _is_qwen_model(active_model):
-            clean_text = _format_for_discord(clean_text)
+            clean_text = _format_for_discord(clean_text, character_name=character_name)
         print(f"[LMStudio] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
         return (clean_text or None), img_prompt, True, True
 
@@ -1374,7 +1570,7 @@ async def chat(
     # in code. Qwen / hauhaucs ChatML output is already formatted by
     # _parse_reply_format() above and must NOT be re-processed.
     if not _is_qwen_model(active_model):
-        text = _format_for_discord(text)
+        text = _format_for_discord(text, character_name=character_name)
 
     if response_declines_image(text, messages=messages):
         img_prompt = user_wants_image(messages)

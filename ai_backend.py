@@ -49,12 +49,19 @@ async def chat(
     system_prompt: str = "",
     model: Optional[str] = None,
     context_images: Optional[list] = None,
+    character_name: str = "",
 ) -> tuple[str, Optional[str], bool, bool]:
     kwargs = {"system_prompt": system_prompt}
     if model:
         kwargs["model"] = model
     if context_images:
         kwargs["context_images"] = context_images
+    # Backend-specific: only the LM Studio path uses character_name (for
+    # the plain-prose self-name strip + roleplay format directive). Forward
+    # it only when set AND when the active backend accepts it, so the
+    # Groq / Ollama paths see no signature change.
+    if character_name and _backend() == "lmstudio":
+        kwargs["character_name"] = character_name
     return await _mod().chat(messages, **kwargs)
 
 
