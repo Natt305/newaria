@@ -17,6 +17,11 @@ import aiohttp
 
 DEFAULT_MODEL = "mn-12b-celeste-v1.9"
 
+# Sentinel returned by _call_lmstudio when the loaded model rejects an image
+# payload (HTTP 400 "Model does not support images"). chat() catches this and
+# retries without the images instead of treating it as a connection error.
+_NO_VISION_SENTINEL = "__LMSTUDIO_MODEL_HAS_NO_VISION__"
+
 IMAGE_TRIGGER_PHRASES = [
     # English declines
     "i can't generate",
@@ -382,6 +387,12 @@ async def _call_lmstudio(
                 if resp.status != 200:
                     body = await resp.text()
                     print(f"[LMStudio] HTTP {resp.status}: {body[:500]}")
+                    # Distinguish "model is text-only" from a real connection
+                    # failure so chat() can retry without images instead of
+                    # showing the user a misleading "trouble connecting"
+                    # message.
+                    if resp.status == 400 and "does not support images" in body.lower():
+                        return _NO_VISION_SENTINEL
                     return None
                 data = await resp.json()
                 choices = data.get("choices", [])
@@ -478,17 +489,32 @@ async def chat(
     effective_system = _apply_no_think(system_prompt, model=active_model)
 
     # For plain-prose models (anything that is NOT a Qwen/hauhaucs ChatML
-    # fine-tune), inject a Discord formatting reminder so the model bolds spoken
-    # dialogue and italicises actions without needing post-processing.
+    # fine-tune), inject Discord formatting + language-fallback rules.
     # Qwen/hauhaucs models use their own <reply>/<subtext> ChatML format which
-    # _parse_reply_format() converts, so they must NOT get this instruction.
+    # _parse_reply_format() converts, so they must NOT get these instructions.
     if not _is_qwen_model(active_model) and effective_system:
         effective_system = (
             effective_system.rstrip()
+            # Discord markdown so the bot's replies render with bold dialogue
+            # and italicised action/thought without needing post-processing.
             + "\n\nDiscord formatting (required): wrap ALL spoken dialogue in "
             "**bold** (e.g. **「你好嗎？」**). Wrap action descriptions and "
             "internal thoughts in *italics* (e.g. *她輕輕嘆了口氣*). "
             "Never use other markdown — just bold for speech, italics for action/thought."
+            # Language-quality guard: Mistral-family models (Celeste etc.)
+            # have weak Chinese tokenization and fall back to underscore-
+            # separated romanized pinyin (`_xing_`, `_xiang_ye_mo_`) for
+            # syllables they can't decode, producing gibberish like
+            # `你是新_xing_人_xiang_ye_mo?`. Forbid this explicitly and
+            # require an English fallback when Chinese fails.
+            + "\n\nLanguage quality (CRITICAL): write ONLY in real Traditional "
+            "Chinese characters (漢字) or English. NEVER produce romanized "
+            "pinyin or transliteration like `_xing_`, `_xiang_`, `_ye_mo_`, "
+            "`xing人`, or any underscore-separated syllables. If you cannot "
+            "write a phrase entirely in real Chinese characters, write the "
+            "WHOLE reply in fluent English instead. Mixing English narration "
+            "with broken Chinese dialogue is forbidden — pick one language "
+            "per reply and commit to it."
         )
 
     lm_messages = []
@@ -521,7 +547,26 @@ async def chat(
 
     text = await _call_lmstudio(lm_messages, model=active_model, max_tokens=max_tokens)
 
-    if text is None:
+    # Image fallback: the loaded model is text-only. Strip the image parts
+    # from the last user message and retry with plain text + a note about
+    # the attachment, so the conversation continues instead of dying with a
+    # misleading "trouble connecting" message.
+    if text == _NO_VISION_SENTINEL:
+        print(f"[LMStudio] {active_model} is text-only — retrying without images")
+        plain_messages = []
+        if effective_system:
+            plain_messages.append({"role": "system", "content": effective_system})
+        for msg in _strip_multimodal(recent):
+            plain_messages.append(msg)
+        # Annotate the last user turn so the model knows an image was sent
+        # but couldn't be analysed by this backend.
+        if plain_messages and plain_messages[-1]["role"] == "user":
+            note = " [The user attached an image, but the active model can't see images — respond to the text only.]"
+            existing = plain_messages[-1]["content"]
+            plain_messages[-1]["content"] = (existing if isinstance(existing, str) else "") + note
+        text = await _call_lmstudio(plain_messages, model=active_model, max_tokens=max_tokens)
+
+    if text is None or text == _NO_VISION_SENTINEL:
         return "I'm having trouble connecting to LM Studio right now. Please make sure LM Studio is running and the ngrok tunnel is active.", None, False
 
     # Empty-response safety net. When thinking is enabled, the model can spend
@@ -646,6 +691,9 @@ async def understand_image(
 
     try:
         text = await _call_lmstudio(messages, model=model, temperature=0.5, max_tokens=2048)
+        if text == _NO_VISION_SENTINEL:
+            print(f"[LMStudio Vision] {model} is text-only — image understanding unavailable")
+            return None
         if text and text.strip():
             print(f"[LMStudio Vision] Success with model: {model}")
             return text
