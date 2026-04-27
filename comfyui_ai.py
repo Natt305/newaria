@@ -126,13 +126,15 @@ DEFAULT_STRENGTH = 0.75
 DEFAULT_TIMEOUT = 300
 
 # Qwen-Image-Edit-Rapid AIO defaults (Phr00t / phil2sat GGUF stack).
-# 4 steps + CFG 1.0 is the distilled model's intended config; euler_ancestral/beta
-# matches the reference Qwen-Rapid-AIO.json published by Phr00t.
-DEFAULT_QWEN_STEPS = 4
+# Distilled model: 4–6 steps + CFG 1.0 is the intended config. Phr00t's
+# Qwen-Rapid-AIO.json reference uses 4; we default to 6 here for a small
+# detail bump at modest cost. euler_ancestral/beta matches the reference.
+# Default canvas is 1024 × 768 (4:3), the most common Discord scene aspect.
+DEFAULT_QWEN_STEPS = 6
 DEFAULT_QWEN_SAMPLER = "euler_ancestral"
 DEFAULT_QWEN_SCHEDULER = "beta"
 DEFAULT_QWEN_WIDTH = 1024
-DEFAULT_QWEN_HEIGHT = 1024
+DEFAULT_QWEN_HEIGHT = 768
 
 # Matches diffusers_worker.py — applied to every generation for anatomy quality.
 _ANATOMY_SUFFIX = (

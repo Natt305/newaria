@@ -494,3 +494,14 @@ COMFYUI_QWEN_VAE=pig_qwen_image_vae_fp32-f16.gguf
 # Note: mmproj-f16.gguf must be in the same folder, otherwise reference images are silently ignored
 COMFYUI_QWEN_CLIP_GGUF=Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf
 
+# 取樣步數、寬度、高度（不設則使用預設）
+# 預設：6 步、1024 × 768（4:3，最常見的 Discord 場景比例）。
+# Distilled Qwen-Rapid 模型 4–6 步即可，6 步比 4 步多一點細節。
+#
+# Sampler steps / width / height (uncomment to override defaults).
+# Defaults: 6 steps, 1024 × 768 (4:3, the most common Discord scene aspect).
+# The distilled Qwen-Rapid model runs at 4–6 steps; 6 gives a small detail bump.
+# COMFYUI_QWEN_STEPS=6
+# COMFYUI_QWEN_WIDTH=1024
+# COMFYUI_QWEN_HEIGHT=768
+

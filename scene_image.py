@@ -605,8 +605,22 @@ async def run_scene_image(
                 seed_parts.append(body)
             seed = "  ".join(p for p in seed_parts if p) or "cinematic scene"
 
-        enriched = await _derive_prompt(seed, looks, bot_name)
-        enriched = enriched.rstrip(",. \n") + CINEMATIC_SUFFIX
+        # Inject the bot's own name into the seed when it's missing. The LLM
+        # often emits `[SCENE: she on stage…]` (pronoun only), which makes
+        # _gather_refs miss the bot's KB photos and the Qwen dispatcher fall
+        # back to plain txt2img. Prepending `"{bot_name}: "` here guarantees:
+        #   (a) _gather_refs' fuzzy seed matcher still picks up the bot,
+        #   (b) the derived prompt names the rendered subject, and
+        #   (c) the multi-edit / edit workflow triggers when photos exist.
+        # Skipped cleanly when the bot has no name configured or no saved
+        # photo (in which case there's nothing to anchor to anyway).
+        if bot_name and database.get_character_image_count() > 0:
+            if bot_name.lower() not in seed.lower():
+                seed = f"{bot_name}: {seed}"
+                print(f"[SceneImage] injected bot name into seed ({bot_name!r})")
+
+        enriched_base = await _derive_prompt(seed, looks, bot_name)
+        enriched_base = enriched_base.rstrip(",. \n")
 
         # 2. Engine-tier ref assembly
         backend = os.environ.get("IMAGE_BACKEND", "cloudflare").lower()
@@ -614,6 +628,7 @@ async def run_scene_image(
 
         gen_kwargs: dict = {}
         resolved_subjects: list[str] = []
+        all_subjects: list[str] = []
         if backend == "comfyui" and engine == "qwen":
             refs, subjects, appearances = _gather_refs(seed, explicit_subjects)
             if refs:
@@ -621,6 +636,7 @@ async def run_scene_image(
                 gen_kwargs["reference_subjects"] = subjects
                 gen_kwargs["subject_appearances"] = appearances
             resolved_subjects = subjects
+            all_subjects = subjects
         elif backend == "comfyui":
             # FLUX — single-ref char only, no KB interleaving
             refs, subjects, _ = _gather_refs(seed, explicit_subjects)
@@ -629,12 +645,35 @@ async def run_scene_image(
                 gen_kwargs["reference_images"] = refs[:1]
                 gen_kwargs["reference_subjects"] = subjects[:1]
             resolved_subjects = subjects[:1]
+            all_subjects = subjects[:1]
         elif backend in ("local_diffusers", "hf_spaces"):
             refs, subjects, _ = _gather_refs(seed, explicit_subjects)
             if refs:
                 gen_kwargs["reference_image"] = refs[0]
             resolved_subjects = subjects[:1]
+            all_subjects = subjects[:1]
         # cloudflare: text-only, no refs
+
+        # Carry resolved subject names into the final prompt: append a short
+        # "featuring …" tail naming any matched subjects that don't already
+        # appear in the enriched body. This keeps the model aware of WHO is
+        # in the scene (matching the reference photos it was given). Cap to
+        # the first 3 to avoid over-padding short prompts.
+        enriched_lower = enriched_base.lower()
+        featured: list[str] = []
+        for s in all_subjects[:3]:
+            s_clean = (s or "").strip()
+            if not s_clean or s_clean.lower() == "self":
+                continue
+            if s_clean.lower() in enriched_lower:
+                continue
+            if s_clean.lower() in (f.lower() for f in featured):
+                continue
+            featured.append(s_clean)
+        if featured:
+            enriched = enriched_base + ", featuring " + ", ".join(featured) + CINEMATIC_SUFFIX
+        else:
+            enriched = enriched_base + CINEMATIC_SUFFIX
 
         # 3. Run generation with the shared progress bar
         # `_format_diffuser_progress` lives in bot.py — lazy import to avoid
