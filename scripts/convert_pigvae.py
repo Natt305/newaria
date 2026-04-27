@@ -32,6 +32,8 @@ def _resolve_gguf_path() -> Path:
 
     # Try to read COMFYUI_PATH and COMFYUI_QWEN_VAE from the environment,
     # falling back to a tokens.txt parse if the env vars are not set.
+    _DEFAULT_VAE = "pig_qwen_image_vae_fp32-f16.gguf"
+
     comfyui_path = os.environ.get("COMFYUI_PATH", "").strip()
     qwen_vae = os.environ.get("COMFYUI_QWEN_VAE", "").strip()
 
@@ -52,9 +54,11 @@ def _resolve_gguf_path() -> Path:
         print('  python scripts/convert_pigvae.py "E:\\...\\models\\vae\\pig_qwen_image_vae_fp32-f16.gguf"')
         sys.exit(1)
 
-    if not qwen_vae:
-        qwen_vae = "pig_qwen_image_vae_fp32-f16.gguf"
-        print(f"[convert_pigvae] COMFYUI_QWEN_VAE not set — defaulting to: {qwen_vae}")
+    # Only use COMFYUI_QWEN_VAE if it is itself a .gguf file — the user may
+    # have already converted and updated the env var to the .safetensors name.
+    if not qwen_vae or not qwen_vae.lower().endswith(".gguf"):
+        qwen_vae = _DEFAULT_VAE
+        print(f"[convert_pigvae] COMFYUI_QWEN_VAE is not a .gguf file — defaulting to: {qwen_vae}")
 
     p = Path(comfyui_path) / "models" / "vae" / qwen_vae
     if not p.exists():
