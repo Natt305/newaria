@@ -181,6 +181,23 @@ LMSTUDIO_THINKING=off
 # 針對 <subtext> 長度的「軟提示」；微調訓練仍主導，軟提示僅
 # 在邊際影響）。
 #
+# 路由修正（Celeste 1.9）：使用 ChatML 提示格式的模型不等於
+# Qwen。Celeste（nothingiisreal/mn-12b-celeste-v1.9-gguf）是
+# Mistral-Nemo 基底，_is_qwen_model() 回傳 False，因此走強指引
+# 路徑，獲得完整的 6–10 段格式指令與示範；只有模型 ID 含
+# "qwen" 或 "hauhaucs" 的模型才走軟提示路徑。啟動時會記錄
+# 路徑確認訊息，例如：
+#   [LMStudio] Model: mn-12b-celeste-v1.9 → strong-directive path
+#              (target=cinematic, erotic=on)
+#
+# max_tokens 自動提升（cinematic）：當目標為 cinematic 且操作員
+# 未明確設定較高值時，LMSTUDIO_MAX_TOKENS 自動提升至 2048，避
+# 免回覆在第 3 段被截斷。提升動作每進程記錄一次。
+#
+# 段落數量底線重試：生成後若 rich 回覆少於 4 段、cinematic
+# 少於 6 段，自動觸發一次重試，系統提示附加嚴格說明（含實際
+# 段落數與底線值）。每回合限重試一次。
+#
 #   terse     完全關閉格式指引（不影響語言保護、反迴圈機制）。
 #             適合自己已輸出正確格式、不需要額外提示的模型。
 #             Qwen 路徑：也不注入軟提示。
@@ -196,16 +213,41 @@ LMSTUDIO_THINKING=off
 #   rich      預設（Mistral）。要求 4–5 個沉浸式段落，含感官
 #             細節、動作、肢體語言，以及至少一段內心獨白。
 #             系統提示包含四段示範（含內心想法）。最適合
-#             Celeste 等角色扮演微調。
+#             Celeste 等角色扮演微調。段落底線：4 段。
 #             Qwen 路徑：軟提示 → <subtext> 4–6 句。
 #
 #   cinematic 最豐富。要求 6–10 個文學風格段落：環境氣氛、
 #             延伸內心獨白、慢節奏情感肌理。含五段示範。
-#             適合需要高度沉浸的長篇 RP。
+#             適合需要高度沉浸的長篇 RP。段落底線：6 段。
+#             max_tokens 自動提升至 2048（若未設定更高值）。
 #             Qwen 路徑：軟提示 → <subtext> 6–10 句。
 #
+# Routing fix (Celeste 1.9): a model using ChatML prompt format is NOT
+# necessarily a Qwen model. Celeste (nothingiisreal/mn-12b-celeste-v1.9-gguf)
+# is a Mistral-Nemo base; _is_qwen_model() returns False and it receives the
+# full strong _roleplay_format_directive() with the worked example and strict
+# "NEVER produce fewer than N paragraphs" rule. Only model IDs containing
+# "qwen" or "hauhaucs" travel the soft-hint path. A startup log line confirms
+# the resolved path per turn, e.g.:
+#   [LMStudio] Model: mn-12b-celeste-v1.9 → strong-directive path
+#              (target=cinematic, erotic=on)
+#
+# max_tokens auto-floor (cinematic): when the target resolves to cinematic and
+# the operator has not explicitly pinned a higher value, LMSTUDIO_MAX_TOKENS is
+# auto-raised to 2048 so the reply is not truncated before 6 paragraphs. The
+# bump is logged once per process. To suppress, set LMSTUDIO_MAX_TOKENS≥2048.
+#
+# Paragraph-count floor with retry: after each chat completion, if the active
+# target is rich (floor 4) or cinematic (floor 6), the reply's meaningful
+# paragraphs are counted (blank-line splits, drops blocks <20 chars and any
+# trailing [SCENE:...] marker). If below the floor, exactly one retry fires
+# with a stricter addendum quoting the actual count and the floor. The retry
+# is logged as:
+#   [LMStudio] Reply too short for target=cinematic (N para / floor 6) — retrying
+# Capped to one retry per turn.
+#
 # Operator-tunable narrative richness for the roleplay-format directive
-# injected into plain-prose (non-Qwen) LM Studio models. Five levels,
+# injected into plain-prose (non-Qwen/hauhaucs) LM Studio models. Five levels,
 # all shifted toward more immersive output:
 #
 #   terse     No directive injected (hard opt-out). Qwen: no soft hint.
@@ -216,11 +258,44 @@ LMSTUDIO_THINKING=off
 #   rich      4–5 immersive paragraphs: sensory detail, action, body
 #     (default) language, plus at least one paragraph of internal thought.
 #             Includes a 4-paragraph example. Qwen soft hint: 4–6 sentences.
+#             Post-gen paragraph floor: 4. One retry if below.
 #   cinematic 6–10 literary paragraphs: extended internal monologue,
 #             environmental atmosphere, slow-burn emotional texture.
 #             Includes a 5-paragraph example. Qwen soft hint: 6–10 sentences.
+#             Post-gen paragraph floor: 6. One retry if below.
+#             max_tokens auto-floored to 2048 (non-pinned sessions).
 #
 # LMSTUDIO_NARRATION_TARGET=
+
+# ----------------------------------------------------------------
+# 情色場景特化 / Erotic scene specialization
+# ----------------------------------------------------------------
+# 當設為 on（預設），為非 Qwen/hauhaucs 模型（如 Celeste 1.9）
+# 注入情色場景特化附加指令，緊接在角色扮演格式指引之後。指令宣告
+# 詳細的親密場景為核心專長，要求五感加內在感受的感官描寫、解剖
+# 學精確度（不使用醫學術語或含蓄委婉語）、延伸的內心體驗，並保
+# 留現有的「每段最多一句引用對白」與禁止自稱前綴規則。
+# 設為 off 則完全停止注入（適合公共/安全環境）。
+# 工具呼叫路徑（記憶萃取、圖像提示等）自動略過此指令。
+#
+# When set to on (default since Celeste 1.9 is the chosen uncensored model),
+# injects an erotic-scene specialization addendum into the system prompt for
+# non-Qwen/hauhaucs models, immediately after the roleplay-format directive.
+# The addendum:
+#   (a) declares detailed, descriptive intimate scenes as a core specialty;
+#   (b) requires multi-sense sensory richness (sight, sound, scent, touch,
+#       taste, internal sensation);
+#   (c) demands anatomical clarity — plain and precise, without coy euphemism
+#       or medical sterility;
+#   (d) pushes extended internal experience and deliberate pacing;
+#   (e) preserves the one-quoted-line-per-paragraph narration shape so
+#       dialogue bold-formatting continues to work correctly;
+#   (f) keeps the self-prefix guard (no 'Character:' label at para start).
+# Set to off to suppress entirely (public / safe-content environments).
+# Utility callers (enforce_user_lang=False) always skip this addendum.
+# Accepts on/off, true/false, 1/0, yes/no (case-insensitive).
+#
+# LMSTUDIO_EROTIC_MODE=on
 
 # ----------------------------------------------------------------
 # 結構化輸出 / Structured-output (JSON Schema / JSON mode) switches

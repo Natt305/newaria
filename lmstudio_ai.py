@@ -350,13 +350,20 @@ def _vision_model() -> str:
 
 
 def _is_qwen_model(model: str) -> bool:
-    """Return True when the model name indicates a Qwen-family model.
+    """Return True when the model name indicates a Qwen/hauhaucs-family model.
 
-    Qwen models need several special-case workarounds (thinking prefill,
-    chat_template_kwargs, /no_think directive) that would confuse or break
-    non-Qwen models such as Mistral-based Celeste variants.
+    Qwen and hauhaucs fine-tune models need several special-case workarounds
+    (thinking prefill, chat_template_kwargs, /no_think directive, soft-hint
+    path instead of the strong roleplay-format directive) that would confuse
+    or break non-Qwen models such as Mistral-based Celeste variants.
+
+    IMPORTANT: Using ChatML prompt format does NOT make a model Qwen.  Celeste
+    (nothingiisreal/mn-12b-celeste-v1.9-gguf) uses ChatML but is a Mistral-Nemo
+    base, not a Qwen or hauhaucs fine-tune, and must travel the strong-directive
+    path.  Only genuine Qwen or hauhaucs model IDs return True here.
     """
-    return "qwen" in model.lower()
+    lower = model.lower()
+    return "qwen" in lower or "hauhaucs" in lower
 
 
 def _thinking_enabled() -> bool:
@@ -1268,6 +1275,65 @@ def _qwen_subtext_length_hint(target: str) -> str:
     return _hints.get(target, "")
 
 
+# Per-process flag so the cinematic max_tokens bump is logged only once.
+_CINEMATIC_TOKEN_FLOOR_LOGGED: bool = False
+
+# Paragraph floors for the post-generation length check.
+_PARA_FLOORS: dict[str, int] = {"rich": 4, "cinematic": 6}
+
+
+def _count_meaningful_paragraphs(text: str) -> int:
+    """Count meaningful paragraphs in a reply for the length-floor check.
+
+    Splits on blank lines, then discards:
+    - Blocks shorter than ~20 characters (isolated dialogue labels, short
+      attribution lines, etc.)
+    - The optional trailing ``[SCENE]`` / ``[SCENE: ...]`` marker line.
+    """
+    clean = _SCENE_MARKER_RE.sub("", text).strip()
+    blocks = re.split(r"\n\s*\n", clean)
+    return sum(1 for b in blocks if len(b.strip()) >= 20)
+
+
+def _erotic_specialization_directive(target: str, character_name: str = "") -> str:
+    """Return an erotic-scene specialization addendum for the system prompt.
+
+    Injected on the strong-directive path (non-Qwen models) immediately after
+    ``_roleplay_format_directive()`` when ``LMSTUDIO_EROTIC_MODE=on`` (default).
+    Returns ``""`` when target is ``terse`` so string-concatenation is safe.
+
+    The directive:
+    - Declares detailed, descriptive intimate scenes as a core specialization.
+    - Requires multi-sense sensory richness (sight, sound, scent, touch, taste,
+      internal sensation).
+    - Pushes for anatomical clarity without medical sterility.
+    - Preserves the one-quoted-line-per-paragraph narration shape so existing
+      dialogue bolding continues to work correctly.
+    - Keeps the self-prefix guard (no 'Character:' label at paragraph start).
+    """
+    if target == "terse":
+        return ""
+    name_label = character_name.strip() if character_name else "your character"
+    return (
+        "\n\nErotic scene specialization: when a scene turns physical or sexual, "
+        "write it in full — do not fade to black, soften the prose, or skip "
+        "ahead. Detailed, descriptive intimate scenes are a core specialization. "
+        "Draw on all five senses plus internal sensation: the specific weight "
+        "and warmth of skin, the sounds of breath and movement, scent, the "
+        "visual detail of bodies, and taste when relevant. Push for anatomical "
+        "clarity — name body parts plainly and precisely, without coy euphemism "
+        "or clinical sterility. Show extended internal experience: arousal "
+        "building, attention narrowing, thought dissolving into sensation. Pace "
+        "intimate scenes like cinematic action — slow, deliberate, each beat "
+        "earning its own paragraph. "
+        "The one-quoted-line-per-paragraph rule still applies: if "
+        f"{name_label} speaks during the scene, each spoken line sits inside "
+        "its own paragraph of tactile narration. "
+        f"Never open a paragraph with '{name_label}:' or any character-label "
+        "colon — narrate in first person, not script format."
+    )
+
+
 async def chat(
     messages: list,
     system_prompt: str = "",
@@ -1315,6 +1381,9 @@ async def chat(
     # code. Doing the resolution here (rather than letting _call_lmstudio do
     # it) means every internal retry call below uses the same number, and the
     # value also flows into the per-call logging line in _call_lmstudio.
+    # Track whether the caller supplied an explicit value so we can distinguish
+    # "operator pinned a higher value" from "default resolved from env/default".
+    _caller_pinned_max_tokens: bool = max_tokens is not None
     if max_tokens is None:
         max_tokens = _env_int("LMSTUDIO_MAX_TOKENS", 1024)
 
@@ -1332,12 +1401,35 @@ async def chat(
         print(f"[LMStudio] {active_model} known to be text-only — skipping image attachment")
         context_images = None
 
+    # Auto-floor max_tokens for cinematic target: 1024 tokens allows roughly
+    # 3 dense paragraphs which is below the 6-paragraph cinematic floor, so
+    # we raise it automatically when the operator hasn't explicitly pinned a
+    # higher value.  Honour the caller-pinned value when it is already ≥ floor.
+    _CINEMATIC_TOKEN_FLOOR = 2048
+    if not _caller_pinned_max_tokens and enforce_user_lang:
+        _resolved_target = _narration_target_for(active_model)
+        if _resolved_target == "cinematic" and max_tokens < _CINEMATIC_TOKEN_FLOOR:
+            global _CINEMATIC_TOKEN_FLOOR_LOGGED
+            if not _CINEMATIC_TOKEN_FLOOR_LOGGED:
+                print(
+                    f"[LMStudio] LMSTUDIO_NARRATION_TARGET=cinematic — "
+                    f"auto-raising max_tokens {max_tokens}→{_CINEMATIC_TOKEN_FLOOR} "
+                    f"(set LMSTUDIO_MAX_TOKENS≥{_CINEMATIC_TOKEN_FLOOR} to suppress)"
+                )
+                _CINEMATIC_TOKEN_FLOOR_LOGGED = True
+            max_tokens = _CINEMATIC_TOKEN_FLOOR
+
     effective_system = _apply_no_think(system_prompt, model=active_model)
 
     # For plain-prose models (anything that is NOT a Qwen/hauhaucs ChatML
     # fine-tune), inject Discord formatting + language-fallback rules.
     # Qwen/hauhaucs models use their own <reply>/<subtext> ChatML format which
     # _parse_reply_format() converts, so they must NOT get these instructions.
+    #
+    # NOTE: Celeste (nothingiisreal/mn-12b-celeste-v1.9-gguf) uses ChatML as
+    # its prompt format but is a Mistral-Nemo base model — NOT a Qwen or
+    # hauhaucs fine-tune.  _is_qwen_model() returns False for it, so it
+    # correctly travels the strong-directive path below.
     if not _is_qwen_model(active_model) and effective_system:
         # Both the language-quality guard and the roleplay-format directive
         # are user-facing roleplay concerns and MUST NOT be appended to
@@ -1384,9 +1476,26 @@ async def chat(
             # Narrative richness is operator-tunable via
             # LMSTUDIO_NARRATION_TARGET=terse|brief|standard|rich|cinematic
             # and defaults to "rich" for plain-prose models.
+            _active_narration_target = _narration_target_for(active_model)
             effective_system = effective_system + _roleplay_format_directive(
-                _narration_target_for(active_model),
+                _active_narration_target,
                 character_name=character_name,
+            )
+
+            # Erotic-scene specialization: inject when LMSTUDIO_EROTIC_MODE=on
+            # (default on, since Celeste 1.9 is the chosen uncensored model).
+            # Gated off for utility callers (enforce_user_lang=False) and for
+            # the terse target.
+            if _env_bool("LMSTUDIO_EROTIC_MODE", True):
+                effective_system = effective_system + _erotic_specialization_directive(
+                    _active_narration_target,
+                    character_name=character_name,
+                )
+
+            print(
+                f"[LMStudio] Model: {active_model} → strong-directive path "
+                f"(target={_active_narration_target}, "
+                f"erotic={'on' if _env_bool('LMSTUDIO_EROTIC_MODE', True) else 'off'})"
             )
 
     elif _is_qwen_model(active_model) and effective_system and enforce_user_lang:
@@ -1396,9 +1505,14 @@ async def chat(
         # <subtext> block depth toward the operator-chosen richness level.
         # The fine-tune's instincts dominate — this hint influences at the
         # margin; it cannot override trained behaviour.
-        _qwen_hint = _qwen_subtext_length_hint(_narration_target_for(active_model))
+        _qwen_narration_target = _narration_target_for(active_model)
+        _qwen_hint = _qwen_subtext_length_hint(_qwen_narration_target)
         if _qwen_hint:
             effective_system = effective_system.rstrip() + _qwen_hint
+        print(
+            f"[LMStudio] Model: {active_model} → soft-hint path "
+            f"(Qwen/hauhaucs, target={_qwen_narration_target})"
+        )
 
     # Per-turn language override. The static character prompt says "default
     # Traditional Chinese, switch when the user writes a full sentence in
@@ -1768,6 +1882,46 @@ async def chat(
             else:
                 print("[LMStudio] Retry produced Traditional — script restored")
             text = retry_text
+
+    # 4. Paragraph-count floor for rich/cinematic targets.
+    #    Only fires on the user-facing roleplay path (enforce_user_lang=True)
+    #    and only for non-Qwen models (Qwen uses its own subtext block format).
+    #    If the reply has fewer meaningful paragraphs than the floor, exactly
+    #    one retry fires with a stricter system-prompt addendum quoting the
+    #    actual count and the floor.  Capped to one retry per turn.
+    if text and text.strip() and enforce_user_lang and not _is_qwen_model(active_model):
+        _floor_target = _narration_target_for(active_model)
+        _para_floor = _PARA_FLOORS.get(_floor_target, 0)
+        if _para_floor:
+            _para_count = _count_meaningful_paragraphs(text)
+            if _para_count < _para_floor:
+                print(
+                    f"[LMStudio] Reply too short for target={_floor_target} "
+                    f"({_para_count} para / floor {_para_floor}) — retrying"
+                )
+                _floor_addendum = (
+                    f"\n\nURGENT CORRECTION: your previous reply contained only "
+                    f"{_para_count} meaningful paragraph(s). The {_floor_target} "
+                    f"target requires at least {_para_floor} full paragraphs of "
+                    f"narration. Rewrite the reply now in full — do NOT explain "
+                    f"or apologise, simply produce the reply with at least "
+                    f"{_para_floor} complete paragraphs separated by blank lines."
+                )
+                _floor_retry_sys = effective_system.rstrip() + _floor_addendum
+                _floor_retry_msgs = [{"role": "system", "content": _floor_retry_sys}]
+                _floor_retry_msgs.extend(
+                    lm_messages[1:]
+                    if lm_messages and lm_messages[0].get("role") == "system"
+                    else lm_messages
+                )
+                _floor_retry_text = await _call_lmstudio(
+                    _floor_retry_msgs,
+                    model=active_model,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                )
+                if _floor_retry_text and _floor_retry_text.strip():
+                    text = _floor_retry_text
 
     text = _parse_reply_format(text)
 
