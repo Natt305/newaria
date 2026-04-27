@@ -42,8 +42,10 @@ Required ComfyUI custom node packs for the Qwen engine:
     - `ComfyUI-GGUF` (city96)             → UnetLoaderGGUF + CLIPLoaderGGUF
     - `comfyui_qwen_image_edit_plus_nodes` (or any pack shipping
        `TextEncodeQwenImageEditPlus`)     → image-aware text encoder
-    The pig_qwen VAE GGUF loads through `VAELoaderGGUF` from city96's ComfyUI-GGUF
-    (same pack as UnetLoaderGGUF / CLIPLoaderGGUF — stock VAELoader only indexes safetensors).
+    VAE must be a safetensors file accepted by the stock `VAELoader`.
+    If you have a GGUF VAE (e.g. `pig_qwen_image_vae_fp32-f16.gguf`), convert it
+    once with: python scripts/convert_pigvae.py  then set COMFYUI_QWEN_VAE to the
+    resulting .safetensors filename. VAELoaderGGUF does not exist in city96's pack.
 
 Optional env vars (both engines):
     COMFYUI_PREWARM  `1`/`true`/`yes`/`on` to pre-load the active engine's
@@ -748,8 +750,10 @@ def _build_per_subject_ref_workflow(
 # Required custom node packs on the ComfyUI side:
 #   - city96/ComfyUI-GGUF                       → UnetLoaderGGUF, CLIPLoaderGGUF
 #   - any pack shipping TextEncodeQwenImageEditPlus
-# The Qwen-Image VAE GGUF requires `VAELoaderGGUF` from city96's ComfyUI-GGUF
-# (stock VAELoader only indexes safetensors files, not GGUF).
+# The VAE must be a safetensors file accepted by the stock VAELoader.
+# GGUF VAEs (e.g. pig_qwen_image_vae_fp32-f16.gguf) cannot be loaded directly —
+# convert with scripts/convert_pigvae.py, then set COMFYUI_QWEN_VAE to the
+# resulting .safetensors filename. VAELoaderGGUF does not exist in city96's pack.
 #
 # Latent shape: Qwen-Image is a 16-channel MMDiT model, so we use
 # `EmptySD3LatentImage` (also 16 channels) rather than `EmptyLatentImage`
@@ -772,7 +776,7 @@ def _build_txt2img_workflow_qwen(
     Stack:
         UnetLoaderGGUF                            → MODEL
         CLIPLoaderGGUF (type=qwen_image)          → CLIP
-        VAELoaderGGUF                             → VAE
+        VAELoader                                 → VAE
         CLIPTextEncode (positive + empty negative)
         EmptySD3LatentImage                       → LATENT (16-channel)
         KSampler (CFG=1.0, configurable sampler/scheduler/steps)
@@ -793,7 +797,7 @@ def _build_txt2img_workflow_qwen(
             "inputs": {"clip_name": clip_gguf_name, "type": "qwen_image"},
         },
         "3": {
-            "class_type": "VAELoaderGGUF",
+            "class_type": "VAELoader",
             "inputs": {"vae_name": vae_name},
         },
         "4": {
@@ -880,7 +884,7 @@ def _build_multi_edit_workflow_qwen(
             "inputs": {"clip_name": clip_gguf_name, "type": "qwen_image"},
         },
         "3": {
-            "class_type": "VAELoaderGGUF",
+            "class_type": "VAELoader",
             "inputs": {"vae_name": vae_name},
         },
         "5": {
@@ -1998,9 +2002,6 @@ _REQUIRED_NODES_QWEN = [
     ("CLIPLoaderGGUF",
      "city96's `ComfyUI-GGUF` "
      "(https://github.com/city96/ComfyUI-GGUF)"),
-    ("VAELoaderGGUF",
-     "city96's `ComfyUI-GGUF` "
-     "(https://github.com/city96/ComfyUI-GGUF)"),
     ("TextEncodeQwenImageEditPlus",
      "any pack shipping `TextEncodeQwenImageEditPlus` "
      "(e.g. Phr00t's `comfyui_qwen_image_edit_plus_nodes`)"),
@@ -2301,10 +2302,17 @@ def diagnose() -> dict:
             )
         if _qwen_vae:
             _vae_ok = _check_model_file(
-                "VAELoaderGGUF", "vae_name", _qwen_vae,
+                "VAELoader", "vae_name", _qwen_vae,
                 os.path.join("models", "vae"),
-                payload_override=_node_payloads.get("VAELoaderGGUF"),
             )
+            if not _vae_ok and _qwen_vae.lower().endswith(".gguf"):
+                _st_name = _qwen_vae[:-5] + ".safetensors"
+                print(
+                    f"[ComfyUI] HINT: '{_qwen_vae}' is a GGUF VAE and cannot be loaded "
+                    f"by the stock VAELoader (VAELoaderGGUF does not exist in city96's pack).\n"
+                    f"[ComfyUI] HINT: Convert it once:  python scripts/convert_pigvae.py\n"
+                    f"[ComfyUI] HINT: Then set COMFYUI_QWEN_VAE={_st_name} in tokens.txt"
+                )
         if _qwen_clip:
             _clip_ok = _check_model_file(
                 "CLIPLoaderGGUF", "clip_name", _qwen_clip,
