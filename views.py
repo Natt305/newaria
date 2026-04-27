@@ -1668,6 +1668,9 @@ class UserProfileGalleryView(discord.ui.View):
             print(f"[View] UserProfileGalleryView._next error: {e}")
 
     async def _remove(self, interaction: discord.Interaction):
+        if interaction.user.id != int(self.discord_id):
+            await interaction.response.send_message("❌ 你只能移除自己的圖片。", ephemeral=True)
+            return
         success, msg = database.remove_user_profile_image(self.discord_id, self.current_index)
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
@@ -1853,5 +1856,8 @@ class UserProfileView(discord.ui.View):
         )
 
     async def _open_gallery(self, interaction: discord.Interaction):
+        if interaction.user.id != int(self.discord_id):
+            await interaction.response.send_message("❌ 你只能查看自己的個人圖庫。", ephemeral=True)
+            return
         gallery = UserProfileGalleryView(self.discord_id, self.image_count)
         await gallery.send_first(interaction)

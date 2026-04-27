@@ -1334,7 +1334,7 @@ async def run_scene_image(
                 _pname = (_player_profile_check.get("discord_name") or player_display_name or "").strip()
                 _plooks = (_player_profile_check.get("looks") or "").strip()
                 _pin_seed = (
-                    (player_display_name or "").lower() in seed.lower()
+                    bool(player_display_name and player_display_name.lower() in seed.lower())
                     or bool(set(seed.lower().split()) & _PLAYER_SECOND_PERSON)
                 )
                 if _plooks and _pin_seed:
