@@ -1134,8 +1134,8 @@ async def process_chat(
         # time without consuming a button row.
         try:
             await bot_message.add_reaction("🎬")
-        except discord.HTTPException:
-            pass
+        except discord.HTTPException as _re:
+            print(f"[Bot] add_reaction 🎬 failed (check Reactions permission): {_re}")
         if _route_to_scene:
             # When the model emitted `[SCENE: ...]` with a body, hand the
             # polished body to the runner as `seed_override` so it's used
@@ -2103,7 +2103,10 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
         return
     channel = bot.get_channel(payload.channel_id)
     if channel is None:
-        return
+        try:
+            channel = await bot.fetch_channel(payload.channel_id)
+        except discord.HTTPException:
+            return
     try:
         message = await channel.fetch_message(payload.message_id)  # type: ignore[union-attr]
     except discord.HTTPException:
