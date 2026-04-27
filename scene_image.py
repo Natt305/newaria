@@ -97,21 +97,27 @@ _SCENE_CLOTHING_STATE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bhaving\s+sex\b", re.I), "intimate (unclothed)"),
 ]
 
-# Words that flag a sentence as clothing/weapon related.  Any sentence in the
-# `looks` text that contains one of these words is dropped when a scene-state
-# override is active — only bare identity traits (hair, eyes, skin, face) remain.
-_OUTFIT_SENTENCE_WORDS: frozenset[str] = frozenset({
-    "wear", "wearing", "wears", "wore", "worn",
-    "outfit", "clothes", "clothing", "garment", "attire",
-    "dressed", "undressed",
-    "coat", "jacket", "uniform", "suit", "dress", "shirt", "blouse",
-    "pants", "trousers", "skirt", "shorts", "sweater", "hoodie",
-    "holster", "gun", "pistol", "weapon", "rifle", "firearm",
-    "sword", "blade", "combat", "tactical", "ammo",
-    "belt", "strap", "harness",
-    "gloves", "boots", "shoes", "heels", "sneakers",
-    "scarf", "tie",
-})
+# Compiled word-boundary regex for outfit/weapon sentence detection.
+# Using a single combined regex (instead of substring membership) prevents
+# false matches from short tokens: e.g. "tied" won't match \btie\b,
+# "undressed" won't double-match via "dress".
+_OUTFIT_SENTENCE_RE: re.Pattern = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(w) for w in sorted([
+        "wear", "wearing", "wears", "wore", "worn",
+        "outfit", "clothes", "clothing", "garment", "attire",
+        "dressed", "undressed",
+        "coat", "jacket", "uniform", "suit", "dress", "shirt", "blouse",
+        "pants", "trousers", "skirt", "shorts", "sweater", "hoodie",
+        "holster", "gun", "pistol", "weapon", "rifle", "firearm",
+        "sword", "blade", "combat", "tactical", "ammo",
+        "belt", "strap", "harness",
+        "gloves", "boots", "shoes", "heels", "sneakers",
+        "scarf", "tie",
+    ], key=len, reverse=True))  # longer tokens first to avoid partial matches
+    + r")\b",
+    re.I,
+)
 
 
 def _detect_scene_clothing_override(text: str) -> tuple[bool, str]:
@@ -144,8 +150,7 @@ def _strip_outfit_from_looks(looks_text: str, *, fallback_to_empty: bool = False
     sentences = re.split(r"(?<=[.!?])\s+", looks_text.strip())
     kept: list[str] = []
     for sentence in sentences:
-        lower_s = sentence.lower()
-        if any(word in lower_s for word in _OUTFIT_SENTENCE_WORDS):
+        if _OUTFIT_SENTENCE_RE.search(sentence):
             continue
         kept.append(sentence)
     result = " ".join(kept).strip()
@@ -1111,26 +1116,31 @@ async def run_scene_image(
             and engine == "qwen"
             and refs
         ):
+            # Detect scene-state clothing override FIRST, independently of
+            # whether looks text is available.  This ensures the SCENE STATE
+            # OVERRIDE instruction is injected even when the character's looks
+            # field is empty, preventing default-outfit rendering in those cases.
+            _combined_ctx = seed + " " + enriched_base
+            _state_triggered, _state_label = _detect_scene_clothing_override(_combined_ctx)
+
             try:
                 _char = database.get_character() or {}
                 _looks_text = (_char.get("looks") or "").strip()
             except Exception:
                 _looks_text = ""
-            if _looks_text:
-                # Detect scene-state clothing override using both the raw seed
-                # and the enhanced prompt so context from either source is caught.
-                _combined_ctx = seed + " " + enriched_base
-                _state_triggered, _state_label = _detect_scene_clothing_override(_combined_ctx)
-                if _state_triggered:
+
+            if _state_triggered:
+                # Always inject the state override prefix regardless of looks availability.
+                _state_prefix = (
+                    f"SCENE STATE OVERRIDE — character is {_state_label}: "
+                    f"do NOT render coat, holster, weapons, or any default outfit items; "
+                    f"scene context takes absolute priority over default clothing. "
+                )
+                if _looks_text:
                     # Strip outfit/weapon sentences — keep hair, eyes, skin only.
                     # fallback_to_empty=True prevents re-introducing outfit text
                     # in the anchor when all sentences happened to be outfit-related.
                     _identity_only = _strip_outfit_from_looks(_looks_text, fallback_to_empty=True)
-                    _state_prefix = (
-                        f"SCENE STATE OVERRIDE — character is {_state_label}: "
-                        f"do NOT render coat, holster, weapons, or any default outfit items; "
-                        f"scene context takes absolute priority over default clothing. "
-                    )
                     if _identity_only:
                         enriched = (
                             _state_prefix
@@ -1139,25 +1149,30 @@ async def run_scene_image(
                             + _identity_only
                         )
                     else:
-                        # All looks sentences were outfit-related — use state prefix only;
+                        # All looks sentences were outfit-related — state prefix only;
                         # Qwen reads base identity from reference photos directly.
                         enriched = _state_prefix + enriched
-                    print(
-                        f"[SceneImage] Scene-state override active ({_state_label!r}): "
-                        f"outfit stripped from looks anchor, state prefix prepended "
-                        f"({'identity anchor included' if _identity_only else 'no identity anchor — photos only'})."
-                    )
                 else:
-                    enriched = (
-                        enriched
-                        + ". Character identity (must be preserved from reference photos): "
-                        + _looks_text
-                    )
-                    print(
-                        f"[SceneImage] Appended {len(_looks_text)}-char looks identity suffix "
-                        f"post-LLM (QWEN_APPEND_LOOKS=on)."
-                    )
+                    # No looks text — state prefix alone is sufficient.
+                    enriched = _state_prefix + enriched
                 _looks_appended = True
+                print(
+                    f"[SceneImage] Scene-state override active ({_state_label!r}): "
+                    f"outfit stripped from looks anchor, state prefix prepended "
+                    f"({'identity anchor included' if (_looks_text and _identity_only) else 'no identity anchor — photos only'})."
+                )
+            elif _looks_text:
+                # Normal-outfit scene — append full looks as identity anchor.
+                enriched = (
+                    enriched
+                    + ". Character identity (must be preserved from reference photos): "
+                    + _looks_text
+                )
+                _looks_appended = True
+                print(
+                    f"[SceneImage] Appended {len(_looks_text)}-char looks identity suffix "
+                    f"post-LLM (QWEN_APPEND_LOOKS=on)."
+                )
 
         # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
         try:
