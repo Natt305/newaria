@@ -2104,6 +2104,7 @@ async def enhance_image_prompt(
     reference_images: list = None,
     reference_image_labels: list = None,
     n_subjects_override: int = None,
+    scene_only: bool = False,
 ) -> str:
     """Translate and expand a raw prompt into a rich English image-generation prompt.
 
@@ -2111,11 +2112,95 @@ async def enhance_image_prompt(
     context_images so the vision model can read appearance directly from the
     photos — significantly improving accuracy for traits like eye color and
     hair tone.
+
+    scene_only: when True, the enhancer is told to describe ONLY the scene
+        (setting, action, pose, lighting, mood, atmosphere, composition,
+        background) and to NOT emit any appearance traits (hair, eyes, skin,
+        clothing, accessories). Used by the Qwen image-edit pipeline, where
+        the reference photos go to Qwen — not to this enhancer — and any
+        appearance words bleed into Qwen's text prompt and override the
+        photo's visual identity. In this mode `character_context`,
+        `subject_references`, `subject_supplements`, `reference_images`, and
+        `reference_image_labels` are all ignored to keep the model focused
+        on scene language.
     """
     import re as _re_artstrip
     _art_style_line_re = _re_artstrip.compile(r"(?m)^ART STYLE[:\s][^\n]*\n?", _re_artstrip.IGNORECASE)
     if character_context:
         character_context = _art_style_line_re.sub("", character_context)
+
+    # Scene-only short-circuit: skip every appearance block, drop reference
+    # photos, and use a system prompt that explicitly forbids appearance words.
+    if scene_only:
+        use_schema_so = _json_schema_enabled()
+        if use_schema_so:
+            output_rule_so = (
+                "- Output ONLY a JSON object of the shape {\"text\": \"<prompt>\"} — "
+                "no intro, no markdown, no code fences, no explanation outside the JSON.\n"
+                "- The prompt itself goes inside the `text` field as one continuous English string.\n"
+            )
+        else:
+            output_rule_so = "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+        system_so = (
+            "You are an expert image-prompt writer for AI image generators.\n"
+            "Given a user's image request (which may be in Chinese or English), "
+            "rewrite it as a single, rich English prompt for an AI image model.\n"
+            "[SCENE-ONLY MODE — REFERENCE PHOTOS ARE HANDLED ELSEWHERE]\n"
+            "Reference photos of the characters are sent directly to the image "
+            "model in a separate channel. Your job is to describe ONLY the scene "
+            "around the characters — setting, action, pose, framing, lighting, "
+            "mood, atmosphere, composition, background, weather, time of day.\n"
+            "STRICT BAN — DO NOT WRITE any of the following, even if the user "
+            "request mentions them: hair color, hair style, eye color, skin "
+            "tone, age, body shape, height, clothing, outfit pieces, fabrics, "
+            "accessories, jewelry, makeup, tattoos, scars, facial features. "
+            "If the user request includes any such words, drop them from your "
+            "rewrite. Refer to characters by name only (or by role like 'the "
+            "musician'); never describe what they look like or what they wear.\n"
+            "Rules:\n"
+            f"{output_rule_so}"
+            "- Always write in English.\n"
+            "- Aim for 100-220 words.\n"
+            "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
+            "- ART STYLE (mandatory, always fixed): "
+            "The art style is ALWAYS 'clean 2D anime illustration, flat cel-shaded coloring, "
+            "soft gradient shading, vivid saturated color palette, anime digital art'.\n"
+        )
+        user_content_so = f"Image request: {raw_prompt}"
+        messages_list_so = [{"role": "user", "content": user_content_so}]
+        response_format_so = (
+            _image_text_response_format("image_prompt", 4000) if use_schema_so else None
+        )
+        print(
+            "[LMStudio] enhance_image_prompt: SCENE-ONLY mode — "
+            "appearance blocks suppressed, reference photos NOT attached."
+        )
+        try:
+            enhanced_so, *_ = await chat(
+                messages_list_so,
+                system_prompt=system_so,
+                context_images=None,
+                max_tokens=8192,
+                enforce_user_lang=False,
+                response_format=response_format_so,
+            )
+            if enhanced_so:
+                enhanced_so = _THINK_RE.sub("", enhanced_so)
+                enhanced_so = _THINK_RE_UNCLOSED.sub("", enhanced_so).strip()
+                if use_schema_so:
+                    unwrapped_so = _parse_json_string_payload(enhanced_so)
+                    if unwrapped_so:
+                        enhanced_so = unwrapped_so.strip()
+                if len(enhanced_so) > 5:
+                    lower_so = enhanced_so.lower()
+                    if any(phrase in lower_so for phrase in _REFUSAL_PHRASES):
+                        print("[LMStudio] Scene-only enhancement returned a refusal/error — discarding, using raw prompt")
+                        return raw_prompt
+                    print(f"[LMStudio] Prompt enhanced (scene-only): {enhanced_so[:200]}")
+                    return enhanced_so
+        except Exception as e:
+            print(f"[LMStudio] Scene-only prompt enhancement failed: {e}")
+        return raw_prompt
 
     has_images = bool(reference_images)
 

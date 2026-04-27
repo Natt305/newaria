@@ -108,7 +108,17 @@ async def enhance_image_prompt(
     reference_images: list = None,
     reference_image_labels: list = None,
     n_subjects_override: int = None,
+    scene_only: bool = False,
 ) -> str:
+    """Forward to the active backend's enhancer.
+
+    `scene_only` is a Qwen-edit-pipeline-only flag honoured by the LM Studio
+    backend; for Groq / Ollama it's silently dropped (their enhancers don't
+    accept the kwarg) so non-LMStudio rigs keep working unchanged.
+    """
+    extra: dict = {}
+    if scene_only and _backend() == "lmstudio":
+        extra["scene_only"] = True
     return await _mod().enhance_image_prompt(
         raw_prompt,
         character_context=character_context,
@@ -117,6 +127,7 @@ async def enhance_image_prompt(
         reference_images=reference_images,
         reference_image_labels=reference_image_labels,
         n_subjects_override=n_subjects_override,
+        **extra,
     )
 
 

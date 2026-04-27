@@ -386,20 +386,30 @@ def _gather_refs(
 ) -> tuple[list, list, dict]:
     """Build ``(refs, subjects, appearances)`` from character + KB matches.
 
-    Character (bot) photos go first (up to 2). Remaining slots are filled
-    from the KB:
+    Subject-aware slot balancing: ``TextEncodeQwenImageEditPlus`` only has
+    ``image1..image4`` slots, so when the scene contains multiple unique
+    subjects (the bot self + KB matches) we MUST give each subject at least
+    one photo before doubling up on the bot — otherwise a 3-subject scene
+    burns 2 of 4 slots on the bot and starves the others out of the
+    encoder.
 
-    1. **Explicit subjects** (parsed from ``[SCENE: ... | with: a, b]``) are
-       resolved against KB titles + aliases via strict case-insensitive
-       equality. Names that fail to resolve are dropped silently — we do
-       NOT fall back to the fuzzy scorer to avoid double-counting a
-       misspelt name.
-    2. **Fuzzy seed matches** then top up the slots: an entry joins when
-       its title or any alias overlaps the seed via the word-bounded
-       substring or non-trivial-token rule (``_name_matches_seed``).
+    Two-pass selection within a 4-slot cap:
 
-    Hard cap stays at 4 refs total — Qwen v2 image1..image4 slots. Each KB
-    entry contributes at most 2 photos and is added at most once.
+    1. **Subject discovery** — collect candidate subjects in priority order:
+       bot self (if it has photos), explicit ``with:`` subjects (strict
+       case-insensitive equality vs KB title/aliases), then fuzzy KB
+       matches against the seed via the word-bounded substring /
+       non-trivial-token rule (``_name_matches_seed``).
+    2. **Pass A — one photo per subject** (in priority order) until either
+       the slot cap is reached or every subject has its first photo.
+    3. **Pass B — fill remaining slots** with extra photos from the same
+       subjects (up to 2 per subject), preserving priority order.
+
+    The single-subject case (only the bot, or only one KB match) keeps
+    today's "up to 2 photos" behaviour because Pass A places one photo and
+    Pass B fills the second slot from the same subject. Each KB entry / the
+    bot contributes at most 2 photos total; a subject that already has 2
+    photos in ``refs`` is skipped in Pass B.
     """
     MAX_TOTAL = 4
     refs: list = []
@@ -414,68 +424,111 @@ def _gather_refs(
     looks = (char.get("looks") or "").strip()
 
     char_count = database.get_character_image_count()
-    for i in range(1, min(char_count, 2) + 1):
-        if len(refs) >= MAX_TOTAL:
-            break
-        full = database.get_character_image(i)
-        if full:
-            refs.append(full)
-            subjects.append(bot_name or "self")
-    if bot_name and looks:
-        appearances[bot_name] = looks
-
-    if len(refs) >= MAX_TOTAL:
-        return refs, subjects, appearances
+    bot_label = bot_name or "self"
 
     try:
         kb_entries = database.get_image_entries()
     except Exception:
         kb_entries = []
 
+    # ── Subject discovery ────────────────────────────────────────────────
+    # Each candidate is (label, loader, max_photos). loader(idx_1based)
+    # returns a (bytes, mime) tuple or None. max_photos is the hard cap on
+    # how many photos this subject may contribute across both passes.
+    candidates: list = []
+    seen_keys: set = set()
     used_entry_ids: set = set()
 
-    def _add_entry(entry: dict) -> None:
+    def _key(label: str) -> str:
+        return (label or "self").strip().lower()
+
+    if char_count > 0:
+        candidates.append((
+            bot_label,
+            lambda i: database.get_character_image(i),
+            min(char_count, 2),
+            "self",
+        ))
+        seen_keys.add(_key(bot_label))
+        if bot_name and looks:
+            appearances[bot_name] = looks
+
+    def _add_kb_entry(entry: dict) -> None:
         entry_id = entry.get("id")
         if entry_id is None or entry_id in used_entry_ids:
             return
         title = (entry.get("title") or "").strip()
+        if not title or _key(title) in seen_keys:
+            return
         n_imgs = database.get_entry_image_count(entry_id)
-        added_any = False
-        for idx in range(1, min(n_imgs, 2) + 1):
-            if len(refs) >= MAX_TOTAL:
-                break
-            full = database.get_kb_image_full(entry_id, idx)
-            if full:
-                refs.append(full)
-                subjects.append(title)
-                added_any = True
-        if added_any:
-            used_entry_ids.add(entry_id)
-            desc = (entry.get("appearance_description") or "").strip()
-            if desc and title and title not in appearances:
-                appearances[title] = desc
+        if n_imgs <= 0:
+            return
+        used_entry_ids.add(entry_id)
+        seen_keys.add(_key(title))
+        candidates.append((
+            title,
+            lambda i, eid=entry_id: database.get_kb_image_full(eid, i),
+            min(n_imgs, 2),
+            "kb",
+        ))
+        desc = (entry.get("appearance_description") or "").strip()
+        if desc and title not in appearances:
+            appearances[title] = desc
 
-    # 1. Explicit `with: ...` overrides win their slots first.
+    # 1a. Explicit `with: ...` overrides — strict equality against KB titles.
     if explicit_subjects:
         for name in explicit_subjects:
-            if len(refs) >= MAX_TOTAL:
-                break
             for entry in kb_entries:
                 if entry.get("id") in used_entry_ids:
                     continue
                 if _entry_matches_explicit(entry, name):
-                    _add_entry(entry)
+                    _add_kb_entry(entry)
                     break
 
-    # 2. Fuzzy seed-driven matches fill the remaining slots.
+    # 1b. Fuzzy seed-driven KB matches.
+    for entry in kb_entries:
+        if entry.get("id") in used_entry_ids:
+            continue
+        if _entry_matches_seed(entry, seed_lower, seed_tokens):
+            _add_kb_entry(entry)
+
+    if not candidates:
+        return refs, subjects, appearances
+
+    # Track per-subject usage so Pass B doesn't exceed the per-subject cap.
+    used_by_label: dict = {}
+
+    def _take_from(label: str, loader, max_photos: int) -> bool:
+        """Try to take one more photo from *label*. Returns True on success."""
+        if len(refs) >= MAX_TOTAL:
+            return False
+        used = used_by_label.get(label, 0)
+        if used >= max_photos:
+            return False
+        idx = used + 1
+        full = loader(idx)
+        if full is None:
+            # Mark as exhausted so we don't keep retrying the same index.
+            used_by_label[label] = max_photos
+            return False
+        refs.append(full)
+        subjects.append(label)
+        used_by_label[label] = used + 1
+        return True
+
+    # ── Pass A: one photo per unique subject (priority order) ─────────────
+    for label, loader, max_photos, _src in candidates:
+        if len(refs) >= MAX_TOTAL:
+            break
+        _take_from(label, loader, max_photos)
+
+    # ── Pass B: fill remaining slots from same candidates, ≤2 each ────────
     if len(refs) < MAX_TOTAL:
-        for entry in kb_entries:
+        for label, loader, max_photos, _src in candidates:
+            while len(refs) < MAX_TOTAL and _take_from(label, loader, max_photos):
+                pass
             if len(refs) >= MAX_TOTAL:
                 break
-            if entry.get("id") in used_entry_ids:
-                continue
-            if _entry_matches_seed(entry, seed_lower, seed_tokens):
-                _add_entry(entry)
 
     return refs, subjects, appearances
 
@@ -488,6 +541,7 @@ async def _derive_prompt(
     bot_name: str,
     llm_refs: Optional[list] = None,
     llm_ref_labels: Optional[list] = None,
+    scene_only: bool = False,
 ) -> str:
     """Run prompt enhancement against the active backend's enhancer.
 
@@ -497,24 +551,38 @@ async def _derive_prompt(
     from the photos instead of inventing traits. ``llm_ref_labels`` is the
     matching list of subject names used to build the photo-order map.
 
+    ``scene_only=True`` switches the enhancer into "describe scene only,
+    NO appearance words" mode. We use it on the Qwen-edit pipeline whenever
+    reference photos are headed to Qwen — Qwen reads the character identity
+    from the photos and any appearance words in the text prompt would
+    overpower the photo's visual identity. In that mode the
+    ``character_context`` and ``llm_refs`` are intentionally NOT forwarded
+    to the enhancer (the photos go to Qwen, not here).
+
     Falls back to the seed itself on any failure — scene-image generation is
     never blocked by enhancement issues.
     """
     char_context = ""
-    if looks:
+    if looks and not scene_only:
         char_context = (
             f"[Authoritative written appearance — {bot_name or 'character'}]\n"
             f"{looks}"
         )
     has_llm_refs = bool(llm_refs)
-    if has_llm_refs:
+    if scene_only:
+        print(
+            "[SceneImage] derive_prompt: scene-only mode — appearance text and "
+            "reference photos withheld from the enhancer (photos go to Qwen)."
+        )
+    elif has_llm_refs:
         print(f"[SceneImage] passing {len(llm_refs)} LLM ref image(s) to enhancer: {llm_ref_labels}")
     try:
         enriched = await groq_ai.enhance_image_prompt(
             seed,
             character_context=char_context,
-            reference_images=llm_refs if has_llm_refs else None,
-            reference_image_labels=llm_ref_labels if has_llm_refs else None,
+            reference_images=llm_refs if (has_llm_refs and not scene_only) else None,
+            reference_image_labels=llm_ref_labels if (has_llm_refs and not scene_only) else None,
+            scene_only=scene_only,
         )
         if enriched and isinstance(enriched, str):
             return enriched.strip()
@@ -663,10 +731,17 @@ async def run_scene_image(
                     llm_refs.append(_r)
                     llm_ref_labels.append((_s or "self").strip())
 
+        # On the Qwen-edit pipeline, reference photos go directly to Qwen via
+        # `TextEncodeQwenImageEditPlus` — feeding any appearance words into
+        # the text prompt would override the visual identity baked into the
+        # photo. Switch the enhancer into scene-only mode whenever Qwen has
+        # at least one reference photo to consume.
+        _scene_only = bool(llm_refs) and backend == "comfyui" and engine == "qwen"
         enriched_base = await _derive_prompt(
             seed, looks, bot_name,
             llm_refs=llm_refs if llm_refs else None,
             llm_ref_labels=llm_ref_labels if llm_ref_labels else None,
+            scene_only=_scene_only,
         )
         enriched_base = enriched_base.rstrip(",. \n")
 

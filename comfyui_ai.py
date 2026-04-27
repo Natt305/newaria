@@ -1130,6 +1130,7 @@ def _run_generate_qwen(
     timeout: int,
     base_url: str,
     requests_mod,
+    reference_subjects: Optional[list] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Engine-specific runner for the Qwen-Image-Edit-Rapid GGUF stack.
 
@@ -1174,20 +1175,152 @@ def _run_generate_qwen(
     # legacy `reference_image` tuple. Cap at 4 (TextEncodeQwenImageEditPlus
     # has slots image1..image4).
     qwen_input_refs: list = []
+    qwen_input_subjects: list = []
     if refs:
-        qwen_input_refs = list(refs[:4])
+        qwen_input_refs = list(refs)
+        if reference_subjects:
+            qwen_input_subjects = [
+                (str(s).strip() if s else "self") for s in reference_subjects
+            ]
+        else:
+            qwen_input_subjects = ["self"] * len(qwen_input_refs)
+        # Pad / trim subject labels to match ref count so zip() can't drop refs.
+        if len(qwen_input_subjects) < len(qwen_input_refs):
+            qwen_input_subjects.extend(
+                ["self"] * (len(qwen_input_refs) - len(qwen_input_subjects))
+            )
+        elif len(qwen_input_subjects) > len(qwen_input_refs):
+            qwen_input_subjects = qwen_input_subjects[: len(qwen_input_refs)]
     elif reference_image is not None:
         qwen_input_refs = [reference_image]
+        qwen_input_subjects = ["self"]
+
+    # ── Subject-aware reference selection (Pass A then Pass B) ──────────────
+    # `TextEncodeQwenImageEditPlus` only has image1..image4. When the caller
+    # passes multiple photos of the same subject (bot self profile + bot self
+    # in a KB entry), naively taking the first 4 burns slots and starves
+    # other subjects out of the encoder. Mirror the gather-side balance here
+    # so any caller path benefits — not just scene_image's _gather_refs.
+    if qwen_input_refs:
+        _picked_indices: List[int] = []
+        _used_per_label: dict = {}
+        # Pass A: one ref per unique subject (caller order preserved).
+        for _idx, (_ref, _subj) in enumerate(
+            zip(qwen_input_refs, qwen_input_subjects)
+        ):
+            if len(_picked_indices) >= 4:
+                break
+            _key = _subj.strip().lower() or "self"
+            if _used_per_label.get(_key, 0) >= 1:
+                continue
+            _picked_indices.append(_idx)
+            _used_per_label[_key] = 1
+        # Pass B: fill leftover slots with not-yet-picked refs in caller
+        # order. The per-subject cap matches scene_image._gather_refs (≤2).
+        if len(_picked_indices) < 4:
+            _placed = set(_picked_indices)
+            for _idx, (_ref, _subj) in enumerate(
+                zip(qwen_input_refs, qwen_input_subjects)
+            ):
+                if len(_picked_indices) >= 4:
+                    break
+                if _idx in _placed:
+                    continue
+                _key = _subj.strip().lower() or "self"
+                if _used_per_label.get(_key, 0) >= 2:
+                    continue
+                _picked_indices.append(_idx)
+                _used_per_label[_key] = _used_per_label.get(_key, 0) + 1
+        _picked = [qwen_input_refs[i] for i in _picked_indices]
+        _picked_subjects = [qwen_input_subjects[i] for i in _picked_indices]
+        if len(_picked) < len(qwen_input_refs):
+            print(
+                f"[ComfyUI] Qwen: subject-aware ref selection trimmed "
+                f"{len(qwen_input_refs)} → {len(_picked)} (one photo per subject "
+                f"first; cap=4)."
+            )
+        qwen_input_refs = _picked
+        qwen_input_subjects = _picked_subjects
+
+    # ── Lazy auto-diagnose: populate `_QWEN_ENCODER_V2` on first generate ──
+    # `diagnose()` is normally invoked by the operator via `/diagcomfyui`,
+    # but the very first `!generate` after a process restart can fire
+    # before that ever happens. When the cache is still `None` and we
+    # actually have a reference to upload, run diagnose() once so the
+    # builder can wire `latent_image` correctly on the v2 encoder.
+    global _QWEN_ENCODER_V2_WARNED
+    if _QWEN_ENCODER_V2 is None and qwen_input_refs:
+        print(
+            "[ComfyUI] Qwen: encoder version unknown — running auto-diagnose "
+            "once to populate the cache before the first edit-mode generate."
+        )
+        try:
+            diagnose()
+        except Exception as _diag_exc:
+            print(
+                f"[ComfyUI] Qwen: auto-diagnose failed "
+                f"({type(_diag_exc).__name__}: {_diag_exc}) — proceeding "
+                "without `latent_image` wiring."
+            )
+        _QWEN_ENCODER_V2_WARNED = True  # silence the legacy one-shot warning
+
+    # ── v1 fallback pre-resize ─────────────────────────────────────────────
+    # On v1-encoder installs, the encoder has no `latent_image` slot to
+    # constrain the reference embedding to the target canvas — references
+    # are propagated at their native dimensions and the result drifts
+    # toward the reference's aspect ratio. Smart-crop to qwen_width ×
+    # qwen_height before upload (matching the FLUX img2img path) so the
+    # encoder sees a canvas-shaped reference. Skip on v2 (the encoder
+    # handles sizing) and on unknown (diagnose may have been unreachable).
+    if _QWEN_ENCODER_V2 is False and qwen_input_refs:
+        print(
+            f"[ComfyUI] Qwen v1 encoder detected — pre-resizing "
+            f"{len(qwen_input_refs)} reference image(s) to "
+            f"{qwen_width}x{qwen_height} before upload."
+        )
+        _resized: List[Tuple[bytes, str]] = []
+        for _ref_b, _ref_m in qwen_input_refs:
+            _png = _preprocess_reference_image(
+                _ref_b, _ref_m, qwen_width, qwen_height
+            )
+            if _png:
+                _resized.append((_png, "image/png"))
+            else:
+                _resized.append((_ref_b, _ref_m))
+        qwen_input_refs = _resized
+    elif _QWEN_ENCODER_V2 is None and qwen_input_refs:
+        print(
+            "[ComfyUI] Qwen: encoder v2 status still unknown after diagnose — "
+            "skipping pre-resize. Reference dimensions left untouched."
+        )
 
     uploaded: List[str] = []
-    for ref_bytes, _ref_mime in qwen_input_refs:
+    uploaded_subjects: List[str] = []
+    for (ref_bytes, _ref_mime), _subj in zip(qwen_input_refs, qwen_input_subjects):
         png_bytes = _to_png(ref_bytes) or ref_bytes
         name = _upload_image(base_url, png_bytes, requests_mod)
         if name:
             uploaded.append(name)
+            uploaded_subjects.append(_subj)
 
+    # Fail loud when refs were requested but every upload failed. Falling
+    # through to txt2img would silently strip identity from the prompt and
+    # produce an off-character image labelled as if it were correct — much
+    # worse than returning None, which the scene-image runner can surface
+    # to the user as a clear failure.
     if qwen_input_refs and not uploaded:
-        print("[ComfyUI] Qwen: all reference uploads failed — falling back to txt2img.")
+        print(
+            f"[ComfyUI] Qwen: ALL {len(qwen_input_refs)} reference upload(s) "
+            f"failed — refusing to silently fall back to txt2img. Returning "
+            f"None so the caller can report a clean failure to the user."
+        )
+        return None
+
+    if uploaded:
+        _slot_map = ", ".join(
+            f"image{i + 1}={s}" for i, s in enumerate(uploaded_subjects)
+        )
+        print(f"[ComfyUI] Qwen: subject→slot mapping — {_slot_map}")
 
     # Dispatch by reference count to the matching named builder, so each
     # variant has an explicit, self-documenting entry point:
@@ -1195,20 +1328,12 @@ def _run_generate_qwen(
     #   1 ref    → _build_edit_workflow_qwen      (single-image edit-mode)
     #   2–4 refs → _build_multi_edit_workflow_qwen (image1..image4)
     # Resolve the v2-encoder status into a human-readable tag for the
-    # per-generate log line. `None` here means diagnose() never ran (or
-    # ComfyUI was offline at boot) — emit a one-shot warning so the
-    # operator knows to re-run /diagcomfyui to populate the cache.
+    # per-generate log line.
     if _QWEN_ENCODER_V2 is True:
         _latent_tag = "wired"
     elif _QWEN_ENCODER_V2 is False:
         _latent_tag = "not wired (v1 node)"
     else:
-        global _QWEN_ENCODER_V2_WARNED
-        if not _QWEN_ENCODER_V2_WARNED and len(uploaded) >= 1:
-            print("[ComfyUI] Qwen: encoder v2 status unknown (diagnose hasn't "
-                  "run yet) — defaulting to NOT wiring `latent_image`. "
-                  "Run /diagcomfyui to populate the cache.")
-            _QWEN_ENCODER_V2_WARNED = True
         _latent_tag = "not wired (unknown)"
 
     if len(uploaded) == 1:
@@ -1319,6 +1444,7 @@ def _run_generate(
             prompt, refs, reference_image, client_id, seed,
             steps_override, width_override, height_override,
             timeout, base_url, _requests,
+            reference_subjects=reference_subjects,
         )
 
     # === FLUX engine (existing behaviour, untouched) ==========================
