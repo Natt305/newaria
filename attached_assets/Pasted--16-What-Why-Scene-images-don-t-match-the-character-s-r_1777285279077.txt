@@ -1,0 +1,35 @@
+#16 - What & Why
+
+Scene images don't match the character's reference photo because the LLM prompt enhancer (Celeste/mn-12b, text-only) can't see photos. It falls back to the character background text which may contain wrong appearance words (e.g. "pale grey hair" when the actual photo shows black hair). Those words go into the Qwen text prompt and override what Qwen's image model sees in the reference photo.
+
+Root cause (confirmed in logs):
+
+    enhance_image_prompt tries a vision call → HTTP 400 (Celeste is text-only)
+    chat() retries without images but keeps the same system prompt ("read appearance from photos") — no photos available, so model reads from character background text
+    Background text says "pale grey hair" → Celeste writes that into the text prompt
+    Qwen receives both the reference photo AND the text prompt; the conflicting appearance words in the text override the visual identity in the photo
+
+Qwen-Rapid-NSFW-v23_Q4_K is a proper image2image model and CAN read the reference photo for identity — but only if the text prompt doesn't conflict with it.
+Done looks like
+
+Generated scene images match the character's reference photo. The text prompt sent to Qwen contains no appearance words. Qwen derives looks entirely from the reference photo; the text prompt only describes scene, action, lighting, mood.
+Out of scope
+
+    groq_ai.py and ollama_ai.py — not used in this setup, do not touch
+    Replacing or upgrading the text LLM
+    Changing how reference photos are stored or fetched
+    Changing the Qwen ComfyUI workflow structure
+
+Steps
+
+    Add scene_only: bool = False to enhance_image_prompt in:
+        lmstudio_ai.py (line 2099): when scene_only=True, skip char_block entirely and replace the appearance-reading instruction with: "IMPORTANT: DO NOT include any appearance traits (hair color, eye color, skin tone, clothing, accessories). These are handled by reference photos passed directly to the image model. Describe ONLY: scene setting, action, pose, lighting, mood, atmosphere, composition, background environment."
+        ai_backend.py (line 103): add scene_only: bool = False as a pass-through kwarg
+
+    In scene_image.py:
+        _derive_prompt (line 485): add scene_only: bool = False parameter, forward to enhance_image_prompt
+        Caller at line 666: pass scene_only=bool(llm_refs) — True whenever the Qwen path has reference photos
+
+Relevant files
+
+scene_image.py:485-526 scene_image.py:639-684 lmstudio_ai.py:2099-2289 ai_backend.py:103-120
