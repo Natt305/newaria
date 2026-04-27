@@ -45,69 +45,6 @@ class SceneImageButtonView(discord.ui.View):
         await scene_image.handle_button_click(interaction)
 
 
-class SceneAndSuggestView(discord.ui.View):
-    """Combined view: suggestion buttons (row 0) + 🎬 scene button (row 1).
-
-    Used in scene mode when suggestion buttons are also enabled. The view is
-    created fresh per reply and is NOT registered via bot.add_view() — the
-    🎬 button shares the same ``custom_id`` as ``SceneImageButtonView`` so
-    Discord falls back to the globally-registered handler on restart.
-
-    Uses ``timeout=None`` so the 🎬 button keeps working after a restart,
-    matching the behaviour of the plain ``SceneImageButtonView``. Suggestion
-    buttons also never time out — this is intentional (the 🎬 button on the
-    same message must stay live forever, so the whole view must be timeless).
-    """
-
-    def __init__(self, suggestions: list, channel_id: str) -> None:
-        super().__init__(timeout=None)
-        for suggestion in suggestions[:3]:
-            label = suggestion if len(suggestion) <= 80 else suggestion[:77] + "..."
-            btn = discord.ui.Button(
-                style=discord.ButtonStyle.secondary,
-                label=label,
-                row=0,
-            )
-            btn.callback = self._make_suggestion_callback(suggestion, channel_id)
-            self.add_item(btn)
-
-        scene_btn = discord.ui.Button(
-            emoji="🎬",
-            style=discord.ButtonStyle.secondary,
-            custom_id="scene_image_btn",
-            row=1,
-        )
-        scene_btn.callback = self._scene_callback
-        self.add_item(scene_btn)
-
-    @staticmethod
-    def _make_suggestion_callback(suggestion: str, channel_id: str):
-        async def callback(interaction: discord.Interaction):
-            import bot as _bot_module
-            # Disable all buttons to prevent double-fire while the reply loads
-            for item in interaction.view.children:  # type: ignore[union-attr]
-                item.disabled = True
-            try:
-                await interaction.response.edit_message(
-                    view=interaction.view  # type: ignore[arg-type]
-                )
-            except Exception:
-                pass
-            await _bot_module.process_chat(
-                channel=interaction.channel,
-                author=interaction.user,
-                user_text=suggestion,
-                reply_target=interaction.message,
-                channel_id=channel_id,
-            )
-        return callback
-
-    @staticmethod
-    async def _scene_callback(interaction: discord.Interaction) -> None:
-        import scene_image
-        await scene_image.handle_button_click(interaction)
-
-
 def _has_saveimage_permission(interaction: discord.Interaction) -> bool:
     """Return True if the interaction user may save to the knowledge base."""
     gate = database.get_command_roles().get("saveimage")

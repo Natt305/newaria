@@ -1099,11 +1099,8 @@ async def process_chat(
             or (image_prompt and _image_ready())
             or scene_image.is_user_visual_intent(user_text)
         )
-        # Send the prose first. When suggestions are enabled, use the
-        # combined SceneAndSuggestView (suggestion buttons row 0 + 🎬 row 1)
-        # so the user gets both. Falls back to plain SceneImageButtonView
-        # when suggestions are off. Both use timeout=None so the 🎬 button
-        # survives restarts.
+        # Send the prose. 🎬 is now a message reaction (added after send)
+        # so all button rows are free for suggestion buttons.
         prose = response_text or "…"
         if _suggestions_enabled:
             _s_topic = await get_suggestion_topic(channel_id)
@@ -1115,9 +1112,9 @@ async def process_chat(
                 guiding_prompt=_suggestion_prompt,
                 language_sample=prose[:200],
             )
-            scene_view = ui.SceneAndSuggestView(_s_list, channel_id)
+            scene_view: Optional[discord.ui.View] = SuggestionView(_s_list, channel_id) if _s_list else None
         else:
-            scene_view = ui.SceneImageButtonView()
+            scene_view = None
         try:
             if len(prose) > 2000:
                 _chunks = [prose[i:i+2000] for i in range(0, len(prose), 2000)]
@@ -1133,6 +1130,12 @@ async def process_chat(
         except discord.HTTPException as exc:
             print(f"[Bot] Scene-mode reply failed: {exc}")
             return
+        # Add 🎬 as a reaction so the user can trigger scene generation at any
+        # time without consuming a button row.
+        try:
+            await bot_message.add_reaction("🎬")
+        except discord.HTTPException:
+            pass
         if _route_to_scene:
             # When the model emitted `[SCENE: ...]` with a body, hand the
             # polished body to the runner as `seed_override` so it's used
@@ -2081,6 +2084,40 @@ async def on_ready():
             await bot.tree.sync(guild=guild)
         except Exception as e:
             print(f"[Bot] 清除伺服器 {guild.name} 舊指令失敗: {e}")
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
+    """Trigger scene image generation when a user reacts with 🎬 on a bot
+    message in a scene-mode channel.
+
+    Using a reaction keeps every Discord button row free for suggestion
+    buttons (and future feature buttons) while preserving the one-click
+    scene-generation experience.
+    """
+    if str(payload.emoji) != "🎬":
+        return
+    if bot.user and payload.user_id == bot.user.id:
+        return
+    if not scene_image.is_scene_mode_on(str(payload.channel_id)):
+        return
+    channel = bot.get_channel(payload.channel_id)
+    if channel is None:
+        return
+    try:
+        message = await channel.fetch_message(payload.message_id)  # type: ignore[union-attr]
+    except discord.HTTPException:
+        return
+    if not bot.user or message.author.id != bot.user.id:
+        return
+    await scene_image.run_scene_image(
+        bot_message=message,
+        channel=channel,
+        channel_id=str(payload.channel_id),
+        trigger="button",
+        hint_prompt=None,
+        acker=None,
+    )
 
 
 @bot.event
