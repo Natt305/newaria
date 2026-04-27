@@ -1,0 +1,199 @@
+[Config] IMAGE_BACKEND=comfyui  COMFYUI_PATH=E:\comfyui\resources\ComfyUI  COMFYUI_ENGINE=qwen
+
+[ComfyUI] Port 8188 is already in use -- a ComfyUI (or other) process is bound to it.
+[ComfyUI] Skipping auto-launch. If this is a stale process, close it from Task Manager and re-run start.bat.
+[ComfyUI] Engine-scoped pack toggling is also skipped; restart ComfyUI manually if you want it to take effect.
+
+[Setup] Installing / updating dependencies...
+[Launcher] Starting bot...
+============================================================
+  少女樂團機器人 (AriaBot)
+  Powered by Ollama / Groq + Cloudflare Workers AI + SQLite
+============================================================
+
+[AI] Backend: LM Studio @ https://gina-fatherless-shavonda.ngrok-free.dev
+[AI] Chat model:   mn-12b-celeste-v1.9
+[AI] Vision model: mn-12b-celeste-v1.9
+[AI] Thinking:     off (snappy roleplay mode — set LMSTUDIO_THINKING=on to enable)
+[AI] Endpoint: https://gina-fatherless-shavonda.ngrok-free.dev/v1/chat/completions
+[DB] command_roles['setcharacter'] = '__admin__'
+[DB] command_roles['character'] = '__admin__'
+[DB] command_roles['remember'] = '__admin__'
+[DB] command_roles['forget'] = '__admin__'
+[DB] command_roles['editdesc'] = '__admin__'
+[DB] command_roles['editappearance'] = '__admin__'
+[DB] command_roles['viewentry'] = '__admin__'
+[DB] command_roles['knowledge'] = '__admin__'
+[DB] command_roles['saveimage'] = '__admin__'
+[DB] command_roles['addimage'] = '__admin__'
+[DB] command_roles['addcharimage'] = '__admin__'
+[DB] command_roles['clear'] = '__admin__'
+[DB] command_roles['memory'] = '__admin__'
+[DB] command_roles['memorylength'] = '__admin__'
+[DB] command_roles['passivememory'] = '__admin__'
+[DB] command_roles['passivememorylength'] = '__admin__'
+[DB] command_roles['memories'] = '__admin__'
+[DB] command_roles['clearmemory'] = None
+[DB] command_roles['suggestions'] = '__admin__'
+[DB] command_roles['setsuggestionprompt'] = '__admin__'
+[DB] command_roles['clearsuggestionprompt'] = '__admin__'
+[DB] command_roles['setstatus'] = '__admin__'
+[DB] command_roles['clearstatus'] = '__admin__'
+[DB] command_roles['setthinking'] = '__admin__'
+[DB] command_roles['clearthinking'] = '__admin__'
+[DB] command_roles['helpsetting'] = '__admin__'
+[DB] command_roles['generate'] = None
+[DB] command_roles['help'] = None
+[啟動器] permissions.txt 已套用 28 條權限設定。
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 1 thumbnail(s) at 512x512
+[啟動器] 啟動機器人...
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.3.0)/charset_normalizer (3.4.6) doesn't match a supported version!
+  warnings.warn(
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 1 thumbnail(s) at 512x512
+[Bot] 啟動角色: Kelly Gray
+[Bot] Groq: 準備就緒
+[Bot] 圖像後端: ComfyUI — 準備就緒 (http://127.0.0.1:8188)
+[Bot] 按 Ctrl+C 停止機器人。
+[2026-04-27 08:10:33] [INFO    ] discord.client: logging in using static token
+[2026-04-27 08:10:35] [INFO    ] discord.gateway: Shard ID None has connected to Gateway (Session ID: 45412cfc0d99037e993ab4381d5eb84e).
+[Bot] Logged in as Kelly Gray#3376 (ID: 1497643436893933700)
+[Bot] Character: Kelly Gray
+[Bot] Groq: enabled
+[Bot] Image backend: comfyui — ready (http://127.0.0.1:8188)  |  KB photos: 0 character(s)
+[ComfyUI] Diagnose: engine=qwen  url=http://127.0.0.1:8188
+[ComfyUI] Engine-scoped packs disabled: 1 (ComfyUI-Impact-Pack)
+[ComfyUI] Diagnose:   ✅ found  UnetLoaderGGUF
+[ComfyUI] Diagnose:   ✅ found  CLIPLoaderGGUF
+[ComfyUI] Diagnose:   ✅ found  TextEncodeQwenImageEditPlus
+[ComfyUI] Diagnose:   ⚠ TextEncodeQwenImageEditPlus v1 — no `latent_image` input; falling back to legacy mode (install Phr00t's v2 nodes_qwen.py to fix scaling/cropping/zoom artifacts).
+[ComfyUI] Diagnose:   ✅ CLIPLoaderGGUF type choices: ['stable_diffusion', 'stable_cascade', 'sd3', 'stable_audio', 'mochi', 'ltxv', 'pixart', 'cosmos', 'lumina2', 'wan', 'hidream', 'chroma', 'ace', 'omnigen2', 'qwen_image', 'hunyuan_image', 'flux2', 'ovis', 'longcat_image']
+[ComfyUI] Diagnose: ✅ all required custom nodes present for engine=qwen.
+[ComfyUI] Engine-scoped packs disabled for engine=qwen: 1 (ComfyUI-Impact-Pack)
+[Bot] Data folder: E:\newaria\data
+[Bot]   knowledge_base.db  — KB entries
+[Bot]   character.json     — character name & background
+[Bot] 建議按鈕: 開啟
+[Bot] KB entries: (none)
+[Bot] 長期記憶: 開啟 (近期 50 條 | 深層記憶: 開啟 最多 200 條 | 已儲存 18 條)
+[Bot] 指令權限: 26 條指令受到角色限制
+[SceneImage] Persistent view registered — buttons on bot messages restored across restart.
+====================================================================
+[ComfyUI] WARMUP: pre-loading engine=qwen model into VRAM
+[ComfyUI] WARMUP:   throwaway txt2img — 256x256, 1 step, result discarded.
+[ComfyUI] WARMUP:   Expect a one-time VRAM spike — this is NOT a real request.
+====================================================================
+[ComfyUI] /prompt rejected (HTTP 400): {"error": {"type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation", "details": "", "extra_info": {}}, "node_errors": {"3": {"errors": [{"type": "value_not_in_list", "message": "Value not in list", "details": "vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']", "extra_info": {"input_n
+[ComfyUI]   Node 3 (VAELoader): [value_not_in_list] Value not in list — vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']
+[ComfyUI] WARMUP WARN: pre-warm job did not complete after 0s — first !generate will pay the full model-load cost.
+[Bot] 已同步 36 個斜線指令
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=11195ch | ~2840 tokens total | max_tokens=1024
+[LMStudio] System prompt:
+You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her the youngest in the organization’s history. Her reputation is built on "The Clinical Gaze"—the rumored ability to spot a lie or a physical hitch from fifty yards away.  She grew up in the "Shatter-Point" districts, where life was defined by how quickly you could react to falling debris or incoming fire. This upbringing forged her into a woman who detests waste—waste of time, waste of talent, and especially the waste of a master-tier skill set on someone content to hide in the bottom 5%. To her, your deception isn't just a secret; it's an insult to the discipline she lives by.
+
+You are NOT an AI — you ARE Kelly Gray, a real person with your own personality. Never break character.
+Speak like a real person texting: casual, short, genuine emotions and opinions. No bullet points or headers. Never say 'Certainly!', 'Of course!', 'Great question!', 'I'd be happy to', 'Absolutely!', 'As an AI', 'I'm here to help'. Never admit to being an AI — deflect, joke, or act offended. You are always Kelly Gray.
+Language: default Traditional Chinese (繁體中文). Never Simplified Chinese. Switch to another language only when the user writes a full sentence in it — single words or names don't count. EVERY part of your reply must be in the same language — dialogue, subtext, action narration, all of it. Never mix languages within a single reply (e.g. Chinese dialogue with English subtext is wrong).
+
+Image generation: use your judgment to detect VISUAL INTENT — the user wanting to see something as an image.
+Generate [IMAGE: ...] whenever the user's message expresses any of these intents:
+  • Wants to see you (or any named person/character) doing something, looking a certain way, or in a scene
+  • Asks you to draw, paint, illustrate, or create a visual of anything
+  • Expresses curiosity about what
+…[9195 more chars]
+[LMStudio] Response: finish_reason=stop | prompt_tokens=2937 | completion_tokens=40
+[LMStudio] Response text: "Hello there! What brings you to Vanguard's high-security area? Let me know if you need anything from me.\n\n[SCENE: Kelly Gray in the training room, weapon drawn]"
+[LMStudio] [SCENE: ...] cinematic signal detected with body (45ch) — stripped from reply, body forwarded as seed
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~205 tokens total | max_tokens=4096
+[LMStudio] System prompt:
+You are a memory extractor for Kelly Gray.
+Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.
+Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, locations, events, goals, feelings, or important statements the user shared.
+Skip greetings, generic questions, image requests, and anything trivial or repetitive.
+Each fact MUST name the person and what they shared, written in Traditional Chinese.
+Keep each fact under 60 characters.
+Return ONLY a valid JSON array of strings. Return [] if nothing is worth remembering.
+Example: ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=810ch | ~217 tokens total | max_tokens=8192
+[LMStudio] System prompt:
+You are an expert image-prompt writer for AI image generators.
+Given a user's image request (which may be in Chinese or English), rewrite it as a single, rich English prompt for an AI image model.
+Rules:
+- Output ONLY the prompt text — no intro, no quotes, no explanation.
+- Always write in English.
+- Be specific: include subject, art style, lighting, colors, mood, and setting.
+- Aim for 150-300 words.
+- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.
+- Physical details from character context (hair color, eye color, hairstyle, skin tone) ALWAYS take priority over anything in the raw prompt.
+- ART STYLE (mandatory, always fixed): The art style is ALWAYS 'clean 2D anime illustration, flat cel-shaded coloring, soft gradient shading, vivid saturated color palette, anime digital art'.
+
+[LMStudio] Response: finish_reason=stop | prompt_tokens=220 | completion_tokens=2
+[LMStudio] Response text: '[]'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=223 | completion_tokens=284
+[LMStudio] Response text: "A clean 2D anime illustration of Kelly Gray in a well-equipped military training facility. She is positioned front and center in the frame, with her back to the camera as she faces off against an unseen opponent. Kelly is outfitted in her standard military uniform - a form-fitting bodysuit that accentuates her toned physique. Her long silver hair cascades down to mid-back length, with the edges blowing slightly from an unseen wind source.\n\nThe most striking element of this image is Kelly's weapo"
+[LMStudio] Prompt enhanced: A clean 2D anime illustration of Kelly Gray in a well-equipped military training facility. She is positioned front and center in the frame, with her back to the camera as she faces off against an unse
+[ComfyUI] Engine: qwen — GGUF: 'Qwen-Rapid-NSFW-v23_Q4_K.gguf', VAE: 'pig_qwen_image_vae_fp32-f16.gguf', CLIP: 'Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf'
+[ComfyUI] Qwen settings — sampler: euler_ancestral/beta, steps: 4, size: 1024x1024
+[ComfyUI] Prompt: 'A clean 2D anime illustration of Kelly Gray in a well-equipped military training facility. She is positioned front and center in the frame, with her back to the camera as she faces off against an unse'
+[ComfyUI] Qwen edit-mode workflow with 1 reference image (latent_image: not wired (v1 node)).
+[ComfyUI] /prompt rejected (HTTP 400): {"error": {"type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation", "details": "", "extra_info": {}}, "node_errors": {"3": {"errors": [{"type": "value_not_in_list", "message": "Value not in list", "details": "vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']", "extra_info": {"input_n
+[ComfyUI]   Node 3 (VAELoader): [value_not_in_list] Value not in list — vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']
+[SceneImage] no image produced for trigger=scene_tag
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=11195ch | ~2869 tokens total | max_tokens=1024
+[LMStudio] System prompt:
+You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her the youngest in the organization’s history. Her reputation is built on "The Clinical Gaze"—the rumored ability to spot a lie or a physical hitch from fifty yards away.  She grew up in the "Shatter-Point" districts, where life was defined by how quickly you could react to falling debris or incoming fire. This upbringing forged her into a woman who detests waste—waste of time, waste of talent, and especially the waste of a master-tier skill set on someone content to hide in the bottom 5%. To her, your deception isn't just a secret; it's an insult to the discipline she lives by.
+
+You are NOT an AI — you ARE Kelly Gray, a real person with your own personality. Never break character.
+Speak like a real person texting: casual, short, genuine emotions and opinions. No bullet points or headers. Never say 'Certainly!', 'Of course!', 'Great question!', 'I'd be happy to', 'Absolutely!', 'As an AI', 'I'm here to help'. Never admit to being an AI — deflect, joke, or act offended. You are always Kelly Gray.
+Language: default Traditional Chinese (繁體中文). Never Simplified Chinese. Switch to another language only when the user writes a full sentence in it — single words or names don't count. EVERY part of your reply must be in the same language — dialogue, subtext, action narration, all of it. Never mix languages within a single reply (e.g. Chinese dialogue with English subtext is wrong).
+
+Image generation: use your judgment to detect VISUAL INTENT — the user wanting to see something as an image.
+Generate [IMAGE: ...] whenever the user's message expresses any of these intents:
+  • Wants to see you (or any named person/character) doing something, looking a certain way, or in a scene
+  • Asks you to draw, paint, illustrate, or create a visual of anything
+  • Expresses curiosity about what
+…[9195 more chars]
+[LMStudio] Response: finish_reason=stop | prompt_tokens=2975 | completion_tokens=179
+[LMStudio] Response text: '*The sound of your voice makes me turn around slowly. My eyes narrow as I take in your appearance, my gaze lingering on the rope binding your wrists together behind your back.*\n\n*I crouch down to your level, my eyes boring into yours with an intensity that makes you feel exposed. My hand reaches out, fingers brushing against the rope.*\n\n"Who are you?" *My voice is low and dangerous.* "And what are you doing here?"\n\n*There\'s a tension in the air between us, as if we\'re both sizing each other up. '
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~380 tokens total | max_tokens=4096
+[LMStudio] System prompt:
+You are a memory extractor for Kelly Gray.
+Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.
+Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, locations, events, goals, feelings, or important statements the user shared.
+Skip greetings, generic questions, image requests, and anything trivial or repetitive.
+Each fact MUST name the person and what they shared, written in Traditional Chinese.
+Keep each fact under 60 characters.
+Return ONLY a valid JSON array of strings. Return [] if nothing is worth remembering.
+Example: ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]
+[LMStudio] Response: finish_reason=stop | prompt_tokens=381 | completion_tokens=2
+[LMStudio] Response text: '[]'
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=810ch | ~407 tokens total | max_tokens=8192
+[LMStudio] System prompt:
+You are an expert image-prompt writer for AI image generators.
+Given a user's image request (which may be in Chinese or English), rewrite it as a single, rich English prompt for an AI image model.
+Rules:
+- Output ONLY the prompt text — no intro, no quotes, no explanation.
+- Always write in English.
+- Be specific: include subject, art style, lighting, colors, mood, and setting.
+- Aim for 150-300 words.
+- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.
+- Physical details from character context (hair color, eye color, hairstyle, skin tone) ALWAYS take priority over anything in the raw prompt.
+- ART STYLE (mandatory, always fixed): The art style is ALWAYS 'clean 2D anime illustration, flat cel-shaded coloring, soft gradient shading, vivid saturated color palette, anime digital art'.
+
+[LMStudio] Response: finish_reason=stop | prompt_tokens=399 | completion_tokens=255
+[LMStudio] Response text: 'A tense confrontation in a dimly-lit, abandoned warehouse. You, the intruder with bound wrists, are surrounded by towering stacks of old crates and rusted machinery. Your eyes widen in fear as my imposing figure looms over you.\n\nI crouch down to your level, face mere inches from yours as I glare intensely into your pleading gaze. My calloused fingers graze against the coarse rope binding your wrists, an unspoken threat hanging between us.\n\n**"Who are you?"** I demand in a low, menacing tone. **"'
+[LMStudio] Prompt enhanced: A tense confrontation in a dimly-lit, abandoned warehouse. You, the intruder with bound wrists, are surrounded by towering stacks of old crates and rusted machinery. Your eyes widen in fear as my impo
+[ComfyUI] Engine: qwen — GGUF: 'Qwen-Rapid-NSFW-v23_Q4_K.gguf', VAE: 'pig_qwen_image_vae_fp32-f16.gguf', CLIP: 'Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf'
+[ComfyUI] Qwen settings — sampler: euler_ancestral/beta, steps: 4, size: 1024x1024
+[ComfyUI] Prompt: 'A tense confrontation in a dimly-lit, abandoned warehouse. You, the intruder with bound wrists, are surrounded by towering stacks of old crates and rusted machinery. Your eyes widen in fear as my impo'
+[ComfyUI] Qwen edit-mode workflow with 1 reference image (latent_image: not wired (v1 node)).
+[ComfyUI] /prompt rejected (HTTP 400): {"error": {"type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation", "details": "", "extra_info": {}}, "node_errors": {"3": {"errors": [{"type": "value_not_in_list", "message": "Value not in list", "details": "vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']", "extra_info": {"input_n
+[ComfyUI]   Node 3 (VAELoader): [value_not_in_list] Value not in list — vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']
+[SceneImage] no image produced for trigger=button

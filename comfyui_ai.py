@@ -995,11 +995,32 @@ def _submit_and_poll(
             try:
                 err = resp.json()
                 node_errors = err.get("node_errors", {})
+                _comfy_path = os.environ.get("COMFYUI_PATH", "").strip()
                 for node_id, node_err in node_errors.items():
                     class_type = workflow.get(node_id, {}).get("class_type", node_id)
                     for e in node_err.get("errors", []):
                         print(f"[ComfyUI]   Node {node_id} ({class_type}): "
-                              f"[{e.get('type', '?')}] {e.get('message', '')} — {e.get('details', '')}")
+                              f"[{e.get('type', '?')}] {e.get('message', '')} -- {e.get('details', '')}")
+                        if e.get("type") == "value_not_in_list":
+                            _details = e.get("details", "")
+                            if "vae_name:" in _details:
+                                _dir = (os.path.join(_comfy_path, "models", "vae")
+                                        if _comfy_path else "<ComfyUI>/models/vae/")
+                                print(f"[ComfyUI] HINT: Your VAE file is not in ComfyUI's model list.")
+                                print(f"[ComfyUI] HINT: Place it in: {_dir}")
+                                print(f"[ComfyUI] HINT: Then close ComfyUI and re-run start.bat.")
+                            elif "unet_name:" in _details:
+                                _dir = (os.path.join(_comfy_path, "models", "unet")
+                                        if _comfy_path else "<ComfyUI>/models/unet/")
+                                print(f"[ComfyUI] HINT: Your GGUF checkpoint is not in ComfyUI's model list.")
+                                print(f"[ComfyUI] HINT: Place it in: {_dir}")
+                                print(f"[ComfyUI] HINT: Then close ComfyUI and re-run start.bat.")
+                            elif "clip_name:" in _details:
+                                _dir = (os.path.join(_comfy_path, "models", "clip")
+                                        if _comfy_path else "<ComfyUI>/models/clip/")
+                                print(f"[ComfyUI] HINT: Your CLIP GGUF is not in ComfyUI's model list.")
+                                print(f"[ComfyUI] HINT: Place it in: {_dir}")
+                                print(f"[ComfyUI] HINT: Then close ComfyUI and re-run start.bat.")
             except Exception:
                 pass
             return None
@@ -2154,14 +2175,19 @@ def diagnose() -> dict:
         print(f"[ComfyUI] Diagnose: could not parse VRAM from /system_stats "
               f"({type(exc).__name__}: {exc})")
 
+    _node_payloads: dict = {}  # node_name -> parsed /object_info JSON for present nodes
     for node_name, _hint in required:
         try:
             r = _requests.get(f"{base_url}/object_info/{node_name}", timeout=5)
-            present = (r.status_code == 200) and bool(r.json())
+            _rjson = r.json() if r.status_code == 200 else {}
+            present = bool(_rjson)
         except Exception as exc:
             print(f"[ComfyUI] Diagnose: probe for {node_name} failed ({type(exc).__name__}: {exc})")
             present = False
+            _rjson = {}
         result["nodes"][node_name] = present
+        if present:
+            _node_payloads[node_name] = _rjson
         marker = "✅ found" if present else "❌ MISSING"
         print(f"[ComfyUI] Diagnose:   {marker}  {node_name}")
         if not present:
@@ -2214,6 +2240,76 @@ def diagnose() -> dict:
               "/prompt node-not-found 400 until these are installed.")
     else:
         print(f"[ComfyUI] Diagnose: ✅ all required custom nodes present for engine={engine}.")
+
+    # --- Model-file reachability checks (qwen engine only) -------------------
+    # Probe /object_info/<LoaderNode> for the exact filenames the env vars name
+    # and confirm each one appears in ComfyUI's recognised file list.  This
+    # catches "file is in the wrong directory" problems BEFORE the first
+    # generate attempt, so the user sees a clear path to fix rather than an
+    # opaque HTTP 400 value_not_in_list error.
+    if engine == "qwen" and result["reachable"]:
+        _qwen_gguf   = os.environ.get("COMFYUI_QWEN_GGUF",      "").strip()
+        _qwen_vae    = os.environ.get("COMFYUI_QWEN_VAE",        "").strip()
+        _qwen_clip   = os.environ.get("COMFYUI_QWEN_CLIP_GGUF",  "").strip()
+        _comfy_path  = os.environ.get("COMFYUI_PATH",            "").strip()
+
+        def _check_model_file(loader_node: str, input_field: str,
+                              expected_name: str, fallback_dir: str,
+                              payload_override: "Optional[dict]" = None) -> bool:
+            """Return True if *expected_name* is in the loader's choices list."""
+            try:
+                if payload_override is not None:
+                    _payload = payload_override
+                else:
+                    _r2 = _requests.get(f"{base_url}/object_info/{loader_node}", timeout=5)
+                    _payload = _r2.json() if _r2.status_code == 200 else {}
+                _node_info = next(iter(_payload.values())) if _payload else {}
+                _field = (_node_info.get("input", {}).get("required", {}).get(input_field)
+                          or _node_info.get("input", {}).get("optional", {}).get(input_field))
+                if isinstance(_field, list) and _field and isinstance(_field[0], list):
+                    choices = _field[0]
+                else:
+                    return False  # unexpected shape — skip check
+                found = expected_name in choices
+                _model_dir = (os.path.join(_comfy_path, fallback_dir)
+                              if _comfy_path else f"<ComfyUI>/{fallback_dir}/")
+                if found:
+                    print(f"[ComfyUI] Diagnose:   ✅ {input_field} '{expected_name}' found.")
+                else:
+                    print(f"[ComfyUI] Diagnose:   ❌ {input_field} '{expected_name}' NOT found in ComfyUI.")
+                    print(f"[ComfyUI] Diagnose:      Place it in: {_model_dir}")
+                    print(f"[ComfyUI] Diagnose:      Then restart ComfyUI (close it and re-run start.bat).")
+                return found
+            except Exception as _exc:
+                print(f"[ComfyUI] Diagnose:   ⚠ Could not check {input_field}: {_exc}")
+                return True  # don't block on probe failure
+
+        print("[ComfyUI] Diagnose: checking model files...")
+        _gguf_ok = True
+        _vae_ok  = True
+        _clip_ok = True
+        if _qwen_gguf:
+            _gguf_ok = _check_model_file(
+                "UnetLoaderGGUF", "unet_name", _qwen_gguf,
+                os.path.join("models", "unet"),
+                payload_override=_node_payloads.get("UnetLoaderGGUF"),
+            )
+        if _qwen_vae:
+            _vae_ok = _check_model_file(
+                "VAELoader", "vae_name", _qwen_vae,
+                os.path.join("models", "vae"),
+            )
+        if _qwen_clip:
+            _clip_ok = _check_model_file(
+                "CLIPLoaderGGUF", "clip_name", _qwen_clip,
+                os.path.join("models", "clip"),
+                payload_override=_node_payloads.get("CLIPLoaderGGUF"),
+            )
+        if _gguf_ok and _vae_ok and _clip_ok:
+            print("[ComfyUI] Diagnose: ✅ all model files found -- image generation should work.")
+        else:
+            print("[ComfyUI] Diagnose: ❌ one or more model files missing from ComfyUI's model list.")
+            print("[ComfyUI] Diagnose:    Fix the paths above, restart ComfyUI, then retry.")
 
     return result
 
