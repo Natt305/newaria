@@ -124,6 +124,52 @@ def suggestion_log_snippet(text: str, limit: int = 200) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Post-generation perspective filter
+# ---------------------------------------------------------------------------
+
+# Matches *action* or *narration* asterisk formatting — a marker of bot-
+# voiced roleplay prose, not casual player messages.
+_ASTERISK_ACTION_RE = re.compile(r"\*[^*]+\*")
+
+# Third-person verb list covering typical roleplay narration patterns
+# ("Kelly smiled", "Kelly said", "Kelly's eyes…").
+_BOT_THIRD_PERSON_VERB_RE_TEMPLATE = (
+    r"\b{name}\b.{{0,6}}"
+    r"(said|says|smiled|smiles|nods|nodded|asked|asks|"
+    r"replied|replies|looked|looks|walked|walks|turned|turns|"
+    r"thought|thinks|felt|feels|stood|sat|sits|sighed|sighs|"
+    r"whispered|whispers|laughed|laughs|glanced|glances)"
+)
+
+
+def _is_bot_voiced(text: str, bot_name: str) -> bool:
+    """Return True when a suggestion sounds like the bot speaking, not the player.
+
+    Criteria (any one sufficient):
+    a. Longer than 90 characters — casual player messages are short.
+    b. Uses ``*action*`` or ``*narration*`` asterisk formatting — bot's style.
+    c. References ``bot_name`` in a third-person narration pattern
+       ("Kelly smiled…", "Kelly's voice…") rather than as a direct address
+       ("Hey Kelly, …" is fine and returns False).
+    """
+    if len(text) > 90:
+        return True
+    if _ASTERISK_ACTION_RE.search(text):
+        return True
+    if bot_name:
+        first_name = bot_name.split()[0]
+        third_person_re = re.compile(
+            _BOT_THIRD_PERSON_VERB_RE_TEMPLATE.format(name=re.escape(first_name)),
+            re.I,
+        )
+        if third_person_re.search(text):
+            return True
+        if re.search(r"\b" + re.escape(first_name) + r"'s\b", text, re.I):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Discord-format post-processor for plain-prose models like Celeste.
 # ---------------------------------------------------------------------------
 # Mistral-family roleplay fine-tunes ignore the prompt-level "wrap dialogue
@@ -511,6 +557,12 @@ async def generate_suggestions(
         f"{lang_instruction}"
         f"You are writing short follow-up messages FROM the user's side, directed at "
         f"{bot_name} during roleplay. Do NOT write as {bot_name} — write as the USER.\n"
+        f"NEVER write dialogue that {bot_name} would say. "
+        f"NEVER continue from {bot_name}'s voice. "
+        f"NEVER use asterisks (*) for actions or narration — those belong to {bot_name}'s replies. "
+        f"Each suggestion MUST be a message typed by the human player. "
+        f"If a line sounds like something {bot_name} would say — formal, authoritative, "
+        f"in-character narration — discard it and write a casual human reply instead.\n"
         f"{bot_name}'s personality and appearance for context: {character_background}\n"
         f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
         f"Write them as the USER speaking to {bot_name} — casual, warm, and conversational.\n"
@@ -532,20 +584,33 @@ async def generate_suggestions(
             f"Generate {count} casual opening messages someone might send to start chatting with {bot_name}."
         )
 
-    # Inject recent conversation turns as few-shot examples so the model can
-    # match the vocabulary, energy, and tone of the live conversation.
-    # We take the last 8 messages (≤ 4 exchange pairs), strip content that is
-    # too long, and place them before the final generation request.
-    history_messages: list = []
+    # Inject recent conversation turns as labeled lines embedded in the user
+    # prompt rather than as separate role messages. This prevents smaller LM
+    # Studio models from continuing in the last speaker's voice (which would
+    # be the bot's, since assistant turns always come last in the history).
+    # By collapsing history into a single user-role block with explicit
+    # "Player: …" / "[bot_name]: …" labels, the final message the model sees
+    # is always the user-role generation request — keeping it player-voiced.
     if recent_history:
         slice_start = max(0, len(recent_history) - 8)
+        labeled_lines = []
         for msg in recent_history[slice_start:]:
             role = msg.get("role", "")
             content = msg.get("content", "")
-            if role in ("user", "assistant") and content:
-                history_messages.append({"role": role, "content": content[:300]})
+            if not (role in ("user", "assistant") and content):
+                continue
+            label = "Player" if role == "user" else bot_name
+            labeled_lines.append(f"{label}: {content[:300]}")
+        if labeled_lines:
+            history_block = "\n".join(labeled_lines)
+            prompt = (
+                f"Recent conversation (Player speaks to {bot_name}; "
+                f"use this for tone/topic reference only):\n"
+                f"{history_block}\n\n"
+                f"{prompt}"
+            )
 
-    messages = history_messages + [{"role": "user", "content": prompt}]
+    messages = [{"role": "user", "content": prompt}]
 
     text = ""
     try:
@@ -557,14 +622,26 @@ async def generate_suggestions(
         # emits a bare array. The shared parser handles both shapes.
         parsed = _parse_json_array_payload(text)
         if parsed is not None and len(parsed) > 0:
-            return [_clean_json_label(s) for s in parsed[:count]]
+            candidates = [_clean_json_label(s) for s in parsed[:count]]
+            filtered = [s for s in candidates if not _is_bot_voiced(s, bot_name)]
+            dropped = len(candidates) - len(filtered)
+            if dropped:
+                print(f"[{log_prefix}] Suggestion: filtered {dropped} bot-voiced item(s)")
+            if filtered:
+                return filtered
         # Bracket-extract fallback for prose with an embedded array.
         start = text.find("[")
         end = text.rfind("]") + 1
         if start != -1 and end > start:
             arr = _json.loads(text[start:end])
             if isinstance(arr, list) and len(arr) > 0:
-                return [_clean_json_label(s) for s in arr[:count]]
+                candidates = [_clean_json_label(s) for s in arr[:count]]
+                filtered = [s for s in candidates if not _is_bot_voiced(s, bot_name)]
+                dropped = len(candidates) - len(filtered)
+                if dropped:
+                    print(f"[{log_prefix}] Suggestion (bracket): filtered {dropped} bot-voiced item(s)")
+                if filtered:
+                    return filtered
     except Exception as e:
         print(
             f"[{log_prefix}] Suggestion JSON parse error: {e} — "
@@ -579,12 +656,17 @@ async def generate_suggestions(
     # clamps).
     salvaged = salvage_suggestions(text, count)
     if salvaged:
-        clean = [_clamp_button_label(s) for s in salvaged]
-        print(
-            f"[{log_prefix}] Suggestion: salvaged {len(clean)} from non-JSON output — "
-            f"raw: {suggestion_log_snippet(text)!r}"
-        )
-        return clean
+        candidates = [_clamp_button_label(s) for s in salvaged]
+        filtered = [s for s in candidates if not _is_bot_voiced(s, bot_name)]
+        dropped = len(candidates) - len(filtered)
+        if dropped:
+            print(f"[{log_prefix}] Suggestion (salvage): filtered {dropped} bot-voiced item(s)")
+        if filtered:
+            print(
+                f"[{log_prefix}] Suggestion: salvaged {len(filtered)} from non-JSON output — "
+                f"raw: {suggestion_log_snippet(text)!r}"
+            )
+            return filtered
 
     print(
         f"[{log_prefix}] Suggestion: salvage failed too — "
