@@ -60,6 +60,16 @@ _cooldown = commands.CooldownMapping.from_cooldown(
 
 _scene_location_cache: dict[str, str] = {}
 
+# Populate the cache from the persistent settings store on module load.
+# Each persisted entry uses the key "scene_location:{channel_id}".
+_scene_location_cache.update(
+    {
+        k[len("scene_location:"):]: v
+        for k, v in database.get_settings_by_prefix("scene_location:").items()
+        if isinstance(v, str) and v
+    }
+)
+
 # Two patterns cover the two main phrasings the scene-only enhancer uses:
 #   1. Prepositional:  "in/inside/at/within [article] [adj…] NOUN"
 #   2. Sentence-start: "[article] [adj…] NOUN" at the start of a sentence
@@ -94,6 +104,7 @@ _LOCATION_SENTENCE_START_RE = re.compile(
 def clear_scene_location_cache(channel_id) -> None:
     """Remove the cached scene location for a channel (call on /clear)."""
     _scene_location_cache.pop(str(channel_id), None)
+    database.delete_setting(f"scene_location:{channel_id}")
 
 
 def _update_location_cache(channel_id: str, enhanced_prompt: str) -> None:
@@ -110,6 +121,7 @@ def _update_location_cache(channel_id: str, enhanced_prompt: str) -> None:
         location = m.group(1).strip().rstrip(".,;:")
         if location:
             _scene_location_cache[channel_id] = location
+            database.set_setting(f"scene_location:{channel_id}", location)
             print(f"[SceneImage] Location cache updated for channel {channel_id}: {location!r}")
 
 

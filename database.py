@@ -348,6 +348,22 @@ def set_setting(key: str, value) -> bool:
     return ok
 
 
+def delete_setting(key: str) -> bool:
+    data = _load_settings()
+    if key in data:
+        del data[key]
+        ok = _save_settings(data)
+        if ok:
+            print(f"[DB] Setting '{key}' deleted")
+        return ok
+    return True
+
+
+def get_settings_by_prefix(prefix: str) -> dict:
+    """Return all settings whose key starts with *prefix*."""
+    return {k: v for k, v in _load_settings().items() if k.startswith(prefix)}
+
+
 def get_image_style() -> str:
     """Return the stored image style suffix (empty string if not set)."""
     return str(get_setting("image_style") or "")
