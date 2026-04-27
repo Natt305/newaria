@@ -29,6 +29,7 @@ import asyncio
 import io
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from typing import Awaitable, Callable, Optional
 
@@ -60,15 +61,46 @@ _cooldown = commands.CooldownMapping.from_cooldown(
 
 _scene_location_cache: dict[str, str] = {}
 
+# TTL for persisted scene location entries. Entries older than this are
+# discarded on load and on write. Configurable via SCENE_LOCATION_TTL_DAYS
+# (default: 7 days). Set to 0 to disable expiry.
+try:
+    _SCENE_LOCATION_TTL_SECONDS: float = float(os.getenv("SCENE_LOCATION_TTL_DAYS", "7")) * 86400.0
+except (ValueError, TypeError):
+    print("[SceneImage] Invalid SCENE_LOCATION_TTL_DAYS value; defaulting to 7 days.")
+    _SCENE_LOCATION_TTL_SECONDS = 7 * 86400.0
+
 # Populate the cache from the persistent settings store on module load.
-# Each persisted entry uses the key "scene_location:{channel_id}".
-_scene_location_cache.update(
-    {
-        k[len("scene_location:"):]: v
-        for k, v in database.get_settings_by_prefix("scene_location:").items()
-        if isinstance(v, str) and v
-    }
-)
+# Each persisted entry uses the key "scene_location:{channel_id}" and is
+# stored as {"location": str, "ts": float}. Plain-string entries (legacy
+# format, no timestamp) are treated as expired and removed immediately.
+def _load_location_cache() -> None:
+    """Load non-stale scene location entries from persistent store into cache."""
+    now = time.time()
+    for raw_key, value in database.get_settings_by_prefix("scene_location:").items():
+        channel_id = raw_key[len("scene_location:"):]
+        location: str | None = None
+
+        if isinstance(value, dict):
+            ts = value.get("ts")
+            loc = value.get("location")
+            if (
+                isinstance(ts, (int, float))
+                and isinstance(loc, str)
+                and loc
+                and (_SCENE_LOCATION_TTL_SECONDS <= 0 or (now - ts) < _SCENE_LOCATION_TTL_SECONDS)
+            ):
+                location = loc
+        # Plain strings (old format, no timestamp) are treated as expired — fall through.
+
+        if location:
+            _scene_location_cache[channel_id] = location
+        else:
+            # Entry is stale or in legacy format — purge it from the store.
+            database.delete_setting(raw_key)
+            print(f"[SceneImage] Expired stale location entry for channel {channel_id}")
+
+_load_location_cache()
 
 # Two patterns cover the two main phrasings the scene-only enhancer uses:
 #   1. Prepositional:  "in/inside/at/within [article] [adj…] NOUN"
@@ -121,7 +153,10 @@ def _update_location_cache(channel_id: str, enhanced_prompt: str) -> None:
         location = m.group(1).strip().rstrip(".,;:")
         if location:
             _scene_location_cache[channel_id] = location
-            database.set_setting(f"scene_location:{channel_id}", location)
+            database.set_setting(
+                f"scene_location:{channel_id}",
+                {"location": location, "ts": time.time()},
+            )
             print(f"[SceneImage] Location cache updated for channel {channel_id}: {location!r}")
 
 
