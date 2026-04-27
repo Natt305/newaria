@@ -39,6 +39,7 @@ from discord.ext import commands
 import database
 import image_dispatch
 import ai_backend as groq_ai
+import character_state
 
 
 CINEMATIC_SUFFIX = (
@@ -1101,78 +1102,148 @@ async def run_scene_image(
         # Append `looks` post-LLM as a non-LLM identity anchor (gated by
         # QWEN_APPEND_LOOKS, default on; engine==qwen + refs required).
         #
-        # Scene-state awareness: when the scene implies the character is not in
-        # their default outfit (shower, bath, nude, undressed, etc.) the full
-        # looks text is NOT used as the anchor — only base identity traits
-        # (hair, eyes, skin) are kept and an explicit SCENE STATE OVERRIDE
-        # instruction is prepended so Qwen does not render the default
-        # coat/holster/weapons.  Normal-outfit scenes are unaffected.
+        # Three-layer priority system (highest → lowest):
+        #   1. Scene override (Task #1 keywords OR cached body_state==undressed)
+        #      → strip outfit from looks, keep only physical identity traits
+        #   2. Runtime outfit from character state cache (e.g. "red dress")
+        #      → replace static looks outfit with the cached outfit
+        #   3. Static looks anchor (no RP changes detected yet)
+        #      → append full looks text as identity anchor
+        #
+        # Accessories, restraints, wounds, and marks from the character state cache
+        # are ALWAYS appended regardless of which outfit path is taken — they survive
+        # scene overrides (a collar stays on in the shower, rope stays visible
+        # in intimate scenes, bandages don't vanish after an injury).
         _looks_appended = False
         _state_triggered = False
         _state_label = ""
+        _char_state_obj = character_state.get_state(
+            str(getattr(channel, "id", channel_id))
+        )
+        _char_state_debug = _char_state_obj.format_debug()
         if (
             _append_looks_enabled()
             and backend == "comfyui"
             and engine == "qwen"
             and refs
         ):
-            # Detect scene-state clothing override FIRST, independently of
-            # whether looks text is available.  This ensures the SCENE STATE
-            # OVERRIDE instruction is injected even when the character's looks
-            # field is empty, preventing default-outfit rendering in those cases.
+            # ── Build persistent-items string (always injected) ───────────────
+            # Accessories, restraints, wounds, and marks survive all scene
+            # overrides.  Collect once and append at the end of every branch.
+            _persistent_items = _char_state_obj.persistent_items()
+            _persistent_str = (
+                "PERSISTENT STATE (always visible, even in this scene): "
+                + "; ".join(_persistent_items)
+                + ". "
+            ) if _persistent_items else ""
+
+            # ── Detect scene-state clothing override ──────────────────────────
+            # Pass 1: keyword-based detection from the current exchange (Task #1).
             _combined_ctx = seed + " " + enriched_base
             _state_triggered, _state_label = _detect_scene_clothing_override(_combined_ctx)
 
+            # Pass 2: body_state cache trigger — fires even when NO nudity keyword
+            # appears in the current message (e.g. she was naked two turns ago
+            # and nothing suggests she got dressed since then).
+            if not _state_triggered and _char_state_obj.is_undressed():
+                _state_triggered = True
+                _state_label = f"character state: {_char_state_obj.body_state}"
+
+            # ── Load static looks text ────────────────────────────────────────
             try:
                 _char = database.get_character() or {}
                 _looks_text = (_char.get("looks") or "").strip()
             except Exception:
                 _looks_text = ""
 
+            # ── Build the anchor according to priority ────────────────────────
             if _state_triggered:
-                # Always inject the state override prefix regardless of looks availability.
+                # SCENE STATE OVERRIDE: strip outfit sentences, keep physical
+                # identity traits only (hair / eyes / skin / build).
                 _state_prefix = (
                     f"SCENE STATE OVERRIDE — character is {_state_label}: "
                     f"do NOT render coat, holster, weapons, or any default outfit items; "
                     f"scene context takes absolute priority over default clothing. "
                 )
-                if _looks_text:
-                    # Strip outfit/weapon sentences — keep hair, eyes, skin only.
-                    # fallback_to_empty=True prevents re-introducing outfit text
-                    # in the anchor when all sentences happened to be outfit-related.
-                    _identity_only = _strip_outfit_from_looks(_looks_text, fallback_to_empty=True)
-                    if _identity_only:
-                        enriched = (
-                            _state_prefix
-                            + enriched
-                            + ". Character base identity only (outfit overridden by scene): "
-                            + _identity_only
-                        )
-                    else:
-                        # All looks sentences were outfit-related — state prefix only;
-                        # Qwen reads base identity from reference photos directly.
-                        enriched = _state_prefix + enriched
+                _identity_only = (
+                    _strip_outfit_from_looks(_looks_text, fallback_to_empty=True)
+                    if _looks_text else ""
+                )
+                if _identity_only:
+                    enriched = (
+                        _state_prefix
+                        + enriched
+                        + ". Character base identity only (outfit overridden by scene): "
+                        + _identity_only
+                    )
                 else:
-                    # No looks text — state prefix alone is sufficient.
+                    # All looks sentences were outfit-related or looks is empty —
+                    # state prefix alone; Qwen reads identity from reference photos.
                     enriched = _state_prefix + enriched
+
+                # Always append persistent items (collar, rope, bandages…)
+                if _persistent_str:
+                    enriched = enriched + " " + _persistent_str
+
                 _looks_appended = True
                 print(
                     f"[SceneImage] Scene-state override active ({_state_label!r}): "
-                    f"outfit stripped from looks anchor, state prefix prepended "
-                    f"({'identity anchor included' if (_looks_text and _identity_only) else 'no identity anchor — photos only'})."
+                    f"outfit stripped. "
+                    f"{'Identity anchor included' if _identity_only else 'No identity anchor — photos only'}. "
+                    f"Persistent items: {_persistent_items or 'none'}."
                 )
+
+            elif _char_state_obj.outfit:
+                # Runtime outfit override from the character state cache
+                # (e.g. she changed into a red dress earlier in the RP).
+                # Use physical-only identity from static looks + the cached outfit.
+                _identity_only = (
+                    _strip_outfit_from_looks(_looks_text, fallback_to_empty=True)
+                    if _looks_text else ""
+                )
+                _outfit_anchor = f"Current outfit: {_char_state_obj.outfit}."
+                if _identity_only:
+                    enriched = (
+                        enriched
+                        + ". Character identity: "
+                        + _identity_only
+                        + " "
+                        + _outfit_anchor
+                    )
+                else:
+                    enriched = enriched + ". " + _outfit_anchor
+
+                if _persistent_str:
+                    enriched = enriched + " " + _persistent_str
+
+                _looks_appended = True
+                print(
+                    f"[SceneImage] Runtime outfit override: {_char_state_obj.outfit!r}. "
+                    f"Persistent items: {_persistent_items or 'none'}."
+                )
+
             elif _looks_text:
-                # Normal-outfit scene — append full looks as identity anchor.
+                # Normal scene — append full static looks as identity anchor.
                 enriched = (
                     enriched
                     + ". Character identity (must be preserved from reference photos): "
                     + _looks_text
                 )
+                if _persistent_str:
+                    enriched = enriched + " " + _persistent_str
                 _looks_appended = True
                 print(
                     f"[SceneImage] Appended {len(_looks_text)}-char looks identity suffix "
-                    f"post-LLM (QWEN_APPEND_LOOKS=on)."
+                    f"post-LLM (QWEN_APPEND_LOOKS=on). "
+                    f"Persistent items: {_persistent_items or 'none'}."
                 )
+
+            elif _persistent_str:
+                # No looks text and no outfit state, but there are persistent
+                # items (e.g. a collar or bandage) — still inject them.
+                enriched = enriched + ". " + _persistent_str
+                _looks_appended = True
+                print(f"[SceneImage] No looks text; injecting persistent items: {_persistent_items}.")
 
         # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
         try:
@@ -1191,6 +1262,7 @@ async def run_scene_image(
                 channel_id=str(getattr(channel, "id", "")),
                 scene_state_override=_state_triggered,
                 scene_state_label=_state_label,
+                char_state=_char_state_debug,
             )
         except Exception as _dbg_exc:
             print(f"[SceneImage] debug capture failed: {type(_dbg_exc).__name__}: {_dbg_exc}")

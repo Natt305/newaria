@@ -243,6 +243,8 @@ class EditCharacterModal(discord.ui.Modal, title="編輯角色"):
         success = database.set_character(new_name, new_bg, new_personality, new_looks)
         if success:
             bot_module.conversation_contexts.clear()
+            import character_state as _char_state_mod
+            _char_state_mod.reset_state()
             image_count = database.get_character_image_count()
             new_embed = build_char_embed(
                 new_name, new_bg, new_personality, new_looks,

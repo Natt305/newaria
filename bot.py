@@ -16,6 +16,7 @@ import cloudflare_ai
 import views as ui
 import help_config
 import scene_image
+import character_state
 
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -1175,6 +1176,10 @@ async def process_chat(
         str(author.id), author.display_name,
         user_text, saved_text, bot_name,
     ))
+    # Fire background character appearance state update (non-blocking)
+    asyncio.create_task(_update_character_appearance_state(
+        channel_id, user_text, saved_text, bot_name,
+    ))
 
     # ── Scene-mode routing (no-duplicates guarantee) ──────────────────────
     # When scene mode is on for this channel AND the active backend is
@@ -1896,6 +1901,36 @@ async def _extract_and_store_memories(
         print(f"[Memory] Stored: {fact!r}")
 
 
+async def _update_character_appearance_state(
+    channel_id: str,
+    user_text: str,
+    bot_reply: str,
+    bot_name: str,
+):
+    """Background task: update per-channel character appearance state from an exchange.
+
+    Uses Groq as the LLM backend (same as memory extraction). Fires and forgets
+    — failures are logged but never surface to the user.
+    """
+    if not user_text and not bot_reply:
+        return
+
+    async def _chat_fn(messages: list, system: str) -> str:
+        try:
+            text, *_ = await groq_ai.chat(messages, system_prompt=system)
+            return text or ""
+        except Exception as exc:
+            print(f"[CharState] chat_fn error: {type(exc).__name__}: {exc}")
+            return ""
+
+    try:
+        await character_state.update_state(
+            channel_id, user_text, bot_reply, bot_name, _chat_fn
+        )
+    except Exception as exc:
+        print(f"[CharState] update_state error: {type(exc).__name__}: {exc}")
+
+
 async def _apply_status():
     """Apply stored presence. Thinking bubble (CustomActivity) takes priority over
     the regular activity type; the online/idle/dnd status is always preserved."""
@@ -2353,6 +2388,7 @@ async def setcharacter_cmd(ctx, name: str, background: str, personality: str = "
     success = database.set_character(name, background, personality, looks)
     if success:
         conversation_contexts.clear()
+        character_state.reset_state()
         embed = ui.build_char_embed(
             name, background, personality, looks,
             title="✅ 角色已更新",
@@ -3178,6 +3214,7 @@ async def clear_cmd(ctx):
         return
     channel_id = str(ctx.channel.id)
     conversation_contexts.pop(channel_id, None)
+    character_state.reset_state(channel_id)
     scene_image.clear_scene_location_cache(channel_id)
     await ctx.reply("✅ 此頻道的對話歷史已清除！", mention_author=False)
 
