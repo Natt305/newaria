@@ -1915,6 +1915,16 @@ async def _update_character_appearance_state(
     if not user_text and not bot_reply:
         return
 
+    # Skip when the bot text is purely a synthetic image-generation marker —
+    # e.g. "[圖像生成: ...]" stored when response_text was empty.  Parsing
+    # those markers would introduce false outfit/accessory updates because
+    # the image prompt text often contains clothing descriptions that belong
+    # to Qwen's instruction, not to actual RP prose from the character.
+    _bot_stripped = (bot_reply or "").strip()
+    _is_image_marker = _bot_stripped.startswith("[圖像生成:") or _bot_stripped.startswith("[IMAGE:")
+    if _is_image_marker:
+        return
+
     async def _chat_fn(messages: list, system: str) -> str:
         try:
             text, *_ = await groq_ai.chat(messages, system_prompt=system)
