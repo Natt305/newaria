@@ -1916,7 +1916,11 @@ async def _extract_and_store_memories(
         return
     clean_response = _strip_system_markers(bot_response, strict=True)
     exchange = f"User ({user_name}): {user_text}\n{bot_name}: {clean_response}"
-    facts = await groq_ai.extract_memories(exchange, bot_name)
+    if os.environ.get("AI_BACKEND", "").strip().lower() == "lmstudio":
+        import lmstudio_ai
+        facts = await lmstudio_ai.extract_memories(exchange, bot_name)
+    else:
+        facts = await groq_ai.extract_memories(exchange, bot_name)
     for fact in facts:
         database.add_memory(user_id, user_name, fact)
         print(f"[Memory] Stored: {fact!r}")
