@@ -1,0 +1,10 @@
+This bot runs locally on 2 machines
+
+1. a zotac magnus one with rtx 3060 12g 
+   current backend: (the rest are secondary)
+   LMstudio, mn-12b-celeste-v1.9, connect through ngrok
+   this is for the text llm of the roleplay
+
+2. a sugo 14 rtx 4070 ti super 16g
+   current backend: (the rest are secondary)
+   Comfyui, Qwen-Rapid-NSFW-v23_Q4_K.gguf, Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf , pig_qwen_image_vae_fp32-f16.gguf(converted to safetensor)
