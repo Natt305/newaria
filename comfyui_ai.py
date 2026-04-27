@@ -882,10 +882,13 @@ def _build_multi_edit_workflow_qwen(
     _APPEARANCE_LOCK = (
         "Preserve the exact appearance of all characters from the reference images. "
         "Do NOT change hair colour, eye colour, skin tone, or facial features. "
-        "Match the art style, line art quality, and shading technique visible in "
-        "the reference images exactly — replicate how they look, not a different "
-        "rendering style. Do NOT introduce photorealism, 3D rendering, or any "
-        "style inconsistent with what the reference images show. "
+        "Art style MUST be flat 2D anime illustration: clean sharp ink linework, "
+        "cel-shaded flat color fills with minimal gradients, crisp contour lines, "
+        "colored manga key-visual aesthetic. "
+        "Do NOT replicate the rendering style of the reference images if they use "
+        "3D rendering, volumetric shading, gradient shading, or webtoon-style "
+        "semi-3D rendering — override those traits with flat 2D anime style. "
+        "Do NOT introduce photorealism or any style other than flat 2D anime. "
     )
     enhanced_prompt = _APPEARANCE_LOCK + prompt + _ANATOMY_SUFFIX
 
