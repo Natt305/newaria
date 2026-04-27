@@ -707,7 +707,7 @@ def _sampling_overrides(model: str) -> dict:
         defaults = {
             "top_p": 0.9,
             "min_p": 0.05,
-            "repetition_penalty": 1.08,
+            "repetition_penalty": 1.12,
             "frequency_penalty": 0.3,
             "presence_penalty": 0.0,
         }
@@ -1406,7 +1406,7 @@ async def chat(
     # 3 dense paragraphs which is below the 6-paragraph cinematic floor, so
     # we raise it automatically when the operator hasn't explicitly pinned a
     # higher value.  Honour the caller-pinned value when it is already ≥ floor.
-    _CINEMATIC_TOKEN_FLOOR = 2048
+    _CINEMATIC_TOKEN_FLOOR = 1400
     if not _caller_pinned_max_tokens and enforce_user_lang:
         _resolved_target = _narration_target_for(active_model)
         if _resolved_target == "cinematic" and max_tokens < _CINEMATIC_TOKEN_FLOOR:
@@ -1812,6 +1812,45 @@ async def chat(
                     print("[LMStudio] Repetition retry returned no text — returning user-facing failure message")
                     return _FAILED_REPLY_MESSAGE, None, False, False, False, None
 
+    # 1b. Paragraph-level semantic deduplication.
+    #     Catches the common case where the model semantically repeats the same
+    #     3-4 sentences every few paragraphs (invisible to _REPETITION_RE which
+    #     only sees character-level token runs).  Runs after the character-level
+    #     check so both truncations act on the same `text` variable.
+    if text and text.strip():
+        _paras = [p for p in text.split("\n\n") if p.strip()]
+        _seen_paras: list[str] = []
+        _dup_idx: int | None = None
+        for _pi, _para in enumerate(_paras):
+            _norm = " ".join(_para.lower().split())
+            for _prev in _seen_paras:
+                _prev_len = len(_prev)
+                _curr_len = len(_norm)
+                if _prev_len == 0 or _curr_len == 0:
+                    continue
+                # Jaccard-style character overlap: count chars in common by
+                # comparing the shorter string character-by-character against
+                # the longer.  Cheap O(n) approximation sufficient here.
+                _shorter, _longer = (
+                    (_norm, _prev) if _curr_len <= _prev_len else (_prev, _norm)
+                )
+                _common = sum(1 for c in _shorter if c in _longer)
+                _overlap = _common / max(_prev_len, _curr_len)
+                if _overlap >= 0.80:
+                    _dup_idx = _pi
+                    break
+            if _dup_idx is not None:
+                break
+            _seen_paras.append(_norm)
+        if _dup_idx is not None:
+            _good_prefix = "\n\n".join(_paras[:_dup_idx]).rstrip()
+            print(
+                f"[LMStudio] Paragraph repetition — truncated at para "
+                f"{_dup_idx}/{len(_paras)} (kept {len(_good_prefix)}ch)"
+            )
+            if _good_prefix:
+                text = _good_prefix
+
     # 2. Language mismatch — user wrote English but the reply went Chinese
     #    (the most common failure with mid-conversation language drift).
     if text and text.strip() and user_lang == "en" and lang_mismatch_retry_on:
@@ -1909,7 +1948,8 @@ async def chat(
                     f"target requires at least {_para_floor} full paragraphs of "
                     f"narration. Rewrite the reply now in full — do NOT explain "
                     f"or apologise, simply produce the reply with at least "
-                    f"{_para_floor} complete paragraphs separated by blank lines."
+                    f"{_para_floor} and no more than 10 complete paragraphs "
+                    f"separated by blank lines."
                 )
                 _floor_retry_sys = effective_system.rstrip() + _floor_addendum
                 _floor_retry_msgs = [{"role": "system", "content": _floor_retry_sys}]
