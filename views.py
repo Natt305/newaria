@@ -1461,3 +1461,397 @@ class SaveGeneratedModal(discord.ui.Modal, title="保存生成的圖像"):
 
 # Alias so bot.py can reference it by a plain ASCII name
 ConfirmDeleteView = 確認刪除View
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# User profile  (/myprofile)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PROFILE_PAGE_SIZE = 1024
+
+
+def _profile_bg_chunks(background: str) -> list:
+    text = background or "（未設定背景）"
+    return [text[i:i + _PROFILE_PAGE_SIZE] for i in range(0, max(1, len(text)), _PROFILE_PAGE_SIZE)]
+
+
+def _profile_looks_chunks(looks: str) -> list:
+    text = looks or "（未設定外貌）"
+    return [text[i:i + _PROFILE_PAGE_SIZE] for i in range(0, max(1, len(text)), _PROFILE_PAGE_SIZE)]
+
+
+def build_user_profile_embed(
+    display_name: str,
+    background: str,
+    looks: str,
+    image_count: int = 0,
+    tab: str = "background",
+    page: int = 0,
+    title: str = "👤 我的個人檔案",
+    color: discord.Color = discord.Color.blurple(),
+    footer: str = "點擊下方按鈕可編輯背景/外貌或上傳參考圖片。",
+) -> discord.Embed:
+    embed = discord.Embed(title=title, color=color)
+    embed.add_field(name="🏷️ 名稱", value=display_name or "（未設定）", inline=True)
+    if image_count:
+        embed.add_field(name="🖼️ 參考圖片", value=f"{image_count} 張", inline=True)
+    if tab == "looks":
+        chunks = _profile_looks_chunks(looks)
+        total = len(chunks)
+        p = max(0, min(page, total - 1))
+        field_name = "🎨 外貌描述"
+        if total > 1:
+            field_name += f"　第 {p + 1} / {total} 頁"
+        embed.add_field(name=field_name, value=chunks[p], inline=False)
+    else:
+        chunks = _profile_bg_chunks(background)
+        total = len(chunks)
+        p = max(0, min(page, total - 1))
+        field_name = "📖 背景"
+        if total > 1:
+            field_name += f"　第 {p + 1} / {total} 頁"
+        embed.add_field(name=field_name, value=chunks[p], inline=False)
+    if footer:
+        embed.set_footer(text=footer)
+    return embed
+
+
+class EditUserProfileModal(discord.ui.Modal, title="編輯個人檔案"):
+    name_input = discord.ui.TextInput(
+        label="名稱",
+        placeholder="你的名稱（預設為Discord顯示名稱）",
+        max_length=50,
+    )
+    background_input = discord.ui.TextInput(
+        label="背景",
+        style=discord.TextStyle.paragraph,
+        placeholder="描述你的角色背景、身份...",
+        max_length=4000,
+        required=False,
+    )
+    looks_input = discord.ui.TextInput(
+        label="外貌描述",
+        style=discord.TextStyle.paragraph,
+        placeholder="描述你的外表、髮色、眼睛、服裝風格等（供圖像生成使用）...",
+        max_length=4000,
+        required=False,
+    )
+
+    def __init__(self, discord_id: str, current_name: str = "", current_background: str = "", current_looks: str = ""):
+        super().__init__()
+        self.discord_id = discord_id
+        self.name_input.default = current_name[:50]
+        self.background_input.default = current_background[:4000]
+        self.looks_input.default = current_looks[:4000]
+
+    async def on_submit(self, interaction: discord.Interaction):
+        new_name = str(self.name_input).strip() or (interaction.user.display_name if interaction.user else "")
+        new_bg = str(self.background_input)
+        new_looks = str(self.looks_input)
+        success = database.set_user_profile(self.discord_id, new_name, new_bg, new_looks)
+        if success:
+            image_count = database.get_user_profile_image_count(self.discord_id)
+            new_embed = build_user_profile_embed(
+                new_name, new_bg, new_looks,
+                image_count=image_count,
+                tab="background", page=0,
+                title="✅ 個人檔案已更新",
+                footer="對話歷史不受影響。點擊下方按鈕可繼續編輯。",
+            )
+            new_view = UserProfileView(self.discord_id, new_name, new_bg, new_looks, image_count=image_count)
+            await interaction.response.edit_message(embed=new_embed, view=new_view)
+        else:
+            await interaction.response.send_message("❌ 發生錯誤，請重試。", ephemeral=True)
+
+
+class UserProfileGalleryView(discord.ui.View):
+    """Cycling viewer for user profile reference images."""
+
+    def __init__(self, discord_id: str, image_count: int, current_index: int = 1):
+        super().__init__(timeout=180)
+        self.discord_id = discord_id
+        self.image_count = image_count
+        self.current_index = current_index
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.clear_items()
+
+        prev_btn = discord.ui.Button(
+            emoji="◀️",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.image_count <= 1 or self.current_index <= 1),
+            row=0,
+        )
+        prev_btn.callback = self._prev
+        self.add_item(prev_btn)
+
+        counter_btn = discord.ui.Button(
+            label=f"{self.current_index} / {self.image_count}",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+            row=0,
+        )
+        self.add_item(counter_btn)
+
+        next_btn = discord.ui.Button(
+            emoji="▶️",
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.image_count <= 1 or self.current_index >= self.image_count),
+            row=0,
+        )
+        next_btn.callback = self._next
+        self.add_item(next_btn)
+
+        remove_btn = discord.ui.Button(
+            emoji="🗑️",
+            label="移除此圖",
+            style=discord.ButtonStyle.danger,
+            row=1,
+        )
+        remove_btn.callback = self._remove
+        self.add_item(remove_btn)
+
+    def _make_file(self) -> Optional[discord.File]:
+        result = database.get_user_profile_image(self.discord_id, self.current_index)
+        if not result:
+            return None
+        img_data, mime = result
+        ext = mime.split("/")[-1] if "/" in mime else "png"
+        if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+            ext = "png"
+        return discord.File(io.BytesIO(img_data), filename=f"profile_{self.current_index}.{ext}")
+
+    def _content(self) -> str:
+        images = database.get_user_profile_images_meta(self.discord_id)
+        desc = ""
+        if 1 <= self.current_index <= len(images):
+            desc = (images[self.current_index - 1].get("description") or "").strip()
+        label = f"🖼️ 個人參考圖片 — {self.current_index} / {self.image_count}"
+        if desc:
+            label += f"\n> {desc[:200]}"
+        return label
+
+    async def send_first(self, interaction: discord.Interaction):
+        file = self._make_file()
+        if not file:
+            await interaction.response.send_message("❌ 無法讀取此圖片。", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            content=self._content(), file=file, view=self, ephemeral=True
+        )
+
+    async def _prev(self, interaction: discord.Interaction):
+        self.current_index = max(1, self.current_index - 1)
+        self._build_buttons()
+        file = self._make_file()
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(content="❌ 無法讀取此圖片。", attachments=[], view=self)
+                return
+            await interaction.edit_original_response(content=self._content(), attachments=[file], view=self)
+        except Exception as e:
+            print(f"[View] UserProfileGalleryView._prev error: {e}")
+
+    async def _next(self, interaction: discord.Interaction):
+        self.current_index = min(self.image_count, self.current_index + 1)
+        self._build_buttons()
+        file = self._make_file()
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(content="❌ 無法讀取此圖片。", attachments=[], view=self)
+                return
+            await interaction.edit_original_response(content=self._content(), attachments=[file], view=self)
+        except Exception as e:
+            print(f"[View] UserProfileGalleryView._next error: {e}")
+
+    async def _remove(self, interaction: discord.Interaction):
+        success, msg = database.remove_user_profile_image(self.discord_id, self.current_index)
+        if not success:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+        self.image_count -= 1
+        if self.image_count == 0:
+            await interaction.response.edit_message(
+                content="🗑️ 已移除最後一張參考圖片。目前沒有個人參考圖。",
+                attachments=[],
+                view=None,
+            )
+            return
+        self.current_index = min(self.current_index, self.image_count)
+        self._build_buttons()
+        file = self._make_file()
+        try:
+            await interaction.response.defer()
+            if not file:
+                await interaction.edit_original_response(
+                    content=f"🗑️ 已移除圖片。剩餘 {self.image_count} 張。", attachments=[], view=self
+                )
+                return
+            await interaction.edit_original_response(content=self._content(), attachments=[file], view=self)
+        except Exception as e:
+            print(f"[View] UserProfileGalleryView._remove error: {e}")
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
+class UserProfileView(discord.ui.View):
+    """Shown by /myprofile — two tabs (背景, 外貌), pagination, edit modal, and image gallery.
+
+    Layout:
+      Row 0: 📖 背景 | 🎨 外貌  (tab selector)
+      Row 1: ◀ 上一頁 | 第 x/y 頁 | 下一頁  (only when > 1 page)
+      Row 2: ✏️ 編輯 | 🖼️ 圖庫 | 📎 上傳圖片
+    """
+
+    def __init__(self, discord_id: str, display_name: str, background: str, looks: str, image_count: int = 0):
+        super().__init__(timeout=120)
+        self.discord_id = discord_id
+        self.display_name = display_name
+        self.background = background
+        self.looks = looks
+        self.image_count = image_count
+        self.tab = "background"
+        self.page = 0
+        self._build_buttons()
+
+    def _current_chunks(self) -> list:
+        if self.tab == "looks":
+            return _profile_looks_chunks(self.looks)
+        return _profile_bg_chunks(self.background)
+
+    def _get_embed(self) -> discord.Embed:
+        return build_user_profile_embed(
+            self.display_name, self.background, self.looks,
+            image_count=self.image_count, tab=self.tab, page=self.page,
+        )
+
+    def _build_buttons(self):
+        self.clear_items()
+        chunks = self._current_chunks()
+        total = len(chunks)
+
+        bg_tab = discord.ui.Button(
+            label="📖 背景",
+            style=discord.ButtonStyle.primary if self.tab == "background" else discord.ButtonStyle.secondary,
+            row=0,
+        )
+        bg_tab.callback = self._switch_background
+        self.add_item(bg_tab)
+
+        looks_tab = discord.ui.Button(
+            label="🎨 外貌",
+            style=discord.ButtonStyle.primary if self.tab == "looks" else discord.ButtonStyle.secondary,
+            row=0,
+        )
+        looks_tab.callback = self._switch_looks
+        self.add_item(looks_tab)
+
+        if total > 1:
+            prev_btn = discord.ui.Button(
+                emoji="◀️", label="上一頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=self.page == 0, row=1,
+            )
+            prev_btn.callback = self._prev_page
+
+            counter_btn = discord.ui.Button(
+                label=f"第 {self.page + 1} / {total} 頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=True, row=1,
+            )
+
+            next_btn = discord.ui.Button(
+                emoji="▶️", label="下一頁",
+                style=discord.ButtonStyle.secondary,
+                disabled=self.page >= total - 1, row=1,
+            )
+            next_btn.callback = self._next_page
+
+            self.add_item(prev_btn)
+            self.add_item(counter_btn)
+            self.add_item(next_btn)
+
+        edit_btn = discord.ui.Button(
+            label="編輯", style=discord.ButtonStyle.primary, emoji="✏️", row=2,
+        )
+        edit_btn.callback = self._edit_profile
+        self.add_item(edit_btn)
+
+        upload_btn = discord.ui.Button(
+            label="上傳圖片", style=discord.ButtonStyle.secondary, emoji="📎", row=2,
+        )
+        upload_btn.callback = self._upload_photo
+        self.add_item(upload_btn)
+
+        if self.image_count >= 1:
+            gallery_btn = discord.ui.Button(
+                label="圖庫", style=discord.ButtonStyle.secondary, emoji="🖼️", row=2,
+            )
+            gallery_btn.callback = self._open_gallery
+            self.add_item(gallery_btn)
+
+    async def _switch_background(self, interaction: discord.Interaction):
+        self.tab = "background"
+        self.page = 0
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
+
+    async def _switch_looks(self, interaction: discord.Interaction):
+        self.tab = "looks"
+        self.page = 0
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
+
+    async def _prev_page(self, interaction: discord.Interaction):
+        self.page = max(0, self.page - 1)
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
+
+    async def _next_page(self, interaction: discord.Interaction):
+        total = len(self._current_chunks())
+        self.page = min(total - 1, self.page + 1)
+        self._build_buttons()
+        await interaction.response.edit_message(embed=self._get_embed(), view=self)
+
+    async def _edit_profile(self, interaction: discord.Interaction):
+        if interaction.user.id != int(self.discord_id):
+            await interaction.response.send_message("❌ 你只能編輯自己的個人檔案。", ephemeral=True)
+            return
+        try:
+            modal = EditUserProfileModal(self.discord_id, self.display_name, self.background, self.looks)
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            print(f"[View] EditUserProfile modal error: {type(e).__name__}: {e}")
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(f"❌ 開啟編輯器時發生錯誤: {type(e).__name__}", ephemeral=True)
+                else:
+                    await interaction.response.send_message(f"❌ 開啟編輯器時發生錯誤: {type(e).__name__}", ephemeral=True)
+            except Exception:
+                pass
+
+    async def _upload_photo(self, interaction: discord.Interaction):
+        if interaction.user.id != int(self.discord_id):
+            await interaction.response.send_message("❌ 你只能上傳到自己的個人檔案。", ephemeral=True)
+            return
+        count = database.get_user_profile_image_count(self.discord_id)
+        if count >= database.MAX_USER_PROFILE_IMAGES:
+            await interaction.response.send_message(
+                f"❌ 已達上限 {database.MAX_USER_PROFILE_IMAGES} 張。請先移除舊圖片再上傳新的。",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            f"📎 請使用 `/addprofilephoto` 指令並附加圖片（最多可一次上傳 5 張）。\n"
+            f"目前已有 {count} / {database.MAX_USER_PROFILE_IMAGES} 張圖片。",
+            ephemeral=True,
+        )
+
+    async def _open_gallery(self, interaction: discord.Interaction):
+        gallery = UserProfileGalleryView(self.discord_id, self.image_count)
+        await gallery.send_first(interaction)

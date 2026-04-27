@@ -873,6 +873,75 @@ async def _derive_prompt(
     return seed.strip()
 
 
+# ── Player reference injection ────────────────────────────────────────────────
+
+_PLAYER_SECOND_PERSON: set = {"you", "your", "yours", "yourself"}
+
+
+def _inject_player_refs(
+    refs: list,
+    subjects: list,
+    appearances: dict,
+    player_discord_id: Optional[str],
+    player_display_name: Optional[str],
+    seed: str,
+) -> tuple[list, list, dict]:
+    """Add player profile photos (up to 2) to the ref list when the player is
+    visually present in the scene seed (name or second-person pronouns).
+
+    The player is appended AFTER the bot/KB refs — the bot's photos always
+    occupy the highest-priority slots. Respects the existing MAX_TOTAL=4 cap.
+    """
+    if not player_discord_id:
+        return refs, subjects, appearances
+
+    seed_lower = (seed or "").lower()
+    player_name_lower = (player_display_name or "").lower()
+    seed_tokens = set(seed_lower.split())
+
+    player_in_seed = (
+        (player_name_lower and player_name_lower in seed_lower)
+        or bool(seed_tokens & _PLAYER_SECOND_PERSON)
+    )
+    if not player_in_seed:
+        return refs, subjects, appearances
+
+    player_profile = database.get_user_profile(player_discord_id)
+    player_photo_count = database.get_user_profile_image_count(player_discord_id)
+
+    # Always resolve the display label (prefer profile name, then display name, then "player")
+    if player_profile:
+        player_label = (player_profile.get("discord_name") or player_display_name or "player").strip()
+        player_looks = (player_profile.get("looks") or "").strip()
+    else:
+        player_label = (player_display_name or "player").strip()
+        player_looks = ""
+
+    MAX_TOTAL = 4
+    MAX_PLAYER = 2
+    player_added = 0
+
+    for i in range(1, min(player_photo_count, MAX_PLAYER) + 1):
+        if len(refs) >= MAX_TOTAL:
+            break
+        photo = database.get_user_profile_image(player_discord_id, i)
+        if photo:
+            refs.append(photo)
+            subjects.append(player_label)
+            player_added += 1
+
+    # Inject looks description into appearances dict so the prompt includes it
+    if player_looks and player_label not in appearances:
+        appearances[player_label] = player_looks
+
+    if player_added:
+        print(f"[SceneImage] injected {player_added} player photo(s) for {player_label!r}")
+    elif player_looks:
+        print(f"[SceneImage] injected player looks text for {player_label!r} (no photos)")
+
+    return refs, subjects, appearances
+
+
 # ── Public runner ─────────────────────────────────────────────────────────────
 
 async def run_scene_image(
@@ -885,6 +954,8 @@ async def run_scene_image(
     seed_override: Optional[str] = None,
     acker: Optional[Callable[[str], Awaitable[None]]] = None,
     prose_context: Optional[str] = None,
+    player_discord_id: Optional[str] = None,
+    player_display_name: Optional[str] = None,
 ) -> None:
     """Generate a scene image and edit it onto `bot_message` in place.
 
@@ -1001,6 +1072,10 @@ async def run_scene_image(
         if backend == "comfyui" and engine == "qwen":
             _early_refs, _early_subjects, _early_appearances = _gather_refs(
                 seed, explicit_subjects
+            )
+            _early_refs, _early_subjects, _early_appearances = _inject_player_refs(
+                _early_refs, _early_subjects, _early_appearances,
+                player_discord_id, player_display_name, seed,
             )
             _qwen_prefetch = (_early_refs, _early_subjects, _early_appearances)
             _seen_llm: set = set()
@@ -1245,6 +1320,30 @@ async def run_scene_image(
                 _looks_appended = True
                 print(f"[SceneImage] No looks text; injecting persistent items: {_persistent_items}.")
 
+        # ── Player identity anchor ────────────────────────────────────────────
+        # When the player appears in the scene and has a looks description,
+        # append it as a post-LLM identity anchor (same pattern as bot looks).
+        # Only on Qwen path since other backends don't support multi-subject.
+        if (
+            player_discord_id
+            and backend == "comfyui"
+            and engine == "qwen"
+        ):
+            _player_profile_check = database.get_user_profile(player_discord_id)
+            if _player_profile_check:
+                _pname = (_player_profile_check.get("discord_name") or player_display_name or "").strip()
+                _plooks = (_player_profile_check.get("looks") or "").strip()
+                _pin_seed = (
+                    (player_display_name or "").lower() in seed.lower()
+                    or bool(set(seed.lower().split()) & _PLAYER_SECOND_PERSON)
+                )
+                if _plooks and _pin_seed:
+                    enriched = (
+                        enriched
+                        + f". Player identity: {_plooks}"
+                    )
+                    print(f"[SceneImage] Appended {len(_plooks)}-char player looks anchor for {_pname!r}.")
+
         # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
         try:
             _record_last_scene_generation(
@@ -1390,6 +1489,12 @@ async def handle_button_click(interaction: discord.Interaction) -> None:
     except Exception:
         pass
 
+    _player_discord_id: Optional[str] = None
+    _player_display_name: Optional[str] = None
+    if interaction.user:
+        _player_discord_id = str(interaction.user.id)
+        _player_display_name = getattr(interaction.user, "display_name", None) or str(interaction.user)
+
     await run_scene_image(
         bot_message=msg,
         channel=channel,
@@ -1398,4 +1503,6 @@ async def handle_button_click(interaction: discord.Interaction) -> None:
         hint_prompt=None,
         acker=_ack,
         prose_context=_prose_ctx,
+        player_discord_id=_player_discord_id,
+        player_display_name=_player_display_name,
     )

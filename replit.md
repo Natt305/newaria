@@ -22,8 +22,8 @@ A Discord AI bot powered by a configurable AI backend (Ollama or Groq), Cloudfla
 | `ollama_ai.py` | Ollama API client — same interface as groq_ai, uses local Ollama server |
 | `reply_format.py` | Shared chat-formatting helpers (suggestion salvage parser, suggestion-button generator pipeline, Discord post-processor — bold dialogue, italicise narration, strip self-name prefix). Used by `lmstudio_ai.py`, `groq_ai.py`, and `ollama_ai.py` so each fix lands in one place. |
 | `cloudflare_ai.py` | Cloudflare Workers AI — image generation |
-| `database.py` | File-based storage for character, memories, knowledge; SQLite for history |
-| `views.py` | Discord UI components (buttons, modals, paginated views) |
+| `database.py` | File-based storage for character, memories, knowledge, user profiles; SQLite for history |
+| `views.py` | Discord UI components (buttons, modals, paginated views); includes `UserProfileView` |
 | `help_config.py` | User-facing help text |
 | `tokens.txt` | Fill in API keys and backend config here (alternative to Replit Secrets) |
 
@@ -42,9 +42,13 @@ data/
     images/
       <id>.json           ← Image metadata (title, description, tags)
       <id>.png/.jpg/…     ← The actual image file
+  user_profiles/
+    {discord_id}/
+      images.json         ← Player reference image list (filename, mime, description, thumb)
+      images/             ← Actual player reference photos + 512px thumbnails
   settings.json           ← Bot settings (suggestions, memory toggles, etc.)
   status.json             ← Persisted bot presence/status
-  history.db              ← SQLite: conversation history (internal, not user-editable)
+  history.db              ← SQLite: conversation history + player profiles (internal)
 ```
 
 ### Editing data directly

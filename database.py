@@ -12,6 +12,7 @@ CHARACTER_IMAGES_DIR = os.path.join(CHARACTER_DIR, "images")
 MEMORIES_DIR         = os.path.join(DATA_DIR, "memories")
 KNOWLEDGE_DIR        = os.path.join(DATA_DIR, "knowledge")
 IMAGES_DIR           = os.path.join(KNOWLEDGE_DIR, "images")
+USER_PROFILES_DIR    = os.path.join(DATA_DIR, "user_profiles")
 
 CHARACTER_JSON        = os.path.join(CHARACTER_DIR, "profile.json")
 CHARACTER_IMAGES_JSON = os.path.join(CHARACTER_DIR, "images.json")
@@ -23,8 +24,9 @@ SETTINGS_JSON  = os.path.join(DATA_DIR, "settings.json")
 HISTORY_DB     = os.path.join(DATA_DIR, "history.db")
 
 MAX_CHARACTER_IMAGES = 10
+MAX_USER_PROFILE_IMAGES = 5
 
-for _d in (CHARACTER_DIR, CHARACTER_IMAGES_DIR, MEMORIES_DIR, KNOWLEDGE_DIR, IMAGES_DIR):
+for _d in (CHARACTER_DIR, CHARACTER_IMAGES_DIR, MEMORIES_DIR, KNOWLEDGE_DIR, IMAGES_DIR, USER_PROFILES_DIR):
     os.makedirs(_d, exist_ok=True)
 
 DEFAULT_CHARACTER = {
@@ -1044,6 +1046,15 @@ def _init_history_db():
         conn.execute("ALTER TABLE character_state ADD COLUMN turn_counter INTEGER DEFAULT 0")
     except Exception:
         pass
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            discord_id   TEXT PRIMARY KEY,
+            discord_name TEXT NOT NULL DEFAULT '',
+            background   TEXT NOT NULL DEFAULT '',
+            looks        TEXT NOT NULL DEFAULT '',
+            updated_at   TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -1099,6 +1110,166 @@ def delete_character_state(channel_id: Optional[str] = None) -> None:
         conn.close()
     except Exception as e:
         print(f"[DB] Failed to delete character_state (channel={channel_id}): {e}")
+
+
+# ── User profiles ─────────────────────────────────────────────────────────────
+
+def _user_images_dir(discord_id: str) -> str:
+    d = os.path.join(USER_PROFILES_DIR, discord_id, "images")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _user_images_json(discord_id: str) -> str:
+    return os.path.join(USER_PROFILES_DIR, discord_id, "images.json")
+
+
+def _read_user_images(discord_id: str) -> list:
+    path = _user_images_json(discord_id)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f).get("images", [])
+        except Exception:
+            pass
+    return []
+
+
+def _write_user_images(discord_id: str, images: list):
+    path = _user_images_json(discord_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"images": images}, f, ensure_ascii=False, indent=2)
+
+
+def get_user_profile(discord_id: str) -> Optional[Dict[str, Any]]:
+    """Return the user profile dict or None if not found."""
+    try:
+        conn = _get_history_conn()
+        row = conn.execute(
+            "SELECT discord_id, discord_name, background, looks, updated_at FROM user_profiles WHERE discord_id = ?",
+            (discord_id,),
+        ).fetchone()
+        conn.close()
+        if row is None:
+            return None
+        return dict(row)
+    except Exception as e:
+        print(f"[DB] get_user_profile error: {e}")
+        return None
+
+
+def set_user_profile(discord_id: str, discord_name: str, background: str, looks: str) -> bool:
+    """Upsert a user profile. Returns True on success."""
+    try:
+        now = datetime.utcnow().isoformat()
+        conn = _get_history_conn()
+        conn.execute(
+            """
+            INSERT INTO user_profiles (discord_id, discord_name, background, looks, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(discord_id) DO UPDATE SET
+                discord_name = excluded.discord_name,
+                background   = excluded.background,
+                looks        = excluded.looks,
+                updated_at   = excluded.updated_at
+            """,
+            (discord_id, discord_name, background, looks, now),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[DB] set_user_profile error: {e}")
+        return False
+
+
+def get_user_profile_image_count(discord_id: str) -> int:
+    return len(_read_user_images(discord_id))
+
+
+def get_user_profile_images_meta(discord_id: str) -> list:
+    return _read_user_images(discord_id)
+
+
+def get_user_profile_image(discord_id: str, index: int) -> Optional[tuple]:
+    """1-indexed. Returns (bytes, mime) or None."""
+    images = _read_user_images(discord_id)
+    if index < 1 or index > len(images):
+        return None
+    info = images[index - 1]
+    path = os.path.join(_user_images_dir(discord_id), info["filename"])
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return f.read(), info.get("mime", "image/png")
+
+
+def get_user_profile_image_thumb(discord_id: str, index: int) -> Optional[tuple]:
+    """1-indexed. Returns (thumb_bytes, 'image/jpeg') or None."""
+    images = _read_user_images(discord_id)
+    if index < 1 or index > len(images):
+        return None
+    info = images[index - 1]
+    thumb = info.get("thumb")
+    if not thumb:
+        return None
+    path = os.path.join(_user_images_dir(discord_id), thumb)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return f.read(), "image/jpeg"
+
+
+def add_user_profile_image(discord_id: str, img_bytes: bytes, mime: str, description: str = "") -> tuple:
+    """Add a user profile reference image. Returns (success, message)."""
+    images = _read_user_images(discord_id)
+    if len(images) >= MAX_USER_PROFILE_IMAGES:
+        return False, f"已達上限 {MAX_USER_PROFILE_IMAGES} 張個人參考圖片。"
+    ext = mime.split("/")[-1] if "/" in mime else "png"
+    if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+        ext = "png"
+    import time as _time
+    ts = int(_time.time() * 1000)
+    images_dir = _user_images_dir(discord_id)
+    filename = f"user_{ts}.{ext}"
+    while os.path.exists(os.path.join(images_dir, filename)):
+        ts += 1
+        filename = f"user_{ts}.{ext}"
+    path = os.path.join(images_dir, filename)
+    with open(path, "wb") as f:
+        f.write(img_bytes)
+    thumb_filename = None
+    thumb_bytes = _make_thumbnail(img_bytes)
+    if thumb_bytes:
+        thumb_filename = f"user_{ts}_thumb.jpg"
+        with open(os.path.join(images_dir, thumb_filename), "wb") as f:
+            f.write(thumb_bytes)
+    entry = {"filename": filename, "mime": mime, "description": description}
+    if thumb_filename:
+        entry["thumb"] = thumb_filename
+    images.append(entry)
+    _write_user_images(discord_id, images)
+    return True, f"已新增第 {len(images)} 張個人參考圖片。"
+
+
+def remove_user_profile_image(discord_id: str, index: int) -> tuple:
+    """1-indexed. Returns (success, message)."""
+    images = _read_user_images(discord_id)
+    if index < 1 or index > len(images):
+        return False, "索引超出範圍。"
+    info = images.pop(index - 1)
+    images_dir = _user_images_dir(discord_id)
+    path = os.path.join(images_dir, info["filename"])
+    if os.path.exists(path):
+        os.remove(path)
+    thumb = info.get("thumb")
+    if thumb:
+        thumb_path = os.path.join(images_dir, thumb)
+        if os.path.exists(thumb_path):
+            os.remove(thumb_path)
+    _write_user_images(discord_id, images)
+    return True, "已移除圖片。"
 
 
 def get_character_history(channel_id: str) -> List[Dict[str, Any]]:

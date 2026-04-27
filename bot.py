@@ -442,7 +442,7 @@ def _invalidate_kb_title_index() -> None:
     _kb_image_title_index = None
 
 
-def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "") -> str:
+def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "", player_context: str = "") -> str:
     prompt = (
         f"You are {name}. {background}\n\n"
         f"You are NOT an AI — you ARE {name}, a real person with your own personality. Never break character.\n"
@@ -500,6 +500,8 @@ def build_system_prompt(name: str, background: str, personality: str = "", looks
             "Only mention these if genuinely relevant. Never describe a saved image as the one just sent.]\n"
             f"{visual_kb_context}\n"
         )
+    if player_context:
+        prompt += f"\n[The player you are talking to]\n{player_context}\n"
     return prompt
 
 
@@ -1127,6 +1129,22 @@ async def process_chat(
             if len(context_images) >= _MAX_CTX_IMAGES:
                 break
 
+    # Build player context from user profile (concise, ≤200 tokens)
+    _player_profile = database.get_user_profile(str(author.id))
+    _player_context = ""
+    if _player_profile:
+        _parts = []
+        _pname = (_player_profile.get("discord_name") or "").strip()
+        _pbg   = (_player_profile.get("background") or "").strip()
+        _plooks = (_player_profile.get("looks") or "").strip()
+        if _pname:
+            _parts.append(f"Name: {_pname}")
+        if _pbg:
+            _parts.append(_pbg[:400])
+        if _plooks:
+            _parts.append(f"Appearance: {_plooks[:300]}")
+        _player_context = "\n".join(_parts)
+
     # Build system prompt with memory + KB context + visual KB matches
     system_prompt = build_system_prompt(
         bot_name, background, personality, looks,
@@ -1134,6 +1152,7 @@ async def process_chat(
         memory_context=memory_context,
         visual_kb_context=visual_kb_context,
         character_images_context=build_character_images_context(),
+        player_context=_player_context,
     )
     history = get_channel_context(channel_id)
 
@@ -1262,6 +1281,8 @@ async def process_chat(
                 seed_override=_scene_prompt,
                 acker=None,
                 prose_context=_prose_ctx,
+                player_discord_id=str(author.id),
+                player_display_name=author.display_name,
             )
         return
 
@@ -2275,6 +2296,11 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
     if not bot.user or message.author.id != bot.user.id:
         return
     _reaction_prose_ctx = _build_prose_context(get_channel_context(str(payload.channel_id)))
+    _reaction_player_name = ""
+    if hasattr(channel, "guild") and channel.guild:
+        _reaction_member = channel.guild.get_member(payload.user_id)
+        if _reaction_member:
+            _reaction_player_name = _reaction_member.display_name
     await scene_image.run_scene_image(
         bot_message=message,
         channel=channel,
@@ -2283,6 +2309,8 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
         hint_prompt=None,
         acker=None,
         prose_context=_reaction_prose_ctx,
+        player_discord_id=str(payload.user_id),
+        player_display_name=_reaction_player_name,
     )
 
 
@@ -2436,6 +2464,137 @@ async def character_cmd(ctx):
         await ctx.reply(embed=embed, file=file, view=view, mention_author=False)
     else:
         await ctx.reply(embed=embed, view=view, mention_author=False)
+
+
+@bot.hybrid_command(name="myprofile", description="查看或設定你的個人檔案（名稱、背景、外貌）")
+async def myprofile_cmd(ctx):
+    """查看自己的個人檔案: /myprofile 或 !myprofile"""
+    author = ctx.author
+    discord_id = str(author.id)
+    display_name = author.display_name
+
+    profile = database.get_user_profile(discord_id)
+    if profile is None:
+        database.set_user_profile(discord_id, display_name, "", "")
+        profile = {"discord_id": discord_id, "discord_name": display_name, "background": "", "looks": ""}
+
+    pname = (profile.get("discord_name") or display_name).strip()
+    pbg   = (profile.get("background") or "").strip()
+    plooks = (profile.get("looks") or "").strip()
+    image_count = database.get_user_profile_image_count(discord_id)
+
+    embed = ui.build_user_profile_embed(pname, pbg, plooks, image_count=image_count)
+
+    file = None
+    if image_count >= 1:
+        result = database.get_user_profile_image(discord_id, 1)
+        if result:
+            img_bytes, mime = result
+            ext = mime.split("/")[-1] if "/" in mime else "png"
+            if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+                ext = "png"
+            file = discord.File(io.BytesIO(img_bytes), filename=f"profile_preview.{ext}")
+            embed.set_image(url=f"attachment://profile_preview.{ext}")
+
+    view = ui.UserProfileView(discord_id, pname, pbg, plooks, image_count=image_count)
+    if file:
+        await ctx.reply(embed=embed, file=file, view=view, mention_author=False)
+    else:
+        await ctx.reply(embed=embed, view=view, mention_author=False)
+
+
+@bot.hybrid_command(name="addprofilephoto", description="新增個人參考圖片到你的個人檔案 (最多 5 張)")
+@app_commands.describe(
+    photo="參考圖片 1",
+    photo2="參考圖片 2",
+    photo3="參考圖片 3",
+    photo4="參考圖片 4",
+    photo5="參考圖片 5",
+)
+async def addprofilephoto_cmd(
+    ctx,
+    photo: Optional[discord.Attachment] = None,
+    photo2: Optional[discord.Attachment] = None,
+    photo3: Optional[discord.Attachment] = None,
+    photo4: Optional[discord.Attachment] = None,
+    photo5: Optional[discord.Attachment] = None,
+):
+    """新增個人參考圖片: /addprofilephoto [圖片1] ... [圖片5]"""
+    author = ctx.author
+    discord_id = str(author.id)
+    display_name = author.display_name
+
+    # Auto-create profile on first use
+    if database.get_user_profile(discord_id) is None:
+        database.set_user_profile(discord_id, display_name, "", "")
+
+    to_process = [a for a in [photo, photo2, photo3, photo4, photo5] if a is not None]
+    if not to_process:
+        await ctx.reply("❌ 請附加至少一張圖片。", mention_author=False)
+        return
+
+    to_process = [a for a in to_process if a.content_type and a.content_type.startswith("image/")]
+    if not to_process:
+        await ctx.reply("❌ 附件必須是圖片格式（PNG、JPG、GIF、WebP）。", mention_author=False)
+        return
+
+    added: list = []
+    failed: list = []
+    total = len(to_process)
+    progress_msg = None
+    if total > 1:
+        progress_msg = await ctx.reply(
+            f"📤 正在處理 **{total}** 張參考圖片⋯", mention_author=False
+        )
+
+    async with aiohttp.ClientSession() as session:
+        for att in to_process:
+            fname = att.filename.lower()
+            mime = "image/jpeg"
+            if fname.endswith(".png"):
+                mime = "image/png"
+            elif fname.endswith(".gif"):
+                mime = "image/gif"
+            elif fname.endswith(".webp"):
+                mime = "image/webp"
+            try:
+                async with session.get(att.url) as resp:
+                    img_bytes = await resp.read()
+                auto_desc = await groq_ai.understand_image(
+                    img_bytes, mime,
+                    _CHAR_IMAGE_EXTRACTION_QUESTION,
+                )
+                description = auto_desc or ""
+                success, msg = database.add_user_profile_image(discord_id, img_bytes, mime, description)
+                if success:
+                    added.append(att.filename)
+                else:
+                    failed.append(f"{att.filename} ({msg})")
+            except Exception as e:
+                failed.append(f"{att.filename} ({e})")
+
+    if progress_msg:
+        try:
+            await progress_msg.delete()
+        except Exception:
+            pass
+
+    new_count = database.get_user_profile_image_count(discord_id)
+    embed = discord.Embed(
+        title="🖼️ 個人參考圖片新增結果",
+        color=discord.Color.blurple() if added else discord.Color.red(),
+    )
+    embed.add_field(name="📊 圖片數量", value=f"{new_count} / {database.MAX_USER_PROFILE_IMAGES}", inline=True)
+    if added:
+        embed.add_field(name="✅ 成功", value="\n".join(added), inline=False)
+    if failed:
+        embed.add_field(name="❌ 失敗", value="\n".join(failed), inline=False)
+    if not added:
+        embed.description = "未成功新增任何圖片。"
+    else:
+        embed.description = f"成功新增 {len(added)} 張參考圖片到你的個人檔案！圖片將用於場景圖像生成中。"
+
+    await ctx.reply(embed=embed, mention_author=False)
 
 
 @bot.hybrid_command(name="addcharimage", description="新增外貌參考圖片到角色設定 (最多 10 張，可批量上傳)")
