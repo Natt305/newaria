@@ -1099,12 +1099,26 @@ async def process_chat(
             or (image_prompt and _image_ready())
             or scene_image.is_user_visual_intent(user_text)
         )
-        # Send the prose first with the persistent 🎬 button attached.
-        # Suggestions are bypassed in scene mode so the View can be
-        # `timeout=None` and survive restarts.
+        # Send the prose first. When suggestions are enabled, use the
+        # combined SceneAndSuggestView (suggestion buttons row 0 + 🎬 row 1)
+        # so the user gets both. Falls back to plain SceneImageButtonView
+        # when suggestions are off. Both use timeout=None so the 🎬 button
+        # survives restarts.
         prose = response_text or "…"
-        try:
+        if _suggestions_enabled:
+            _s_topic = await get_suggestion_topic(channel_id)
+            _s_list = await groq_ai.generate_suggestions(
+                topic=_s_topic,
+                bot_name=bot_name,
+                character_background=background,
+                count=3,
+                guiding_prompt=_suggestion_prompt,
+                language_sample=prose[:200],
+            )
+            scene_view = ui.SceneAndSuggestView(_s_list, channel_id)
+        else:
             scene_view = ui.SceneImageButtonView()
+        try:
             if len(prose) > 2000:
                 _chunks = [prose[i:i+2000] for i in range(0, len(prose), 2000)]
                 for _c in _chunks[:-1]:
