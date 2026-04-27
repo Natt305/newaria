@@ -63,9 +63,19 @@ def _cinematic_suffix_enabled() -> bool:
 
 # Regex patterns that signal the character is NOT in their default outfit.
 # Each entry is (compiled_regex, human_readable_label).
+#
+# Design notes:
+#   - bath action patterns do NOT include "bathroom" (a location noun that does
+#     not imply undressed state on its own) — only action/state variants like
+#     "bath", "bathing", "bathtub", "bathwater" are matched.
+#   - "bed" is matched only as an explicit "in bed" phrase to avoid false
+#     positives from words like "bedroom" or "bedside".
+#   - "changing" is matched only when adjacent to clothes-related context to
+#     avoid matching phrases like "a changing situation".
 _SCENE_CLOTHING_STATE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bshower(?:ing)?\b", re.I), "in the shower (unclothed)"),
-    (re.compile(r"\bbath(?:ing|tub|water|room)?\b", re.I), "in the bath (unclothed)"),
+    # Match bath ACTIONS only — not "bathroom" (location noun, may be clothed)
+    (re.compile(r"\bbath(?:ing|tub|water)?\b", re.I), "in the bath (unclothed)"),
     (re.compile(r"\bnude\b", re.I), "nude"),
     (re.compile(r"\bnaked\b", re.I), "naked"),
     (re.compile(r"\bundress(?:ed|ing)?\b", re.I), "undressed"),
@@ -75,6 +85,16 @@ _SCENE_CLOTHING_STATE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bbare\s+bod(?:y|ies)\b", re.I), "bare body"),
     (re.compile(r"\btowel\b", re.I), "wrapped in a towel (just bathed)"),
     (re.compile(r"\bwashing\s+(?:her|his|their|up|body|hair)\b", re.I), "washing (unclothed)"),
+    # Sleeping / resting in bed — typically undressed or in nightwear
+    (re.compile(r"\bsleep(?:ing)?\b", re.I), "sleeping (nightwear/undressed)"),
+    (re.compile(r"\basleep\b", re.I), "asleep (nightwear/undressed)"),
+    (re.compile(r"\bin\s+bed\b", re.I), "in bed (nightwear/undressed)"),
+    # Actively changing clothes
+    (re.compile(r"\bchanging\s+(?:clothes|outfits?|into|out of)\b", re.I), "changing clothes"),
+    (re.compile(r"\bgetting\s+(?:dressed|undressed|changed)\b", re.I), "changing clothes"),
+    # Explicit intimate states
+    (re.compile(r"\bmaking\s+love\b", re.I), "intimate (unclothed)"),
+    (re.compile(r"\bhaving\s+sex\b", re.I), "intimate (unclothed)"),
 ]
 
 # Words that flag a sentence as clothing/weapon related.  Any sentence in the
@@ -96,7 +116,7 @@ _OUTFIT_SENTENCE_WORDS: frozenset[str] = frozenset({
 
 def _detect_scene_clothing_override(text: str) -> tuple[bool, str]:
     """Return (triggered, state_label) when *text* implies the character is not
-    wearing their default outfit (shower, bath, nude, etc.).
+    wearing their default outfit (shower, bath, nude, sleeping, etc.).
 
     Checks both the seed and the enriched prompt text combined — pass
     ``seed + " " + enriched_base`` as *text*.
@@ -107,15 +127,19 @@ def _detect_scene_clothing_override(text: str) -> tuple[bool, str]:
     return False, ""
 
 
-def _strip_outfit_from_looks(looks_text: str) -> str:
+def _strip_outfit_from_looks(looks_text: str, *, fallback_to_empty: bool = False) -> str:
     """Remove clothing/weapon/outfit sentences from a character looks description.
 
     Splits *looks_text* on sentence boundaries and drops any sentence that
     contains an outfit-related keyword, keeping only base identity traits
     (hair colour, eye colour, skin tone, facial features, build/height).
 
-    Falls back to the original text unchanged if the filter strips everything,
-    to avoid sending an empty identity anchor.
+    Args:
+        looks_text: The full character looks description.
+        fallback_to_empty: When True, returns '' if all sentences are filtered
+            (safe for scene-state override mode — avoids re-introducing outfit
+            text). When False (default), returns the original text as a safety
+            fallback (for non-override callers).
     """
     sentences = re.split(r"(?<=[.!?])\s+", looks_text.strip())
     kept: list[str] = []
@@ -125,7 +149,9 @@ def _strip_outfit_from_looks(looks_text: str) -> str:
             continue
         kept.append(sentence)
     result = " ".join(kept).strip()
-    return result if result else looks_text
+    if result:
+        return result
+    return "" if fallback_to_empty else looks_text
 
 
 # Last-generation debug capture for /scenedebug. Overwritten per generate.
@@ -1097,21 +1123,29 @@ async def run_scene_image(
                 _state_triggered, _state_label = _detect_scene_clothing_override(_combined_ctx)
                 if _state_triggered:
                     # Strip outfit/weapon sentences — keep hair, eyes, skin only.
-                    _identity_only = _strip_outfit_from_looks(_looks_text)
+                    # fallback_to_empty=True prevents re-introducing outfit text
+                    # in the anchor when all sentences happened to be outfit-related.
+                    _identity_only = _strip_outfit_from_looks(_looks_text, fallback_to_empty=True)
                     _state_prefix = (
                         f"SCENE STATE OVERRIDE — character is {_state_label}: "
                         f"do NOT render coat, holster, weapons, or any default outfit items; "
                         f"scene context takes absolute priority over default clothing. "
                     )
-                    enriched = (
-                        _state_prefix
-                        + enriched
-                        + ". Character base identity only (outfit overridden by scene): "
-                        + _identity_only
-                    )
+                    if _identity_only:
+                        enriched = (
+                            _state_prefix
+                            + enriched
+                            + ". Character base identity only (outfit overridden by scene): "
+                            + _identity_only
+                        )
+                    else:
+                        # All looks sentences were outfit-related — use state prefix only;
+                        # Qwen reads base identity from reference photos directly.
+                        enriched = _state_prefix + enriched
                     print(
                         f"[SceneImage] Scene-state override active ({_state_label!r}): "
-                        f"outfit stripped from looks anchor, state prefix prepended."
+                        f"outfit stripped from looks anchor, state prefix prepended "
+                        f"({'identity anchor included' if _identity_only else 'no identity anchor — photos only'})."
                     )
                 else:
                     enriched = (
