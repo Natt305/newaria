@@ -42,7 +42,8 @@ Required ComfyUI custom node packs for the Qwen engine:
     - `ComfyUI-GGUF` (city96)             → UnetLoaderGGUF + CLIPLoaderGGUF
     - `comfyui_qwen_image_edit_plus_nodes` (or any pack shipping
        `TextEncodeQwenImageEditPlus`)     → image-aware text encoder
-    The pig_qwen VAE GGUF loads through stock `VAELoader`, no extra pack required.
+    The pig_qwen VAE GGUF loads through `VAELoaderGGUF` from city96's ComfyUI-GGUF
+    (same pack as UnetLoaderGGUF / CLIPLoaderGGUF — stock VAELoader only indexes safetensors).
 
 Optional env vars (both engines):
     COMFYUI_PREWARM  `1`/`true`/`yes`/`on` to pre-load the active engine's
@@ -747,7 +748,8 @@ def _build_per_subject_ref_workflow(
 # Required custom node packs on the ComfyUI side:
 #   - city96/ComfyUI-GGUF                       → UnetLoaderGGUF, CLIPLoaderGGUF
 #   - any pack shipping TextEncodeQwenImageEditPlus
-# The Qwen-Image VAE GGUF loads through the stock `VAELoader`.
+# The Qwen-Image VAE GGUF requires `VAELoaderGGUF` from city96's ComfyUI-GGUF
+# (stock VAELoader only indexes safetensors files, not GGUF).
 #
 # Latent shape: Qwen-Image is a 16-channel MMDiT model, so we use
 # `EmptySD3LatentImage` (also 16 channels) rather than `EmptyLatentImage`
@@ -791,7 +793,7 @@ def _build_txt2img_workflow_qwen(
             "inputs": {"clip_name": clip_gguf_name, "type": "qwen_image"},
         },
         "3": {
-            "class_type": "VAELoader",
+            "class_type": "VAELoaderGGUF",
             "inputs": {"vae_name": vae_name},
         },
         "4": {
@@ -878,7 +880,7 @@ def _build_multi_edit_workflow_qwen(
             "inputs": {"clip_name": clip_gguf_name, "type": "qwen_image"},
         },
         "3": {
-            "class_type": "VAELoader",
+            "class_type": "VAELoaderGGUF",
             "inputs": {"vae_name": vae_name},
         },
         "5": {
@@ -1996,6 +1998,9 @@ _REQUIRED_NODES_QWEN = [
     ("CLIPLoaderGGUF",
      "city96's `ComfyUI-GGUF` "
      "(https://github.com/city96/ComfyUI-GGUF)"),
+    ("VAELoaderGGUF",
+     "city96's `ComfyUI-GGUF` "
+     "(https://github.com/city96/ComfyUI-GGUF)"),
     ("TextEncodeQwenImageEditPlus",
      "any pack shipping `TextEncodeQwenImageEditPlus` "
      "(e.g. Phr00t's `comfyui_qwen_image_edit_plus_nodes`)"),
@@ -2296,8 +2301,9 @@ def diagnose() -> dict:
             )
         if _qwen_vae:
             _vae_ok = _check_model_file(
-                "VAELoader", "vae_name", _qwen_vae,
+                "VAELoaderGGUF", "vae_name", _qwen_vae,
                 os.path.join("models", "vae"),
+                payload_override=_node_payloads.get("VAELoaderGGUF"),
             )
         if _qwen_clip:
             _clip_ok = _check_model_file(
