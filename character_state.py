@@ -178,11 +178,21 @@ CRITICAL RULES:
    - "after a week of rest" / "the wounds healed" / "she was treated" → remove wounds
    - "she grabbed a robe" → body_state becomes "robe"
    - "she stepped out of the shower in a towel" → body_state becomes "towel"
-2. Accessories, restraints, wounds, and marks use ADDITIVE lists (added/removed).
+2. RE-DRESSING: When the character puts clothes back on after a nude/undressed/shower
+   scene, you MUST set body_state to "clothed" AND update outfit with what they wore.
+   Examples:
+   - "She slipped back into her uniform" → body_state "clothed", outfit "uniform"
+   - "She got dressed" / "she put her clothes back on" → body_state "clothed",
+     outfit = whatever they put on (or the outfit they had before if not specified)
+   - "she pulled on her jeans and t-shirt" → body_state "clothed", outfit "jeans and t-shirt"
+   - "she wrapped herself in a towel and then got dressed" → body_state "clothed"
+   IMPORTANT: Never leave body_state as "naked"/"undressed"/"nude" after a clear
+   dressing action. Always update it to "clothed" (or the appropriate cover state).
+3. Accessories, restraints, wounds, and marks use ADDITIVE lists (added/removed).
    Outfit and body_state fully replace the previous value.
-3. Only output changes. Use null for any category with no change.
-4. Do NOT invent changes not supported by the text.
-5. Keep descriptions concise (under 60 chars per item).
+4. Only output changes. Use null for any category with no change.
+5. Do NOT invent changes not supported by the text.
+6. Keep descriptions concise (under 60 chars per item).
 
 Current state (for reference — do not repeat unless it changed):
 {current_state}
@@ -281,6 +291,11 @@ def _apply_delta(state: CharacterState, delta: dict, turn: int) -> CharacterStat
     body_state = delta.get("body_state")
     if body_state and isinstance(body_state, str) and body_state.strip():
         state.body_state = body_state.strip().lower()
+    elif outfit and isinstance(outfit, str) and outfit.strip() and state.body_state != "clothed":
+        # Fallback: a new outfit was set but the LLM forgot to update body_state.
+        # Covers naked/undressed AND transitional-cover states (towel, robe, etc.)
+        # so the SCENE STATE OVERRIDE is cleared whenever the character gets dressed.
+        state.body_state = "clothed"
 
     for added_key, removed_key, attr in [
         ("accessories_added",  "accessories_removed",  "accessories"),
