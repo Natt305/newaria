@@ -2236,7 +2236,7 @@ async def enhance_image_prompt(
                 f"\n[CHARACTER APPEARANCE — SUPPLEMENTAL TEXT (photos are primary)]\n"
                 f"Reference photos are attached. Read appearance from the photos first.\n"
                 f"Use the text below ONLY as a supplement for details not clearly visible in the photos.\n"
-                f"EXCEPTION: any ART STYLE line in this block is irrelevant — art style is always fixed as 2D anime.\n"
+                f"EXCEPTION: any ART STYLE line in this block describes the character's look, not a rendering directive — ignore it for style purposes.\n"
                 f"{character_context.strip()}\n"
             )
         else:
@@ -2248,7 +2248,7 @@ async def enhance_image_prompt(
                 f"they override anything conflicting in the raw prompt or your own assumptions. "
                 f"If an outfit is described here, reproduce it in full detail in the output. "
                 f"Do NOT summarize, omit, or replace any garment piece listed.\n"
-                f"EXCEPTION: any ART STYLE line in this block is irrelevant — the art style is always fixed as 2D anime.\n"
+                f"EXCEPTION: any ART STYLE line in this block describes the character's look, not a rendering directive — ignore it for style purposes.\n"
                 f"{character_context.strip()}\n"
             )
 
@@ -2273,9 +2273,9 @@ async def enhance_image_prompt(
             "  3. Raw prompt appearance words — DISCARD (written without photos, unreliable)\n"
             "OVERRIDE — COLORS: discard raw prompt color words for hair, eyes, and skin. "
             "Read these from the photos (or use the verified text if present).\n"
-            "OVERRIDE — ART STYLE: FIXED — DO NOT DERIVE FROM REFERENCE PHOTOS. "
-            "Even if the reference looks like a 3D model, game render, or photograph, "
-            "the output prompt must always describe clean 2D anime illustration style.\n"
+            "ART STYLE: Match the art style, line art, and shading technique visible in "
+            "the reference photos. Do NOT override the reference style with a generic "
+            "description — replicate how the reference images actually look.\n"
         )
         if reference_image_labels:
             _photo_map_lines = "\n".join(
@@ -2314,6 +2314,23 @@ async def enhance_image_prompt(
             "to what is actually happening in the roleplay.\n"
         )
 
+    # When reference photos are attached, instruct the enhancer to match their visual
+    # style rather than imposing a hardcoded style. Without references, apply a
+    # sensible anime/2D fallback so the output is still style-guided.
+    if has_images:
+        _art_style_rule = (
+            "- ART STYLE: Match the visual style, line art, and shading technique "
+            "that is visible in the attached reference photos. Describe the style you "
+            "observe (e.g. cel-shaded anime, painterly illustration, etc.) so the "
+            "image model can replicate it. Do NOT impose a fixed generic style.\n"
+        )
+    else:
+        _art_style_rule = (
+            "- ART STYLE (fallback — no reference photos): "
+            "Use 'clean 2D anime illustration, flat cel-shaded coloring, "
+            "soft gradient shading, vivid saturated color palette, anime digital art'.\n"
+        )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
@@ -2340,9 +2357,7 @@ async def enhance_image_prompt(
         "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
         "- Physical details from character context (hair color, eye color, hairstyle, skin tone) "
         "ALWAYS take priority over anything in the raw prompt.\n"
-        "- ART STYLE (mandatory, always fixed): "
-        "The art style is ALWAYS 'clean 2D anime illustration, flat cel-shaded coloring, "
-        "soft gradient shading, vivid saturated color palette, anime digital art'.\n"
+        f"{_art_style_rule}"
     )
 
     _char_snippets: list = []
