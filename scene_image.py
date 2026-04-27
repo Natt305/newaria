@@ -958,6 +958,13 @@ async def handle_button_click(interaction: discord.Interaction) -> None:
         except discord.HTTPException:
             pass
 
+    _prose_ctx: Optional[str] = None
+    try:
+        from bot import get_channel_context as _gcc, _build_prose_context as _bpc
+        _prose_ctx = _bpc(_gcc(str(channel.id)))
+    except Exception:
+        pass
+
     await run_scene_image(
         bot_message=msg,
         channel=channel,
@@ -965,4 +972,5 @@ async def handle_button_click(interaction: discord.Interaction) -> None:
         trigger="button",
         hint_prompt=None,
         acker=_ack,
+        prose_context=_prose_ctx,
     )

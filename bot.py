@@ -541,8 +541,12 @@ def _strip_system_markers(text: str) -> str:
     return cleaned if cleaned else text
 
 
-def _build_prose_context(history: list, n_pairs: int = 4) -> Optional[str]:
-    """Build a condensed recent-dialogue excerpt for scene-image coherence."""
+def _build_prose_context(history: list, n_pairs: int = 4, max_chars: int = 500) -> Optional[str]:
+    """Build a condensed recent-dialogue excerpt for scene-image coherence.
+
+    Returns at most ``max_chars`` characters, truncating the joined string
+    from the end so the most recent exchanges are always preserved.
+    """
     if not history:
         return None
     recent = history[-(n_pairs * 2):]
@@ -551,8 +555,14 @@ def _build_prose_context(history: list, n_pairs: int = 4) -> Optional[str]:
         role = "User" if msg.get("role") == "user" else "Aria"
         content = (msg.get("content") or "").strip()
         if content:
-            lines.append(f"{role}: {content[:300]}")
-    return "\n".join(lines) if lines else None
+            lines.append(f"{role}: {content[:200]}")
+    result = "\n".join(lines)
+    if len(result) > max_chars:
+        result = result[-max_chars:]
+        newline_pos = result.find("\n")
+        if newline_pos > 0:
+            result = result[newline_pos + 1:]
+    return result.strip() if result.strip() else None
 
 
 def has_clear_topic(channel_id: str) -> bool:
@@ -3275,6 +3285,16 @@ async def sceneauto_cmd(
         ),
         inline=False,
     )
+    _ai_backend_str = os.environ.get("AI_BACKEND", "groq").strip().lower()
+    if _ai_backend_str != "lmstudio":
+        embed.add_field(
+            name="⚠️ 後端注意",
+            value=(
+                f"目前 AI_BACKEND=`{_ai_backend_str}`，[SCENE] 自動觸發與視覺意圖偵測"
+                "只在 LM Studio 後端生效。🎬 按鈕仍可手動點擊。"
+            ),
+            inline=False,
+        )
     embed.set_footer(
         text="scope:guild 設定伺服器預設；scope:channel 設定此頻道覆蓋；scope:channel-clear 移除覆蓋。"
     )

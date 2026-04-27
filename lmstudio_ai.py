@@ -2145,8 +2145,12 @@ async def enhance_image_prompt(
         _prose_block_so = ""
         if prose_context and prose_context.strip():
             _prose_block_so = (
-                "\n[RECENT STORY CONTEXT — use to keep scene tonally coherent]\n"
+                "\n[RECENT STORY CONTEXT — extract scene details for coherence]\n"
                 f"{prose_context.strip()}\n"
+                "From the above, extract and embed in your output: "
+                "(1) location / setting, (2) time of day, (3) weather or lighting conditions, "
+                "(4) emotional mood of the scene. Use these to anchor the generated prompt "
+                "to what is actually happening in the story.\n"
             )
         system_so = (
             "You are an expert image-prompt writer for AI image generators.\n"
@@ -2300,9 +2304,12 @@ async def enhance_image_prompt(
     _prose_block = ""
     if prose_context and prose_context.strip():
         _prose_block = (
-            "\n[RECENT STORY CONTEXT — use to keep the scene tonally coherent "
-            "with the ongoing roleplay]\n"
+            "\n[RECENT STORY CONTEXT — extract scene details for coherence]\n"
             f"{prose_context.strip()}\n"
+            "From the above, extract and embed in your output: "
+            "(1) location / setting, (2) time of day, (3) weather or lighting conditions, "
+            "(4) emotional mood of the scene. Use these to anchor the generated prompt "
+            "to what is actually happening in the roleplay.\n"
         )
 
     system = (
