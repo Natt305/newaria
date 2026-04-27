@@ -158,9 +158,11 @@ async def generate_suggestions(
     count: int = 3,
     guiding_prompt: str = "",
     language_sample: str = "",
+    recent_history: list = None,
 ) -> list:
     return await _mod().generate_suggestions(
         topic, bot_name, character_background,
         count=count, guiding_prompt=guiding_prompt,
         language_sample=language_sample,
+        recent_history=recent_history,
     )

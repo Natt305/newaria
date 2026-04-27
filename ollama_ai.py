@@ -1161,6 +1161,7 @@ async def generate_suggestions(
     count: int = 3,
     guiding_prompt: str = "",
     language_sample: str = "",
+    recent_history: list = None,
 ) -> list:
     """Generate short follow-up suggestion buttons (max 80 chars each).
 
@@ -1171,6 +1172,8 @@ async def generate_suggestions(
 
     language_sample should be a snippet of the bot's latest reply so the AI
     can detect and mirror the correct language automatically.
+    recent_history is an optional list of recent conversation messages used
+    to inject few-shot tone examples before the generation request.
     """
     use_json_format = _json_format_enabled()
     # When format=json is on Ollama forces an OBJECT root, so ask the
@@ -1195,4 +1198,5 @@ async def generate_suggestions(
         guiding_prompt=guiding_prompt,
         language_sample=language_sample,
         prompt_object_root=use_json_format,
+        recent_history=recent_history,
     )

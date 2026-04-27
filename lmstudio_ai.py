@@ -2534,6 +2534,7 @@ async def generate_suggestions(
     count: int = 3,
     guiding_prompt: str = "",
     language_sample: str = "",
+    recent_history: list = None,
 ) -> list:
     """Generate short follow-up suggestion buttons (max 80 chars each).
 
@@ -2583,4 +2584,5 @@ async def generate_suggestions(
         guiding_prompt=guiding_prompt,
         language_sample=language_sample,
         prompt_object_root=False,
+        recent_history=recent_history,
     )

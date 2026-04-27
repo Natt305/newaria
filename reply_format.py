@@ -459,6 +459,7 @@ async def generate_suggestions(
     guiding_prompt: str = "",
     language_sample: str = "",
     prompt_object_root: bool = False,
+    recent_history: list = None,
 ) -> list:
     """Generate short follow-up suggestion buttons (max 80 chars each).
 
@@ -483,6 +484,13 @@ async def generate_suggestions(
         (Groq json_object, Ollama format=json). Leave False on LM Studio:
         its JSON Schema mode wraps the array in `items` automatically and
         the prompt has historically always asked for a bare array.
+    recent_history:
+        Optional list of recent conversation messages in
+        ``[{"role": "user"|"assistant", "content": str}, ...]`` format.
+        The last 2–4 exchange pairs are injected as few-shot examples
+        before the final generation request so the model can match tone,
+        vocabulary, and energy from the live conversation rather than
+        relying on the character description alone.
     """
     lang_instruction = ""
     if language_sample and language_sample.strip():
@@ -524,7 +532,20 @@ async def generate_suggestions(
             f"Generate {count} casual opening messages someone might send to start chatting with {bot_name}."
         )
 
-    messages = [{"role": "user", "content": prompt}]
+    # Inject recent conversation turns as few-shot examples so the model can
+    # match the vocabulary, energy, and tone of the live conversation.
+    # We take the last 8 messages (≤ 4 exchange pairs), strip content that is
+    # too long, and place them before the final generation request.
+    history_messages: list = []
+    if recent_history:
+        slice_start = max(0, len(recent_history) - 8)
+        for msg in recent_history[slice_start:]:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role in ("user", "assistant") and content:
+                history_messages.append({"role": role, "content": content[:300]})
+
+    messages = history_messages + [{"role": "user", "content": prompt}]
 
     text = ""
     try:

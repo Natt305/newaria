@@ -980,6 +980,7 @@ async def send_with_suggestions(response_text: str, channel_id: str, reply_targe
         count=3,
         guiding_prompt=_suggestion_prompt,
         language_sample=text[:200],
+        recent_history=get_channel_context(channel_id),
     )
     view = SuggestionView(suggestions, channel_id)
 
@@ -1168,6 +1169,7 @@ async def process_chat(
                 count=3,
                 guiding_prompt=_suggestion_prompt,
                 language_sample=prose[:200],
+                recent_history=get_channel_context(channel_id),
             )
             scene_view: Optional[discord.ui.View] = SuggestionView(_s_list, channel_id) if _s_list else None
         else:
