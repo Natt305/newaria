@@ -47,6 +47,55 @@ CINEMATIC_SUFFIX = (
 )
 
 
+def _append_looks_enabled() -> bool:
+    """Return True when QWEN_APPEND_LOOKS resolves to on (default on)."""
+    raw = (os.environ.get("QWEN_APPEND_LOOKS", "on") or "on").strip().lower()
+    return raw in ("on", "true", "1", "yes", "enabled", "enable")
+
+
+def _cinematic_suffix_enabled() -> bool:
+    """Return True when SCENE_CINEMATIC_SUFFIX resolves to on (default on)."""
+    raw = (os.environ.get("SCENE_CINEMATIC_SUFFIX", "on") or "on").strip().lower()
+    return raw in ("on", "true", "1", "yes", "enabled", "enable")
+
+
+# ── Last-generation debug capture ────────────────────────────────────────────
+# Populated at the end of `run_scene_image`. Read by /scenedebug so operators
+# can confirm what actually went into the most recent scene image. Never raises.
+_LAST_SCENE_GENERATION: dict = {}
+
+
+def get_last_scene_generation() -> dict:
+    """Return a snapshot of the most recent scene-image generation metadata.
+
+    Keys (all may be missing):
+        enriched_base     — output of enhance_image_prompt (LLM rewrite)
+        enriched_final    — final text passed to image_dispatch.generate_image
+        looks_appended    — bool: whether the `looks` identity suffix was added
+        cinematic_suffix  — bool: whether CINEMATIC_SUFFIX was appended
+        ref_labels        — list of subject names parallel to refs
+        ref_count         — number of reference photos forwarded to ComfyUI
+        backend           — IMAGE_BACKEND value at generate time
+        engine            — COMFYUI_ENGINE value at generate time
+        scene_only        — bool: whether the LLM was put into scene-only mode
+        timestamp         — wall clock UNIX seconds when the snapshot was taken
+        bot_name          — bot character name at generate time
+        trigger           — what caused this generation (button / scene_tag / …)
+        channel_id        — stringified channel id
+    """
+    return dict(_LAST_SCENE_GENERATION)
+
+
+def _record_last_scene_generation(**fields) -> None:
+    """Internal: overwrite _LAST_SCENE_GENERATION with the supplied snapshot."""
+    try:
+        _LAST_SCENE_GENERATION.clear()
+        _LAST_SCENE_GENERATION.update(fields)
+        _LAST_SCENE_GENERATION["timestamp"] = time.time()
+    except Exception as exc:
+        print(f"[SceneImage] _record_last_scene_generation failed: {type(exc).__name__}: {exc}")
+
+
 # ── State ─────────────────────────────────────────────────────────────────────
 
 _inflight: set[tuple[str, int]] = set()
@@ -961,10 +1010,62 @@ async def run_scene_image(
                 if s_clean.lower() in (f.lower() for f in featured):
                     continue
                 featured.append(s_clean)
+        _cinematic_on = _cinematic_suffix_enabled()
+        _suffix = CINEMATIC_SUFFIX if _cinematic_on else ""
         if featured:
-            enriched = enriched_base + ", featuring " + ", ".join(featured) + CINEMATIC_SUFFIX
+            enriched = enriched_base + ", featuring " + ", ".join(featured) + _suffix
         else:
-            enriched = enriched_base + CINEMATIC_SUFFIX
+            enriched = enriched_base + _suffix
+
+        # Append the bot's `looks` text post-LLM as a non-LLM identity anchor.
+        # Even when enhance_image_prompt rewrites or summarises the scene the
+        # exact look description survives verbatim, giving Qwen-Image-Edit a
+        # second strong steering signal alongside the reference photos.
+        # Gated by QWEN_APPEND_LOOKS=on|off (default on); only fires when the
+        # bot's character has a non-empty `looks` field, the engine is qwen,
+        # and at least one reference image is being forwarded.
+        _looks_appended = False
+        if (
+            _append_looks_enabled()
+            and backend == "comfyui"
+            and engine == "qwen"
+            and refs
+        ):
+            try:
+                _char = database.get_character() or {}
+                _looks_text = (_char.get("looks") or "").strip()
+            except Exception:
+                _looks_text = ""
+            if _looks_text:
+                enriched = (
+                    enriched
+                    + ". Character identity (must be preserved from reference photos): "
+                    + _looks_text
+                )
+                _looks_appended = True
+                print(
+                    f"[SceneImage] Appended {len(_looks_text)}-char looks identity suffix "
+                    f"post-LLM (QWEN_APPEND_LOOKS=on)."
+                )
+
+        # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
+        try:
+            _record_last_scene_generation(
+                enriched_base=enriched_base,
+                enriched_final=enriched,
+                looks_appended=_looks_appended,
+                cinematic_suffix=_cinematic_on,
+                ref_labels=list(resolved_subjects or []),
+                ref_count=len(refs or []),
+                backend=backend,
+                engine=engine,
+                scene_only=bool(_scene_only),
+                bot_name=bot_name,
+                trigger=trigger,
+                channel_id=str(getattr(channel, "id", "")),
+            )
+        except Exception as _dbg_exc:
+            print(f"[SceneImage] debug capture failed: {type(_dbg_exc).__name__}: {_dbg_exc}")
 
         # 3. Run generation with the shared progress bar
         # `_format_diffuser_progress` lives in bot.py — lazy import to avoid

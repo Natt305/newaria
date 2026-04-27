@@ -148,6 +148,126 @@ _ANATOMY_NEGATIVE = (
     "extra limbs, missing limbs, poorly drawn hands"
 )
 
+# ── Global feminine-build bias (Qwen edit-mode) ───────────────────────────────
+# Appended to the positive prompt so every scene image leans slim/feminine
+# instead of drifting toward generic male proportions. The matching negative
+# fragment is also merged into the workflow's negative CLIPTextEncode so users
+# who raise QWEN_CFG above 1.0 get the steered classifier-free guidance benefit
+# automatically. Both are togglable via QWEN_FEMININE_BUILD=on|off (default on);
+# disable when hosting a non-feminine character without editing code.
+_FEMININE_BUILD_SUFFIX = (
+    ", slim feminine build, slender frame, soft graceful proportions, "
+    "delicate facial features, narrow shoulders, beautiful elegant figure, "
+    "not masculine, no broad shoulders, no square jaw, no muscular build, "
+    "no thick neck"
+)
+_FEMININE_BUILD_NEGATIVE = (
+    "masculine build, broad shoulders, wide jaw, square jawline, muscular, "
+    "bulky frame, thick neck, heavy build, manly features"
+)
+
+
+# ── Style-policy text (Qwen edit-mode) ────────────────────────────────────────
+# Selected via the QWEN_STYLE_POLICY env var (default: match_reference). Used
+# as the prefix prepended to every multi-edit Qwen prompt. The previous
+# behaviour (flat_anime) is kept as an opt-in for users who actively want the
+# old cartoony look — the default is to faithfully replicate whatever style
+# the reference photos use.
+#
+#   match_reference (default) — replicate the reference style verbatim
+#   flat_anime                 — legacy: force flat 2D anime, override refs
+#   off                        — no style instruction at all (pure scene + refs)
+_STYLE_POLICY_TEXT = {
+    "off": "",
+    "flat_anime": (
+        "Preserve the exact appearance of all characters from the reference images. "
+        "Do NOT change hair colour, eye colour, skin tone, or facial features. "
+        "Art style MUST be flat 2D anime illustration: clean sharp ink linework, "
+        "cel-shaded flat color fills with minimal gradients, crisp contour lines, "
+        "colored manga key-visual aesthetic. "
+        "Do NOT replicate the rendering style of the reference images if they use "
+        "3D rendering, volumetric shading, gradient shading, or webtoon-style "
+        "semi-3D rendering — override those traits with flat 2D anime style. "
+        "Do NOT introduce photorealism or any style other than flat 2D anime. "
+    ),
+    "match_reference": (
+        "Preserve the exact appearance of all characters from the reference images. "
+        "Do NOT change hair colour, eye colour, skin tone, or facial features. "
+        "Replicate the visual style, line art weight, shading technique, hair "
+        "rendering, eye design, and color palette of the reference images exactly. "
+        "Match the rendering technique, gloss, highlight placement, pupil detail, "
+        "skin shading, and overall artistic style visible in the references — "
+        "whether it is flat 2D, semi-3D, painterly, webtoon, or any other anime "
+        "style. Do NOT introduce photorealism. "
+    ),
+}
+
+
+def _resolve_style_policy_text() -> tuple[str, str]:
+    """Return (policy_name, prefix_text) based on QWEN_STYLE_POLICY env var.
+
+    Falls back to `match_reference` for unknown values and prints a one-line
+    warning so the operator can fix the env var. The policy name is returned
+    alongside the text so the debug capture (/scenedebug) can surface which
+    policy actually applied at generation time.
+    """
+    raw = (os.environ.get("QWEN_STYLE_POLICY", "match_reference") or "match_reference").strip().lower()
+    if raw not in _STYLE_POLICY_TEXT:
+        print(f"[ComfyUI] Unknown QWEN_STYLE_POLICY={raw!r} — falling back to match_reference.")
+        raw = "match_reference"
+    return raw, _STYLE_POLICY_TEXT[raw]
+
+
+def _feminine_build_enabled() -> bool:
+    """Return True when QWEN_FEMININE_BUILD env var resolves to on (default on)."""
+    raw = (os.environ.get("QWEN_FEMININE_BUILD", "on") or "on").strip().lower()
+    return raw in ("on", "true", "1", "yes", "enabled", "enable")
+
+
+def _ref_preprocess_mode() -> str:
+    """Return `letterbox` (default) or `crop` based on QWEN_REF_PREPROCESS env."""
+    raw = (os.environ.get("QWEN_REF_PREPROCESS", "letterbox") or "letterbox").strip().lower()
+    if raw not in ("letterbox", "crop"):
+        print(f"[ComfyUI] Unknown QWEN_REF_PREPROCESS={raw!r} — falling back to letterbox.")
+        raw = "letterbox"
+    return raw
+
+
+# ── Last-generation debug capture (Qwen edit-mode) ────────────────────────────
+# Populated at the end of `_build_multi_edit_workflow_qwen`. Read by the
+# /scenedebug Discord command so operators can see what actually went into
+# the most recent generate without trawling the console. NOT a circular
+# buffer — each generate overwrites the previous entry. Never raises.
+_LAST_QWEN_GENERATION: Dict[str, object] = {}
+
+
+def get_last_qwen_generation() -> Dict[str, object]:
+    """Return a snapshot of the most recent Qwen edit-mode generation metadata.
+
+    Keys (all may be missing):
+        prompt_full       — final text sent to TextEncodeQwenImageEditPlus
+        negative_prompt   — final text on the negative CLIPTextEncode
+        style_policy      — resolved QWEN_STYLE_POLICY value
+        feminine_build    — bool: whether _FEMININE_BUILD_SUFFIX was applied
+        ref_slot_map      — list of (slot_label, image_filename) tuples
+        encoder_v2        — bool|None: cached _QWEN_ENCODER_V2 at generate time
+        width/height      — canvas size used
+        steps/sampler/scheduler/cfg — KSampler params used
+        ref_preprocess    — `letterbox` | `crop` | `none-v2` | `none-unknown`
+        timestamp         — wall clock UNIX seconds when the workflow was built
+    """
+    return dict(_LAST_QWEN_GENERATION)
+
+
+def _record_last_qwen_generation(**fields) -> None:
+    """Internal: overwrite _LAST_QWEN_GENERATION with the supplied snapshot."""
+    try:
+        _LAST_QWEN_GENERATION.clear()
+        _LAST_QWEN_GENERATION.update(fields)
+        _LAST_QWEN_GENERATION["timestamp"] = time.time()
+    except Exception as exc:
+        print(f"[ComfyUI] _record_last_qwen_generation failed: {type(exc).__name__}: {exc}")
+
 
 def _get_int(key: str, default: int) -> int:
     try:
@@ -199,6 +319,51 @@ def _preprocess_reference_image(
         return buf.getvalue()
     except Exception as exc:
         print(f"[ComfyUI] Reference image preprocessing failed ({exc}) — uploading as-is.")
+        return None
+
+
+def _letterbox_reference_image(
+    img_bytes: bytes,
+    mime: str,
+    width: int,
+    height: int,
+    bg: tuple = (0, 0, 0),
+) -> Optional[bytes]:
+    """Pad-fit (letterbox) reference image to (width, height), return PNG bytes.
+
+    Unlike `_preprocess_reference_image` (smart-crop), this preserves the
+    ENTIRE original image — a portrait reference doesn't lose its bottom half
+    when rendered onto a landscape canvas. The image is scaled to fit the
+    longer axis, centred on a `bg`-coloured canvas, and saved as PNG. Default
+    background is black; pass any RGB tuple to change it.
+
+    Used on v1 encoders when QWEN_REF_PREPROCESS=letterbox (the new default)
+    so portrait character refs survive the upload to a landscape Qwen canvas.
+    Returns PNG bytes, or None if PIL is not available / decoding fails.
+    """
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        print("[ComfyUI] Pillow not installed — uploading reference image as-is.")
+        return None
+
+    try:
+        raw = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        scaled = ImageOps.contain(raw, (width, height), method=Image.LANCZOS)
+        canvas = Image.new("RGB", (width, height), bg)
+        ox = (width - scaled.width) // 2
+        oy = (height - scaled.height) // 2
+        canvas.paste(scaled, (ox, oy))
+        print(
+            f"[ComfyUI] Reference image letterboxed to {width}x{height} "
+            f"(original {raw.width}x{raw.height} → fitted {scaled.width}x{scaled.height} "
+            f"with bg={bg})."
+        )
+        buf = io.BytesIO()
+        canvas.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as exc:
+        print(f"[ComfyUI] Reference image letterbox failed ({exc}) — uploading as-is.")
         return None
 
 
@@ -874,23 +1039,43 @@ def _build_multi_edit_workflow_qwen(
             prompt, gguf_path, vae_name, clip_gguf_name,
             steps, width, height, seed, sampler_name, scheduler_name,
         )
-    # In edit-mode (≥1 ref) prepend an appearance-lock instruction.  The
-    # Qwen-Image-Edit model will follow explicit "do NOT change …" directives
-    # even when the rest of the prompt describes the scene differently — this
-    # prevents a hallucinated text colour (e.g. "ash-blonde") from overriding
-    # the hair colour that is plainly visible in the reference image.
-    _APPEARANCE_LOCK = (
-        "Preserve the exact appearance of all characters from the reference images. "
-        "Do NOT change hair colour, eye colour, skin tone, or facial features. "
-        "Art style MUST be flat 2D anime illustration: clean sharp ink linework, "
-        "cel-shaded flat color fills with minimal gradients, crisp contour lines, "
-        "colored manga key-visual aesthetic. "
-        "Do NOT replicate the rendering style of the reference images if they use "
-        "3D rendering, volumetric shading, gradient shading, or webtoon-style "
-        "semi-3D rendering — override those traits with flat 2D anime style. "
-        "Do NOT introduce photorealism or any style other than flat 2D anime. "
-    )
-    enhanced_prompt = _APPEARANCE_LOCK + prompt + _ANATOMY_SUFFIX
+    # In edit-mode (≥1 ref) prepend a style-policy instruction selected via
+    # the QWEN_STYLE_POLICY env var (default: match_reference). The Qwen-
+    # Image-Edit model follows explicit "do NOT change …" / "replicate …"
+    # directives even when the rest of the prompt describes the scene
+    # differently — this prevents a hallucinated text colour (e.g. "ash-
+    # blonde") from overriding the hair colour that is plainly visible in
+    # the reference image. The previous flat-2D-anime override behaviour
+    # is preserved as the `flat_anime` policy.
+    _style_policy_name, _appearance_lock = _resolve_style_policy_text()
+
+    # Optional global feminine-build bias — appended to the positive prompt
+    # to steer the model away from generic male proportions when the bot
+    # hosts a slim/feminine character. The matching negative is populated
+    # in node "5" below so users who raise QWEN_CFG above 1.0 also get
+    # classifier-free guidance steering.
+    _feminine_on = _feminine_build_enabled()
+    _feminine_pos = _FEMININE_BUILD_SUFFIX if _feminine_on else ""
+
+    enhanced_prompt = _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
+
+    # Build the negative prompt — anatomy + (optionally) feminine-build
+    # negatives. With CFG=1.0 (the Qwen Rapid AIO default) the negative
+    # branch is multiplied by zero, so this is a no-op until QWEN_CFG > 1.0.
+    # Populating it unconditionally means raising CFG via env requires no
+    # code change.
+    _negative_parts: List[str] = [_ANATOMY_NEGATIVE]
+    if _feminine_on:
+        _negative_parts.append(_FEMININE_BUILD_NEGATIVE)
+    _negative_text = ", ".join(p for p in _negative_parts if p)
+
+    # KSampler CFG — opt-in via env. Default 1.0 keeps the distilled Rapid
+    # AIO at its intended config; raising it activates the negative branch.
+    try:
+        _cfg = float(os.environ.get("QWEN_CFG", "1.0"))
+    except ValueError:
+        print("[ComfyUI] Invalid QWEN_CFG — using default 1.0.")
+        _cfg = 1.0
 
     workflow: dict = {
         "1": {
@@ -907,7 +1092,7 @@ def _build_multi_edit_workflow_qwen(
         },
         "5": {
             "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": ""},
+            "inputs": {"clip": ["2", 0], "text": _negative_text},
         },
         "6": {
             "class_type": "EmptySD3LatentImage",
@@ -952,7 +1137,7 @@ def _build_multi_edit_workflow_qwen(
             "latent_image": ["6", 0],
             "seed": seed,
             "steps": steps,
-            "cfg": 1.0,
+            "cfg": _cfg,
             "sampler_name": sampler_name,
             "scheduler": scheduler_name,
             "denoise": 1.0,
@@ -966,6 +1151,24 @@ def _build_multi_edit_workflow_qwen(
         "class_type": "SaveImage",
         "inputs": {"images": ["8", 0], "filename_prefix": "ariabot_qwen_"},
     }
+
+    # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
+    _record_last_qwen_generation(
+        prompt_full=enhanced_prompt,
+        negative_prompt=_negative_text,
+        style_policy=_style_policy_name,
+        feminine_build=_feminine_on,
+        ref_slot_map=[
+            (f"image{i + 1}", uploaded_image_names[i]) for i in range(n)
+        ],
+        encoder_v2=_QWEN_ENCODER_V2,
+        width=width,
+        height=height,
+        steps=steps,
+        sampler=sampler_name,
+        scheduler=scheduler_name,
+        cfg=_cfg,
+    )
     return workflow
 
 
@@ -1275,21 +1478,34 @@ def _run_generate_qwen(
     # On v1-encoder installs, the encoder has no `latent_image` slot to
     # constrain the reference embedding to the target canvas — references
     # are propagated at their native dimensions and the result drifts
-    # toward the reference's aspect ratio. Smart-crop to qwen_width ×
-    # qwen_height before upload (matching the FLUX img2img path) so the
-    # encoder sees a canvas-shaped reference. Skip on v2 (the encoder
-    # handles sizing) and on unknown (diagnose may have been unreachable).
+    # toward the reference's aspect ratio. Resize to qwen_width × qwen_height
+    # before upload so the encoder sees a canvas-shaped reference.
+    #
+    # QWEN_REF_PREPROCESS picks the resize strategy:
+    #   letterbox (default) — pad-to-canvas; preserves the entire reference
+    #                         (portrait refs survive on a landscape canvas)
+    #   crop                — legacy smart-crop; can lose the bottom of
+    #                         portrait refs but produces a seamless canvas
+    #
+    # Skip on v2 (the encoder handles sizing) and on unknown (diagnose may
+    # have been unreachable).
+    _ref_mode = _ref_preprocess_mode()
     if _QWEN_ENCODER_V2 is False and qwen_input_refs:
         print(
             f"[ComfyUI] Qwen v1 encoder detected — pre-resizing "
             f"{len(qwen_input_refs)} reference image(s) to "
-            f"{qwen_width}x{qwen_height} before upload."
+            f"{qwen_width}x{qwen_height} before upload (mode={_ref_mode})."
         )
         _resized: List[Tuple[bytes, str]] = []
         for _ref_b, _ref_m in qwen_input_refs:
-            _png = _preprocess_reference_image(
-                _ref_b, _ref_m, qwen_width, qwen_height
-            )
+            if _ref_mode == "letterbox":
+                _png = _letterbox_reference_image(
+                    _ref_b, _ref_m, qwen_width, qwen_height
+                )
+            else:
+                _png = _preprocess_reference_image(
+                    _ref_b, _ref_m, qwen_width, qwen_height
+                )
             if _png:
                 _resized.append((_png, "image/png"))
             else:

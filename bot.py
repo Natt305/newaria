@@ -2052,6 +2052,33 @@ async def on_ready():
     print(f"[Bot] Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"[Bot] Character: {bot_name}")
     print(f"[Bot] Groq: {'enabled' if GROQ_API_KEY else 'MISSING'}")
+    # Text-only chat-model warning. The scene-only enhance_image_prompt path
+    # falls back to attaching reference photos as a vision message; if the
+    # active LM Studio chat model doesn't accept image content the request
+    # 400s and the cached scene-text fallback fires instead. Fine in practice,
+    # but silent — surface it at boot so the operator can swap models if a
+    # vision-capable enhancer is desired.
+    if (os.environ.get("AI_BACKEND", "").strip().lower() == "lmstudio"):
+        _vision_model_env = (os.environ.get("LMSTUDIO_VISION_MODEL", "") or "").strip()
+        _chat_model_env = (os.environ.get("LMSTUDIO_MODEL", "") or "").strip()
+        if not _vision_model_env:
+            # Heads-up only — when LMSTUDIO_VISION_MODEL is unset the enhancer
+            # falls back to LMSTUDIO_MODEL, which may or may not be multimodal.
+            # If it's text-only the first vision call 400s, lmstudio_ai caches
+            # the model in _NO_VISION_MODELS, and subsequent enhances skip the
+            # vision attachment. Either outcome is fine — scene images still
+            # generate — but the warning makes the silent fallback visible at
+            # boot so the operator can opt in to vision explicitly.
+            print(
+                "[INFO] AI_BACKEND=lmstudio without LMSTUDIO_VISION_MODEL — the "
+                f"enhancer will reuse LMSTUDIO_MODEL ({_chat_model_env or 'default'}) "
+                "for vision. If that model is multimodal, ignore this. If it's "
+                "text-only, the first scene-image enhance returns HTTP 400 and "
+                "the bot transparently falls back to a text-only enhance prompt "
+                "(scene images still generate via ComfyUI). Set "
+                "LMSTUDIO_VISION_MODEL=<multimodal model name> to silence this."
+            )
+
     if _IMAGE_BACKEND == "comfyui":
         _cu_url  = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
         _cu_gguf = os.environ.get("COMFYUI_GGUF", "").strip()
@@ -3167,6 +3194,66 @@ async def clear_cmd(ctx):
     conversation_contexts.pop(channel_id, None)
     scene_image.clear_scene_location_cache(channel_id)
     await ctx.reply("✅ 此頻道的對話歷史已清除！", mention_author=False)
+
+
+@bot.hybrid_command(
+    name="scenedebug",
+    description="顯示最近一次場景圖片生成的內部資料 (除錯用)",
+)
+async def scenedebug_cmd(ctx):
+    """Dump the last scene + Qwen-edit generation snapshot for the channel.
+
+    Reads the module-level capture dicts populated by `scene_image.run_scene_image`
+    and `comfyui_ai._build_multi_edit_workflow_qwen`, formats them into a
+    Discord-safe code block, and replies ephemerally. Role-gated like the
+    rest of the admin commands; never raises (a missing capture just shows
+    "(no recent generation)").
+    """
+    if not await check_command_role(ctx):
+        return
+
+    try:
+        scene_snap = scene_image.get_last_scene_generation()
+    except Exception as exc:
+        scene_snap = {"_error": f"{type(exc).__name__}: {exc}"}
+    try:
+        import comfyui_ai as _cu
+        qwen_snap = _cu.get_last_qwen_generation()
+    except Exception as exc:
+        qwen_snap = {"_error": f"{type(exc).__name__}: {exc}"}
+
+    def _fmt(snap: dict, title: str) -> str:
+        if not snap:
+            return f"=== {title} ===\n(no recent generation)\n"
+        lines = [f"=== {title} ==="]
+        ts = snap.get("timestamp")
+        if isinstance(ts, (int, float)):
+            import datetime as _dt
+            try:
+                lines.append(f"timestamp: {_dt.datetime.fromtimestamp(ts).isoformat(timespec='seconds')}")
+            except Exception:
+                pass
+        for k, v in snap.items():
+            if k == "timestamp":
+                continue
+            text = str(v)
+            if len(text) > 600:
+                text = text[:600] + f"…[+{len(str(v)) - 600} chars]"
+            lines.append(f"{k}: {text}")
+        return "\n".join(lines) + "\n"
+
+    body = _fmt(scene_snap, "scene_image (last)") + "\n" + _fmt(qwen_snap, "comfyui_ai qwen workflow (last)")
+    # Discord hard cap is 2000 chars per message; leave room for the code-fence wrapper.
+    if len(body) > 1900:
+        body = body[:1900] + "\n…[truncated — see console for full prompt]"
+    payload = f"```\n{body}\n```"
+    try:
+        if hasattr(ctx, "interaction") and ctx.interaction is not None:
+            await ctx.interaction.response.send_message(payload, ephemeral=True)
+        else:
+            await ctx.reply(payload, mention_author=False)
+    except Exception as exc:
+        print(f"[/scenedebug] reply failed: {type(exc).__name__}: {exc}")
 
 
 @bot.hybrid_command(

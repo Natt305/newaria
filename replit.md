@@ -227,6 +227,42 @@ The legacy two-pass workflow: generates a base scene first, then runs per-charac
 **Required ComfyUI node packs** (Ultimate Inpaint only):
 - `ComfyUI-Easy-Use`, `ComfyUI-Crystools`, `ComfyUI-Impact-Pack`, `ComfyUI-BRIA-RMBG`, `SAM3`, `ComfyUI-GODMT`, `ComfyUI-layerdiffuse`
 
+## Scene image fidelity knobs (Qwen-Image-Edit-Rapid GGUF)
+
+Scene-image generation drifts toward generic male proportions and away from
+the reference photo's art style on some characters. The fix is purely
+configuration — every knob has a sensible default that ships with the bot,
+and there is no per-character hardcoding. Disable any of them per env var
+when running a non-feminine character or a different art-style reference.
+
+| Env var | Default | Effect |
+|---|---|---|
+| `QWEN_STYLE_POLICY` | `match_reference` | Style instruction prepended to every Qwen edit-mode prompt. `match_reference` (new default) replicates the reference's rendering, gloss, line weight, and palette verbatim. `flat_anime` is the legacy override that forces flat 2D anime regardless of the reference. `off` adds no style instruction. |
+| `QWEN_FEMININE_BUILD` | `on` | Append a slim/feminine build positive suffix to every prompt and a matching negative suffix to the negative CLIPTextEncode. The negative branch is multiplied by zero at CFG=1.0, so the negative only "bites" once `QWEN_CFG > 1.0`. |
+| `QWEN_REF_PREPROCESS` | `letterbox` | How v1-encoder installs resize portrait references onto the landscape canvas before upload. `letterbox` (new default) preserves the entire reference; `crop` is the legacy smart-crop that can lop off the bottom of a portrait body. v2 encoders ignore this — they handle sizing internally. |
+| `QWEN_APPEND_LOOKS` | `on` | After the LLM rewrites the scene prompt, append `data/character/profile.json`'s `looks` field verbatim as a non-LLM identity anchor. Only fires when there is at least one reference photo and the engine is `qwen`. |
+| `QWEN_CFG` | `1.0` | KSampler CFG. The Qwen Rapid AIO is distilled for CFG=1.0; raising it activates the negative branch (and slows generation). |
+| `SCENE_CINEMATIC_SUFFIX` | `on` | Append the medium-close cinematic framing tail. Disable for less directed scene composition. |
+
+Run `/scenedebug` after the next 🎬 reaction to see exactly which policy,
+suffix, ref preprocessing, and CFG actually applied — the command dumps
+the most recent `scene_image` and `comfyui_ai` capture snapshots
+(ephemeral, role-gated).
+
+To pick the right values empirically without guessing, run the A/B test
+harness once against your character's reference photo:
+
+```bash
+python tools/scene_image_ab_test.py \
+    --refs path/to/character_ref.png \
+    --prompt "Aria standing in a sunlit park, smiling at the camera" \
+    --variants A,B,C,D,E,F,G,H,I,J --seeds 1,2 --out ab_output/
+```
+
+Then open `ab_output/index.html` in a browser, pick the column that best
+preserves the reference, and set the matching env vars in `tokens.txt`.
+See `tools/README.md` for the full variant matrix.
+
 ## Scene image (RP mode — LM Studio)
 
 A first-class affordance for cinematic moments in LM Studio roleplay. Off
