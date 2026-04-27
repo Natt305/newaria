@@ -148,13 +148,8 @@ _ANATOMY_NEGATIVE = (
     "extra limbs, missing limbs, poorly drawn hands"
 )
 
-# ── Global feminine-build bias (Qwen edit-mode) ───────────────────────────────
-# Appended to the positive prompt so every scene image leans slim/feminine
-# instead of drifting toward generic male proportions. The matching negative
-# fragment is also merged into the workflow's negative CLIPTextEncode so users
-# who raise QWEN_CFG above 1.0 get the steered classifier-free guidance benefit
-# automatically. Both are togglable via QWEN_FEMININE_BUILD=on|off (default on);
-# disable when hosting a non-feminine character without editing code.
+# Global feminine-build bias — togglable via QWEN_FEMININE_BUILD=on|off
+# (default on). Negative half only "bites" when QWEN_CFG > 1.0.
 _FEMININE_BUILD_SUFFIX = (
     ", slim feminine build, slender frame, soft graceful proportions, "
     "delicate facial features, narrow shoulders, beautiful elegant figure, "
@@ -167,16 +162,8 @@ _FEMININE_BUILD_NEGATIVE = (
 )
 
 
-# ── Style-policy text (Qwen edit-mode) ────────────────────────────────────────
-# Selected via the QWEN_STYLE_POLICY env var (default: match_reference). Used
-# as the prefix prepended to every multi-edit Qwen prompt. The previous
-# behaviour (flat_anime) is kept as an opt-in for users who actively want the
-# old cartoony look — the default is to faithfully replicate whatever style
-# the reference photos use.
-#
-#   match_reference (default) — replicate the reference style verbatim
-#   flat_anime                 — legacy: force flat 2D anime, override refs
-#   off                        — no style instruction at all (pure scene + refs)
+# Style-policy text selected by QWEN_STYLE_POLICY (default match_reference).
+# match_reference = replicate ref style; flat_anime = legacy override; off = none.
 _STYLE_POLICY_TEXT = {
     "off": "",
     "flat_anime": (
@@ -204,13 +191,7 @@ _STYLE_POLICY_TEXT = {
 
 
 def _resolve_style_policy_text() -> tuple[str, str]:
-    """Return (policy_name, prefix_text) based on QWEN_STYLE_POLICY env var.
-
-    Falls back to `match_reference` for unknown values and prints a one-line
-    warning so the operator can fix the env var. The policy name is returned
-    alongside the text so the debug capture (/scenedebug) can surface which
-    policy actually applied at generation time.
-    """
+    """Return (policy_name, prefix_text) per QWEN_STYLE_POLICY env."""
     raw = (os.environ.get("QWEN_STYLE_POLICY", "match_reference") or "match_reference").strip().lower()
     if raw not in _STYLE_POLICY_TEXT:
         print(f"[ComfyUI] Unknown QWEN_STYLE_POLICY={raw!r} — falling back to match_reference.")
@@ -219,13 +200,11 @@ def _resolve_style_policy_text() -> tuple[str, str]:
 
 
 def _feminine_build_enabled() -> bool:
-    """Return True when QWEN_FEMININE_BUILD env var resolves to on (default on)."""
     raw = (os.environ.get("QWEN_FEMININE_BUILD", "on") or "on").strip().lower()
     return raw in ("on", "true", "1", "yes", "enabled", "enable")
 
 
 def _ref_preprocess_mode() -> str:
-    """Return `letterbox` (default) or `crop` based on QWEN_REF_PREPROCESS env."""
     raw = (os.environ.get("QWEN_REF_PREPROCESS", "letterbox") or "letterbox").strip().lower()
     if raw not in ("letterbox", "crop"):
         print(f"[ComfyUI] Unknown QWEN_REF_PREPROCESS={raw!r} — falling back to letterbox.")
@@ -233,40 +212,31 @@ def _ref_preprocess_mode() -> str:
     return raw
 
 
-# ── Last-generation debug capture (Qwen edit-mode) ────────────────────────────
-# Populated at the end of `_build_multi_edit_workflow_qwen`. Read by the
-# /scenedebug Discord command so operators can see what actually went into
-# the most recent generate without trawling the console. NOT a circular
-# buffer — each generate overwrites the previous entry. Never raises.
+# Last-generation debug capture for /scenedebug. Overwritten per generate.
 _LAST_QWEN_GENERATION: Dict[str, object] = {}
 
 
 def get_last_qwen_generation() -> Dict[str, object]:
-    """Return a snapshot of the most recent Qwen edit-mode generation metadata.
-
-    Keys (all may be missing):
-        prompt_full       — final text sent to TextEncodeQwenImageEditPlus
-        negative_prompt   — final text on the negative CLIPTextEncode
-        style_policy      — resolved QWEN_STYLE_POLICY value
-        feminine_build    — bool: whether _FEMININE_BUILD_SUFFIX was applied
-        ref_slot_map      — list of (slot_label, image_filename) tuples
-        encoder_v2        — bool|None: cached _QWEN_ENCODER_V2 at generate time
-        width/height      — canvas size used
-        steps/sampler/scheduler/cfg — KSampler params used
-        ref_preprocess    — `letterbox` | `crop` | `none-v2` | `none-unknown`
-        timestamp         — wall clock UNIX seconds when the workflow was built
-    """
+    """Return a snapshot of the most recent Qwen edit-mode generation."""
     return dict(_LAST_QWEN_GENERATION)
 
 
 def _record_last_qwen_generation(**fields) -> None:
-    """Internal: overwrite _LAST_QWEN_GENERATION with the supplied snapshot."""
+    """Overwrite _LAST_QWEN_GENERATION with the supplied snapshot."""
     try:
         _LAST_QWEN_GENERATION.clear()
         _LAST_QWEN_GENERATION.update(fields)
         _LAST_QWEN_GENERATION["timestamp"] = time.time()
     except Exception as exc:
         print(f"[ComfyUI] _record_last_qwen_generation failed: {type(exc).__name__}: {exc}")
+
+
+def _update_last_qwen_generation(**fields) -> None:
+    """Merge `fields` into _LAST_QWEN_GENERATION without clearing other keys."""
+    try:
+        _LAST_QWEN_GENERATION.update(fields)
+    except Exception as exc:
+        print(f"[ComfyUI] _update_last_qwen_generation failed: {type(exc).__name__}: {exc}")
 
 
 def _get_int(key: str, default: int) -> int:
@@ -1490,6 +1460,13 @@ def _run_generate_qwen(
     # Skip on v2 (the encoder handles sizing) and on unknown (diagnose may
     # have been unreachable).
     _ref_mode = _ref_preprocess_mode()
+    # Record the resolved preprocess mode so /scenedebug can show it.
+    if _QWEN_ENCODER_V2 is True:
+        _update_last_qwen_generation(ref_preprocess="none-v2")
+    elif _QWEN_ENCODER_V2 is None:
+        _update_last_qwen_generation(ref_preprocess="none-unknown")
+    else:
+        _update_last_qwen_generation(ref_preprocess=_ref_mode)
     if _QWEN_ENCODER_V2 is False and qwen_input_refs:
         print(
             f"[ComfyUI] Qwen v1 encoder detected — pre-resizing "

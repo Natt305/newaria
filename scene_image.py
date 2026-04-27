@@ -59,35 +59,16 @@ def _cinematic_suffix_enabled() -> bool:
     return raw in ("on", "true", "1", "yes", "enabled", "enable")
 
 
-# ── Last-generation debug capture ────────────────────────────────────────────
-# Populated at the end of `run_scene_image`. Read by /scenedebug so operators
-# can confirm what actually went into the most recent scene image. Never raises.
+# Last-generation debug capture for /scenedebug. Overwritten per generate.
 _LAST_SCENE_GENERATION: dict = {}
 
 
 def get_last_scene_generation() -> dict:
-    """Return a snapshot of the most recent scene-image generation metadata.
-
-    Keys (all may be missing):
-        enriched_base     — output of enhance_image_prompt (LLM rewrite)
-        enriched_final    — final text passed to image_dispatch.generate_image
-        looks_appended    — bool: whether the `looks` identity suffix was added
-        cinematic_suffix  — bool: whether CINEMATIC_SUFFIX was appended
-        ref_labels        — list of subject names parallel to refs
-        ref_count         — number of reference photos forwarded to ComfyUI
-        backend           — IMAGE_BACKEND value at generate time
-        engine            — COMFYUI_ENGINE value at generate time
-        scene_only        — bool: whether the LLM was put into scene-only mode
-        timestamp         — wall clock UNIX seconds when the snapshot was taken
-        bot_name          — bot character name at generate time
-        trigger           — what caused this generation (button / scene_tag / …)
-        channel_id        — stringified channel id
-    """
+    """Return a snapshot of the most recent scene-image generation."""
     return dict(_LAST_SCENE_GENERATION)
 
 
 def _record_last_scene_generation(**fields) -> None:
-    """Internal: overwrite _LAST_SCENE_GENERATION with the supplied snapshot."""
     try:
         _LAST_SCENE_GENERATION.clear()
         _LAST_SCENE_GENERATION.update(fields)
@@ -1017,13 +998,8 @@ async def run_scene_image(
         else:
             enriched = enriched_base + _suffix
 
-        # Append the bot's `looks` text post-LLM as a non-LLM identity anchor.
-        # Even when enhance_image_prompt rewrites or summarises the scene the
-        # exact look description survives verbatim, giving Qwen-Image-Edit a
-        # second strong steering signal alongside the reference photos.
-        # Gated by QWEN_APPEND_LOOKS=on|off (default on); only fires when the
-        # bot's character has a non-empty `looks` field, the engine is qwen,
-        # and at least one reference image is being forwarded.
+        # Append `looks` post-LLM as a non-LLM identity anchor (gated by
+        # QWEN_APPEND_LOOKS, default on; engine==qwen + refs required).
         _looks_appended = False
         if (
             _append_looks_enabled()

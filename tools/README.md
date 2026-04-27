@@ -31,12 +31,14 @@ export COMFYUI_CLIP=qwen_2.5_vl_7b-q4_k_m.gguf
 
 ```bash
 python tools/scene_image_ab_test.py \
-    --refs attached_assets/圖片_1777302758524.png \
-    --prompt "Aria standing in a sunlit park, smiling at the camera" \
+    --reference attached_assets/圖片_1777302758524.png \
+    --prompt   "Aria standing in a sunlit park, smiling at the camera" \
     --variants A,B,C,D,E,F,G,H,I,J \
-    --seeds 1,2 \
-    --out ab_output/
+    --seeds    1,2 \
+    --out-dir  ab_output/
 ```
+
+`--refs` and `--out` are accepted as aliases of `--reference` and `--out-dir`.
 
 Then open `ab_output/index.html` in a browser. You'll see:
 
@@ -47,23 +49,31 @@ Then open `ab_output/index.html` in a browser. You'll see:
 
 ## Variant matrix
 
-| ID | Style policy   | Feminine bias | Ref preprocess | Steps | CFG | Sampler / scheduler | Canvas    |
-|----|----------------|---------------|----------------|-------|-----|---------------------|-----------|
-| A  | flat_anime     | off           | crop           | 6     | 1.0 | euler_ancestral / beta | 1024×768 |
-| B  | off            | off           | crop           | 6     | 1.0 | euler_ancestral / beta | 1024×768 |
-| C  | match_reference| off           | crop           | 6     | 1.0 | euler_ancestral / beta | 1024×768 |
-| D  | match_reference| on            | crop           | 6     | 1.0 | euler_ancestral / beta | 1024×768 |
-| E  | match_reference| on            | letterbox      | 6     | 1.0 | euler_ancestral / beta | 1024×768 |
-| F  | match_reference| off           | letterbox      | 8     | 1.0 | euler_ancestral / beta | 1024×768 |
-| G  | match_reference| on            | letterbox      | 6     | 2.0 | euler_ancestral / beta | 1024×768 |
-| H  | match_reference| off           | letterbox      | 6     | 1.0 | euler_ancestral / beta | 1024×1024|
-| I  | match_reference| off           | letterbox      | 6     | 1.0 | euler / simple        | 1024×768 |
-| J  | flat_anime     | on            | letterbox      | 6     | 1.0 | euler_ancestral / beta | 1024×768 |
+Each row only describes its discriminator vs. the baseline (A) and any
+inherited overrides; identical defaults are not repeated.
 
-A is the legacy-bot baseline; C is the new shipped default; G activates the
-classifier-free-guidance negative branch (only meaningful when CFG > 1.0).
+| ID | What it tests vs. baseline                                                                  |
+|----|--------------------------------------------------------------------------------------------|
+| A  | Baseline: legacy `flat_anime` style policy, smart-crop refs, 6 steps, CFG 1.0, 1024×768.   |
+| B  | A − appearance lock — `style_policy=off`, no style instruction at all.                     |
+| C  | `style_policy=match_reference` (the new shipped default).                                  |
+| D  | C + append the bot's `looks` identity text after the LLM-rewritten scene prompt.           |
+| E  | C + feminine-build positive suffix (`QWEN_FEMININE_BUILD` analogue).                       |
+| F  | C + portrait canvas (768×1024) — for refs that are taller than wide.                       |
+| G  | C + feminine-build + letterbox preprocess + CFG 2.0 (activates the negative branch).       |
+| H  | G + steps=8 + sampler `dpmpp_2m` / scheduler `karras`.                                     |
+| I  | G + steps=10 (still on `euler_ancestral` / `beta`).                                        |
+| J  | G + force the v2 encoder `latent_image` slot when the ComfyUI server supports it.          |
 
-You can pass `--variants` with a subset (e.g. `C,D,E`) to skip variants
+The harness probes `/object_info/TextEncodeQwenImageEditPlus` once at startup
+to detect whether the server exposes the v2 `latent_image` input. If not,
+variant J falls back to the v1 graph and prints a warning. Force the
+behaviour with `--encoder=v1` or `--encoder=v2`.
+
+`--looks` overrides the identity text used in variant D; if omitted the
+harness reads `data/character/profile.json` from the repository root.
+
+You can pass `--variants` with a subset (e.g. `C,D,G`) to skip variants
 you've already ruled out, or edit the `_VARIANTS` dict in the script to
 add your own row.
 
@@ -79,7 +89,7 @@ QWEN_REF_PREPROCESS=letterbox       # or crop
 QWEN_CFG=1.0                        # raise to activate negative branch
 ```
 
-Other knobs the bot honours that the harness can also exercise:
+Other knobs the bot honours that the harness also exercises:
 
 ```ini
 QWEN_APPEND_LOOKS=on                # append the bot's `looks` text post-LLM
@@ -87,7 +97,8 @@ SCENE_CINEMATIC_SUFFIX=on           # append the cinematic framing tail
 ```
 
 …then restart the bot. Use `/scenedebug` after the next 🎬 reaction to
-confirm the values you expect actually got applied.
+confirm the values you expect actually got applied — including the
+resolved `ref_preprocess` mode the encoder used.
 
 ## Troubleshooting
 
@@ -95,8 +106,11 @@ confirm the values you expect actually got applied.
   is missing one of the custom-node packs the bot also needs. Run the
   bot once and check the boot log; the same install hints apply.
 - **All variants look identical** — your CFG is 1.0 and the negative
-  prompt is multiplied by zero, so the negative-only changes (G) won't
-  visibly differ from their CFG=1.0 sibling. Compare A↔C↔E↔J for the
+  prompt is multiplied by zero, so the negative-only changes won't
+  visibly differ from their CFG=1.0 sibling. Compare A↔C↔E↔G for the
   positive-prompt and preprocessing differences instead.
+- **Variant J looks like G** — the server is on the v1 encoder; `force_v2`
+  fell back gracefully. Upgrade the Qwen-Image-Edit custom-node pack to
+  the fork that exposes `latent_image` on `TextEncodeQwenImageEditPlus`.
 - **Script can't find `comfyui_ai`** — run from the repository root, e.g.
   `python tools/scene_image_ab_test.py ...` rather than `cd tools && python ...`.

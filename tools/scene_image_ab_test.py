@@ -1,66 +1,21 @@
 """End-to-end A/B test harness for AriaBot scene-image fidelity.
 
 Sweeps a configurable matrix of Qwen-Image-Edit-Rapid GGUF workflow variants
-against one or more reference photos, saves every output PNG, and writes an
-HTML contact sheet so the operator can pick the variant that best preserves
-the reference character's appearance, build, and art style.
+against your reference photo(s), saves every output PNG, and writes an HTML
+contact sheet so you can pick the variant that best preserves the
+reference character's appearance, build, and art style.
 
-Designed to be run on the same machine that hosts ComfyUI (so reference
-photos travel over localhost) and to depend on ONLY:
+Run from the repo root:
 
-    - Pillow              (already a bot dep)
-    - requests            (already a bot dep)
-    - comfyui_ai          (re-uses _to_png / _upload_image / _submit_and_poll
-                           and the new _letterbox_reference_image helper)
+  python tools/scene_image_ab_test.py \\
+      --reference attached_assets/圖片_1777302758524.png \\
+      --prompt   "Aria standing in a sunlit park, smiling at the camera" \\
+      --variants A,B,C,D,E,F,G,H,I,J \\
+      --seeds    1,2 \\
+      --out-dir  ab_output/
 
-It does NOT import the Discord bot, the database, or LM Studio — every
-prompt is supplied on the CLI or via --prompt-file. It does NOT modify
-the bot's runtime state or settings — every variant builds its own
-workflow JSON in-process and submits it directly to /prompt.
-
-Usage
------
-
-  # 1. Set ComfyUI env vars the same way you set them for the bot:
-  set COMFYUI_URL=http://127.0.0.1:8188
-  set COMFYUI_GGUF=qwen-image-edit-rapid-aio-Q5_K_S.gguf
-  set COMFYUI_VAE=qwen_image_vae.safetensors
-  set COMFYUI_CLIP=qwen_2.5_vl_7b-q4_k_m.gguf
-
-  # 2. Run the sweep against your reference photo(s):
-  python tools/scene_image_ab_test.py ^
-      --refs attached_assets/圖片_1777302758524.png ^
-      --prompt "Aria standing in a sunlit park, smiling at the camera" ^
-      --variants A,B,C,D,E,F,G,H,I,J ^
-      --seeds 1,2,3 ^
-      --out ab_output/
-
-  # 3. Open ab_output/index.html in a browser, compare side-by-side,
-  #    pick the column that best resembles the reference, then set the
-  #    matching env vars in tokens.txt.
-
-The variant matrix mirrors the production knobs added to comfyui_ai.py
-in the scene-image-fidelity fix:
-
-  A  baseline (legacy flat-anime override, smart-crop refs, 6 steps)
-  B  no appearance-lock prefix at all
-  C  match-reference style policy (NEW DEFAULT)
-  D  match-reference + feminine build positive suffix
-  E  match-reference + feminine build + letterbox refs
-  F  match-reference + letterbox refs + 8 steps
-  G  match-reference + letterbox refs + CFG 2.0 (negative branch active)
-  H  match-reference + letterbox refs + 1024x1024 (square canvas)
-  I  match-reference + letterbox refs + euler / simple sampler
-  J  flat_anime + feminine build + letterbox refs (legacy + new bias)
-
-Pick the variant id whose output you like best. Then set:
-
-  QWEN_STYLE_POLICY=match_reference   (or flat_anime / off)
-  QWEN_FEMININE_BUILD=on              (or off)
-  QWEN_REF_PREPROCESS=letterbox       (or crop)
-  QWEN_CFG=1.0                        (raise to activate negative branch)
-
-…and restart the bot.
+Flags `--refs` / `--out` are accepted as aliases. See `tools/README.md`
+for the full variant matrix and how to promote a winner.
 """
 from __future__ import annotations
 
@@ -74,8 +29,6 @@ import uuid
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-# Allow running from anywhere; the harness lives in tools/ but imports the
-# top-level comfyui_ai module from the project root.
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
@@ -83,10 +36,8 @@ if str(_ROOT) not in sys.path:
 
 import requests  # noqa: E402
 
-import comfyui_ai  # noqa: E402  — re-use upload + submit + helpers
+import comfyui_ai  # noqa: E402
 
-# Same anatomy + feminine + style constants the bot uses, imported by name
-# so any future tweak to the bot's defaults is picked up here too.
 _ANATOMY_SUFFIX = comfyui_ai._ANATOMY_SUFFIX
 _ANATOMY_NEGATIVE = comfyui_ai._ANATOMY_NEGATIVE
 _FEMININE_BUILD_SUFFIX = comfyui_ai._FEMININE_BUILD_SUFFIX
@@ -94,22 +45,16 @@ _FEMININE_BUILD_NEGATIVE = comfyui_ai._FEMININE_BUILD_NEGATIVE
 _STYLE_POLICY_TEXT = comfyui_ai._STYLE_POLICY_TEXT
 
 
-# ── Variant matrix ────────────────────────────────────────────────────────────
-#
-# Each variant is a dict of overrides. Anything not specified inherits the
-# baseline defaults below. The variants cover the design space the user
-# wants to A/B-test in the scene-image-fidelity fix; you can add your own
-# rows here and re-run the harness.
-#
-# Note: the harness sends a single TextEncodeQwenImageEditPlus call per
-# generation and never wires the v2 `latent_image` slot — this matches
-# the v1 install path so the matrix stays comparable.
+# Baseline matches the legacy bot path (flat-anime override, smart-crop,
+# 6 steps euler_ancestral/beta @ 1024x768, CFG 1.0). Each variant overrides
+# only the keys it changes.
 _BASELINE = {
     "style_policy": "flat_anime",
     "feminine_build": False,
     "ref_preprocess": "crop",
     "anatomy_suffix": True,
-    "negative_text": _ANATOMY_NEGATIVE,
+    "append_looks": False,
+    "force_v2": False,
     "width": 1024,
     "height": 768,
     "steps": 6,
@@ -118,61 +63,68 @@ _BASELINE = {
     "cfg": 1.0,
 }
 
+
+# A-J spec — each row is documented with its discriminator vs. its parent.
 _VARIANTS = {
     "A": {
-        "_label": "baseline (flat-anime, crop refs, 6 steps)",
+        "_label": "baseline (legacy flat_anime + crop + 6 steps)",
     },
     "B": {
-        "_label": "no appearance-lock prefix",
+        "_label": "A − appearance lock (style_policy=off)",
         "style_policy": "off",
     },
     "C": {
-        "_label": "match-reference style policy (new default)",
+        "_label": "match-reference style policy",
         "style_policy": "match_reference",
     },
     "D": {
-        "_label": "match-reference + feminine-build positive suffix",
+        "_label": "C + append looks identity text",
         "style_policy": "match_reference",
-        "feminine_build": True,
+        "append_looks": True,
     },
     "E": {
-        "_label": "match-reference + feminine + letterbox refs",
+        "_label": "C + feminine-build positive suffix",
         "style_policy": "match_reference",
         "feminine_build": True,
-        "ref_preprocess": "letterbox",
     },
     "F": {
-        "_label": "match-reference + letterbox + 8 steps",
+        "_label": "C + portrait canvas (768x1024)",
         "style_policy": "match_reference",
-        "ref_preprocess": "letterbox",
-        "steps": 8,
+        "width": 768,
+        "height": 1024,
     },
     "G": {
-        "_label": "match-reference + letterbox + CFG 2.0 (active negative)",
+        "_label": "match-reference + feminine + letterbox + CFG 2.0",
         "style_policy": "match_reference",
         "feminine_build": True,
         "ref_preprocess": "letterbox",
         "cfg": 2.0,
     },
     "H": {
-        "_label": "match-reference + letterbox + 1024x1024 square",
+        "_label": "G + steps=8 + dpmpp_2m / karras",
         "style_policy": "match_reference",
-        "ref_preprocess": "letterbox",
-        "width": 1024,
-        "height": 1024,
-    },
-    "I": {
-        "_label": "match-reference + letterbox + euler/simple sampler",
-        "style_policy": "match_reference",
-        "ref_preprocess": "letterbox",
-        "sampler": "euler",
-        "scheduler": "simple",
-    },
-    "J": {
-        "_label": "flat_anime + feminine + letterbox (legacy override + bias)",
-        "style_policy": "flat_anime",
         "feminine_build": True,
         "ref_preprocess": "letterbox",
+        "cfg": 2.0,
+        "steps": 8,
+        "sampler": "dpmpp_2m",
+        "scheduler": "karras",
+    },
+    "I": {
+        "_label": "G + steps=10 (euler_ancestral / beta)",
+        "style_policy": "match_reference",
+        "feminine_build": True,
+        "ref_preprocess": "letterbox",
+        "cfg": 2.0,
+        "steps": 10,
+    },
+    "J": {
+        "_label": "G + force v2 encoder latent_image (if supported)",
+        "style_policy": "match_reference",
+        "feminine_build": True,
+        "ref_preprocess": "letterbox",
+        "cfg": 2.0,
+        "force_v2": True,
     },
 }
 
@@ -191,20 +143,26 @@ def _merge(variant_id: str) -> dict:
 
 # ── Workflow builder ─────────────────────────────────────────────────────────
 
-
 def _build_workflow(
     cfg: dict,
     prompt: str,
+    looks: str,
     ref_names: List[str],
     seed: int,
     gguf: str,
     vae: str,
     clip: str,
-) -> dict:
+    encoder_v2: bool,
+) -> Tuple[dict, str, str]:
     """Build the ComfyUI API workflow JSON for one variant + one seed.
 
-    Mirrors comfyui_ai._build_multi_edit_workflow_qwen but every parameter is
-    plugged in from `cfg` so the matrix stays explicit.
+    Mirrors `comfyui_ai._build_multi_edit_workflow_qwen` but every parameter
+    is plugged in from `cfg` so the matrix stays explicit. When
+    `cfg['force_v2']` is True (variant J), wires the v2 encoder
+    `latent_image` slot; otherwise leaves it out so the graph runs on v1.
+    `encoder_v2` is the actual server capability (probed once at boot) —
+    when False, J falls back to v1 with a warning rather than failing the
+    submission with an unknown-input 400.
     """
     n = max(1, min(len(ref_names), 4))
 
@@ -212,29 +170,29 @@ def _build_workflow(
     suffix = _ANATOMY_SUFFIX if cfg.get("anatomy_suffix", True) else ""
     feminine_pos = _FEMININE_BUILD_SUFFIX if cfg.get("feminine_build") else ""
     enhanced_prompt = style_text + prompt + suffix + feminine_pos
+    if cfg.get("append_looks") and looks:
+        enhanced_prompt += (
+            ". Character identity (must be preserved from reference photos): "
+            + looks.strip()
+        )
 
     neg_parts = [_ANATOMY_NEGATIVE]
     if cfg.get("feminine_build"):
         neg_parts.append(_FEMININE_BUILD_NEGATIVE)
     negative_text = ", ".join(p for p in neg_parts if p)
 
+    use_v2_latent = bool(cfg.get("force_v2") and encoder_v2)
+    if cfg.get("force_v2") and not encoder_v2:
+        print(
+            f"[ABTest] {cfg['_id']}: force_v2 requested but server encoder is v1 — "
+            f"falling back to v1 graph for this variant."
+        )
+
     wf: dict = {
-        "1": {
-            "class_type": "UnetLoaderGGUF",
-            "inputs": {"unet_name": gguf},
-        },
-        "2": {
-            "class_type": "CLIPLoaderGGUF",
-            "inputs": {"clip_name": clip, "type": "qwen_image"},
-        },
-        "3": {
-            "class_type": "VAELoader",
-            "inputs": {"vae_name": vae},
-        },
-        "5": {
-            "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": negative_text},
-        },
+        "1": {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": gguf}},
+        "2": {"class_type": "CLIPLoaderGGUF", "inputs": {"clip_name": clip, "type": "qwen_image"}},
+        "3": {"class_type": "VAELoader", "inputs": {"vae_name": vae}},
+        "5": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["2", 0], "text": negative_text}},
         "6": {
             "class_type": "EmptySD3LatentImage",
             "inputs": {"width": cfg["width"], "height": cfg["height"], "batch_size": 1},
@@ -248,15 +206,11 @@ def _build_workflow(
     }
     for i in range(n):
         load_id = str(200 + i)
-        wf[load_id] = {
-            "class_type": "LoadImage",
-            "inputs": {"image": ref_names[i]},
-        }
+        wf[load_id] = {"class_type": "LoadImage", "inputs": {"image": ref_names[i]}}
         encoder_inputs[f"image{i + 1}"] = [load_id, 0]
-    wf["10"] = {
-        "class_type": "TextEncodeQwenImageEditPlus",
-        "inputs": encoder_inputs,
-    }
+    if use_v2_latent:
+        encoder_inputs["latent_image"] = ["6", 0]
+    wf["10"] = {"class_type": "TextEncodeQwenImageEditPlus", "inputs": encoder_inputs}
     wf["7"] = {
         "class_type": "KSampler",
         "inputs": {
@@ -272,10 +226,7 @@ def _build_workflow(
             "denoise": 1.0,
         },
     }
-    wf["8"] = {
-        "class_type": "VAEDecode",
-        "inputs": {"samples": ["7", 0], "vae": ["3", 0]},
-    }
+    wf["8"] = {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["3", 0]}}
     wf["9"] = {
         "class_type": "SaveImage",
         "inputs": {"images": ["8", 0], "filename_prefix": f"abtest_{cfg['_id']}_"},
@@ -285,27 +236,16 @@ def _build_workflow(
 
 # ── Reference upload ─────────────────────────────────────────────────────────
 
-
 def _load_ref_bytes(path: Path) -> Tuple[bytes, str]:
     raw = path.read_bytes()
     ext = path.suffix.lower().lstrip(".")
     mime = {
-        "png": "image/png",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "webp": "image/webp",
+        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp",
     }.get(ext, "image/png")
     return raw, mime
 
 
-def _prepare_ref(
-    raw: bytes,
-    mime: str,
-    mode: str,
-    width: int,
-    height: int,
-) -> bytes:
-    """Apply letterbox / smart-crop / passthrough preprocessing."""
+def _prepare_ref(raw: bytes, mime: str, mode: str, width: int, height: int) -> bytes:
     if mode == "letterbox":
         out = comfyui_ai._letterbox_reference_image(raw, mime, width, height)
         return out or raw
@@ -316,8 +256,45 @@ def _prepare_ref(
     return out or raw
 
 
-# ── Main loop ────────────────────────────────────────────────────────────────
+# ── Encoder probe ────────────────────────────────────────────────────────────
 
+def _probe_encoder_v2(base_url: str) -> bool:
+    """Best-effort: return True iff /object_info advertises latent_image on
+    TextEncodeQwenImageEditPlus. Defaults to False on any failure."""
+    try:
+        resp = requests.get(
+            f"{base_url}/object_info/TextEncodeQwenImageEditPlus", timeout=10
+        )
+        if resp.status_code != 200:
+            return False
+        return comfyui_ai._has_qwen_encoder_latent_input(resp.json())
+    except Exception:
+        return False
+
+
+# ── Looks autodetect ─────────────────────────────────────────────────────────
+
+def _autodetect_looks() -> str:
+    """Read data/character/profile.json and return its `looks` field, or ''.
+
+    The harness avoids importing the bot's `database` module so the script
+    has no Discord/SQLite dependencies; it just reads the JSON directly
+    from the repository's `data/` directory.
+    """
+    candidates = [
+        _ROOT / "data" / "character" / "profile.json",
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                obj = json.loads(p.read_text(encoding="utf-8"))
+                return (obj.get("looks") or "").strip()
+            except Exception:
+                pass
+    return ""
+
+
+# ── Main loop ────────────────────────────────────────────────────────────────
 
 def _parse_csv(s: Optional[str], default: List[str]) -> List[str]:
     if not s:
@@ -326,9 +303,12 @@ def _parse_csv(s: Optional[str], default: List[str]) -> List[str]:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--refs", required=True,
-                   help="Comma-separated paths to reference images (one or more).")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    # Primary names match the task spec; --refs / --out are accepted aliases.
+    p.add_argument("--reference", "--refs", dest="reference", required=True,
+                   help="Comma-separated paths to one or more reference images.")
     p.add_argument("--prompt", default=None,
                    help="Scene prompt to test. Use --prompt-file for long prompts.")
     p.add_argument("--prompt-file", default=None,
@@ -337,10 +317,16 @@ def main() -> int:
                    help=f"Comma-separated variant ids. Default: all of {sorted(_VARIANTS)}.")
     p.add_argument("--seeds", default="1,2",
                    help="Comma-separated integer seeds. Default: 1,2.")
-    p.add_argument("--out", default="ab_output",
+    p.add_argument("--out-dir", "--out", dest="out_dir", default="ab_output",
                    help="Output directory for PNGs and index.html. Default: ab_output/")
     p.add_argument("--timeout", type=int, default=600,
                    help="Per-job ComfyUI poll timeout in seconds. Default: 600.")
+    p.add_argument("--encoder", choices=("auto", "v1", "v2"), default="auto",
+                   help="Encoder version override for variant J's force_v2 path. "
+                        "`auto` (default) probes /object_info and picks v2 only when supported.")
+    p.add_argument("--looks", default=None,
+                   help="Looks/identity text appended in variant D. "
+                        "Auto-read from data/character/profile.json if omitted.")
     args = p.parse_args()
 
     if args.prompt_file:
@@ -364,7 +350,7 @@ def main() -> int:
     if not variant_ids:
         print(f"error: no valid variants in --variants={args.variants!r}", file=sys.stderr)
         return 2
-    seeds = []
+    seeds: List[int] = []
     for s in _parse_csv(args.seeds, ["1", "2"]):
         try:
             seeds.append(int(s))
@@ -374,34 +360,39 @@ def main() -> int:
         print("error: no valid seeds", file=sys.stderr)
         return 2
 
-    ref_paths = [Path(p) for p in _parse_csv(args.refs, [])]
+    ref_paths = [Path(p) for p in _parse_csv(args.reference, [])]
     for rp in ref_paths:
         if not rp.is_file():
             print(f"error: reference not found: {rp}", file=sys.stderr)
             return 2
 
-    out_dir = Path(args.out)
+    out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.encoder == "v1":
+        encoder_v2 = False
+    elif args.encoder == "v2":
+        encoder_v2 = True
+    else:
+        encoder_v2 = _probe_encoder_v2(base_url)
+
+    looks = args.looks if args.looks is not None else _autodetect_looks()
 
     print(f"[ABTest] ComfyUI: {base_url}")
     print(f"[ABTest] gguf={gguf}  vae={vae}  clip={clip}")
+    print(f"[ABTest] encoder: {'v2' if encoder_v2 else 'v1'} (--encoder={args.encoder})")
     print(f"[ABTest] variants={variant_ids}  seeds={seeds}  refs={[str(p) for p in ref_paths]}")
+    print(f"[ABTest] looks: {(looks[:80] + '…') if len(looks) > 80 else (looks or '(none)')}")
     print(f"[ABTest] prompt: {prompt[:200]}{'…' if len(prompt) > 200 else ''}")
     print(f"[ABTest] out: {out_dir.resolve()}")
 
-    # Load reference bytes once; we re-prepare per variant if its
-    # preprocessing strategy differs.
     raw_refs: List[Tuple[bytes, str]] = [_load_ref_bytes(p) for p in ref_paths]
 
     client_id = str(uuid.uuid4())
-    results: List[dict] = []  # one row per (variant, seed)
+    results: List[dict] = []
 
     for vid in variant_ids:
         cfg = _merge(vid)
-        # Re-prepare and upload references for THIS variant's preprocessing
-        # mode + canvas. The same physical reference may produce 2-3 distinct
-        # uploads across variants (one per width/height/mode tuple) — that's
-        # fine, ComfyUI dedups identical bytes server-side.
         prepared: List[bytes] = [
             _prepare_ref(raw, mime, cfg["ref_preprocess"], cfg["width"], cfg["height"])
             for raw, mime in raw_refs
@@ -418,7 +409,9 @@ def main() -> int:
             continue
 
         for seed in seeds:
-            wf, full_prompt, neg = _build_workflow(cfg, prompt, ref_names, seed, gguf, vae, clip)
+            wf, full_prompt, neg = _build_workflow(
+                cfg, prompt, looks, ref_names, seed, gguf, vae, clip, encoder_v2,
+            )
             label = f"{vid}_seed{seed}"
             t0 = time.time()
             print(f"\n[ABTest] === {label} — {cfg['_label']} ===")
@@ -429,7 +422,8 @@ def main() -> int:
                 results.append({
                     "id": vid, "label": cfg["_label"], "seed": seed,
                     "file": None, "elapsed": elapsed,
-                    "prompt": full_prompt, "negative": neg, "config": cfg,
+                    "prompt": full_prompt, "negative": neg,
+                    "config": cfg, "encoder_used": "v2" if (cfg.get("force_v2") and encoder_v2) else "v1",
                 })
                 continue
             png_bytes, _mime = res
@@ -439,22 +433,21 @@ def main() -> int:
             results.append({
                 "id": vid, "label": cfg["_label"], "seed": seed,
                 "file": fname, "elapsed": elapsed,
-                "prompt": full_prompt, "negative": neg, "config": cfg,
+                "prompt": full_prompt, "negative": neg,
+                "config": cfg, "encoder_used": "v2" if (cfg.get("force_v2") and encoder_v2) else "v1",
             })
 
-    # JSON dump for downstream scripts.
     (out_dir / "results.json").write_text(
-        json.dumps({"prompt": prompt, "results": [
-            {**r, "config": {k: v for k, v in r["config"].items() if not k.startswith("_") or k == "_label"}}
-            for r in results
-        ]}, indent=2, ensure_ascii=False),
+        json.dumps({"prompt": prompt, "looks": looks, "encoder_v2": encoder_v2,
+                    "results": [
+                        {**r, "config": {k: v for k, v in r["config"].items()
+                                         if not k.startswith("_") or k == "_label"}}
+                        for r in results
+                    ]}, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
 
-    # HTML contact sheet — one column per variant, one row per seed, plus
-    # a top row showing the original reference photos for at-a-glance
-    # comparison. Style intentionally minimal: no JS, no CDN, fully offline.
-    html = _render_html(prompt, ref_paths, variant_ids, seeds, results)
+    html = _render_html(prompt, looks, encoder_v2, ref_paths, variant_ids, seeds, results, out_dir)
     (out_dir / "index.html").write_text(html, encoding="utf-8")
     print(f"\n[ABTest] Wrote {out_dir / 'index.html'} — open it in a browser.")
     return 0
@@ -462,27 +455,31 @@ def main() -> int:
 
 def _render_html(
     prompt: str,
+    looks: str,
+    encoder_v2: bool,
     ref_paths: List[Path],
     variant_ids: List[str],
     seeds: List[int],
     results: List[dict],
+    out_dir: Path,
 ) -> str:
     by_id_seed = {(r["id"], r["seed"]): r for r in results}
 
     def esc(s: str) -> str:
-        return (
-            (s or "")
-            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        )
+        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    rows = []
+    rows: List[str] = []
     rows.append("<h1>AriaBot scene-image A/B test</h1>")
-    rows.append(f"<p><b>Prompt:</b> {esc(prompt)}</p>")
+    rows.append(
+        f"<p><b>Prompt:</b> {esc(prompt)}</p>"
+        f"<p><b>Encoder:</b> {'v2' if encoder_v2 else 'v1'} · "
+        f"<b>Looks:</b> {esc(looks) or '(none)'}</p>"
+    )
 
     rows.append("<h2>Reference photo(s)</h2><div class='row'>")
     for rp in ref_paths:
         try:
-            rel = os.path.relpath(rp, Path(rows and "." or "."))
+            rel = os.path.relpath(rp.resolve(), out_dir.resolve())
         except ValueError:
             rel = str(rp)
         rows.append(f"<div class='cell'><img src='{esc(rel)}'><p>{esc(rp.name)}</p></div>")
@@ -502,21 +499,17 @@ def _render_html(
                 rows.append(f"<div class='cell'><div class='missing'>FAILED ({r['elapsed']:.1f}s)</div><p>seed={seed}</p></div>")
                 continue
             rows.append(
-                f"<div class='cell'>"
-                f"<img src='{esc(r['file'])}'>"
-                f"<p>seed={seed} · {r['elapsed']:.1f}s</p>"
-                f"</div>"
+                f"<div class='cell'><img src='{esc(r['file'])}'>"
+                f"<p>seed={seed} · {r['elapsed']:.1f}s · enc={esc(r.get('encoder_used',''))}</p></div>"
             )
         rows.append("</div>")
-        # Show the actual prompt + cfg for this variant once (first seed entry).
         first = by_id_seed.get((vid, seeds[0]))
         if first:
-            cfg = first["config"]
-            cfg_summary = ", ".join(
-                f"{k}={v}" for k, v in cfg.items() if not k.startswith("_")
+            cfg_summary = ", ".join(f"{k}={v}" for k, v in first["config"].items() if not k.startswith("_"))
+            rows.append("<details><summary>variant cfg & prompt</summary>")
+            rows.append(
+                f"<pre>{esc(cfg_summary)}\n\nPOSITIVE:\n{esc(first['prompt'])}\n\nNEGATIVE:\n{esc(first['negative'])}</pre>"
             )
-            rows.append(f"<details><summary>variant cfg & prompt</summary>")
-            rows.append(f"<pre>{esc(cfg_summary)}\n\nPOSITIVE:\n{esc(first['prompt'])}\n\nNEGATIVE:\n{esc(first['negative'])}</pre>")
             rows.append("</details>")
 
     style = """
@@ -535,7 +528,8 @@ def _render_html(
       details { margin: 8px 0 16px; }
     </style>
     """
-    return "<!doctype html><html><head><meta charset='utf-8'><title>AriaBot A/B test</title>" + style + "</head><body>" + "\n".join(rows) + "</body></html>"
+    return ("<!doctype html><html><head><meta charset='utf-8'><title>AriaBot A/B test</title>"
+            + style + "</head><body>" + "\n".join(rows) + "</body></html>")
 
 
 if __name__ == "__main__":

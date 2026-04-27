@@ -2052,31 +2052,17 @@ async def on_ready():
     print(f"[Bot] Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"[Bot] Character: {bot_name}")
     print(f"[Bot] Groq: {'enabled' if GROQ_API_KEY else 'MISSING'}")
-    # Text-only chat-model warning. The scene-only enhance_image_prompt path
-    # falls back to attaching reference photos as a vision message; if the
-    # active LM Studio chat model doesn't accept image content the request
-    # 400s and the cached scene-text fallback fires instead. Fine in practice,
-    # but silent — surface it at boot so the operator can swap models if a
-    # vision-capable enhancer is desired.
+    # Heads-up: lmstudio without an explicit vision model reuses LMSTUDIO_MODEL
+    # for scene-prompt vision calls. Text-only models will 400 the first call
+    # (cached, then skipped). Set LMSTUDIO_VISION_MODEL to silence this.
     if (os.environ.get("AI_BACKEND", "").strip().lower() == "lmstudio"):
         _vision_model_env = (os.environ.get("LMSTUDIO_VISION_MODEL", "") or "").strip()
         _chat_model_env = (os.environ.get("LMSTUDIO_MODEL", "") or "").strip()
         if not _vision_model_env:
-            # Heads-up only — when LMSTUDIO_VISION_MODEL is unset the enhancer
-            # falls back to LMSTUDIO_MODEL, which may or may not be multimodal.
-            # If it's text-only the first vision call 400s, lmstudio_ai caches
-            # the model in _NO_VISION_MODELS, and subsequent enhances skip the
-            # vision attachment. Either outcome is fine — scene images still
-            # generate — but the warning makes the silent fallback visible at
-            # boot so the operator can opt in to vision explicitly.
             print(
-                "[INFO] AI_BACKEND=lmstudio without LMSTUDIO_VISION_MODEL — the "
-                f"enhancer will reuse LMSTUDIO_MODEL ({_chat_model_env or 'default'}) "
-                "for vision. If that model is multimodal, ignore this. If it's "
-                "text-only, the first scene-image enhance returns HTTP 400 and "
-                "the bot transparently falls back to a text-only enhance prompt "
-                "(scene images still generate via ComfyUI). Set "
-                "LMSTUDIO_VISION_MODEL=<multimodal model name> to silence this."
+                f"[INFO] LMSTUDIO_VISION_MODEL unset — scene-prompt vision calls "
+                f"will reuse LMSTUDIO_MODEL ({_chat_model_env or 'default'}). "
+                f"If text-only, the bot falls back transparently."
             )
 
     if _IMAGE_BACKEND == "comfyui":
@@ -3201,14 +3187,7 @@ async def clear_cmd(ctx):
     description="顯示最近一次場景圖片生成的內部資料 (除錯用)",
 )
 async def scenedebug_cmd(ctx):
-    """Dump the last scene + Qwen-edit generation snapshot for the channel.
-
-    Reads the module-level capture dicts populated by `scene_image.run_scene_image`
-    and `comfyui_ai._build_multi_edit_workflow_qwen`, formats them into a
-    Discord-safe code block, and replies ephemerally. Role-gated like the
-    rest of the admin commands; never raises (a missing capture just shows
-    "(no recent generation)").
-    """
+    """Dump the last scene + Qwen-edit snapshot. Role-gated, ephemeral."""
     if not await check_command_role(ctx):
         return
 

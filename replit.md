@@ -254,13 +254,16 @@ harness once against your character's reference photo:
 
 ```bash
 python tools/scene_image_ab_test.py \
-    --refs path/to/character_ref.png \
-    --prompt "Aria standing in a sunlit park, smiling at the camera" \
-    --variants A,B,C,D,E,F,G,H,I,J --seeds 1,2 --out ab_output/
+    --reference path/to/character_ref.png \
+    --prompt   "Aria standing in a sunlit park, smiling at the camera" \
+    --variants A,B,C,D,E,F,G,H,I,J --seeds 1,2 --out-dir ab_output/
 ```
 
 Then open `ab_output/index.html` in a browser, pick the column that best
 preserves the reference, and set the matching env vars in `tokens.txt`.
+The harness probes the ComfyUI server's encoder version and tags variant J
+accordingly (`--encoder=auto|v1|v2`); `--looks` overrides the identity
+text used for variant D (auto-read from `data/character/profile.json`).
 See `tools/README.md` for the full variant matrix.
 
 ## Scene image (RP mode — LM Studio)
