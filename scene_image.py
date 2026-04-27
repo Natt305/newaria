@@ -875,7 +875,30 @@ async def _derive_prompt(
 
 # ── Player reference injection ────────────────────────────────────────────────
 
-_PLAYER_SECOND_PERSON: set = {"you", "your", "yours", "yourself"}
+_PLAYER_SECOND_PERSON_EN: set = {"you", "your", "yours", "yourself"}
+_PLAYER_SECOND_PERSON_ZH: tuple = ("你", "妳", "你的", "妳的", "你自己", "妳自己")
+
+
+def _player_in_seed(seed: str, player_name: str) -> bool:
+    """Return True when the player is visually present in *seed*.
+
+    Handles:
+    - Player's display name as a substring (case-insensitive, non-empty name only).
+    - English second-person pronouns using regex word-boundary matching so
+      "you!" / "you," / "you." all count, but "youtube" does not.
+    - CJK second-person terms via simple substring match (no word boundaries
+      in Chinese text, so substring is the only reliable test).
+    """
+    seed_lower = seed.lower()
+    if player_name and player_name.lower() in seed_lower:
+        return True
+    for w in _PLAYER_SECOND_PERSON_EN:
+        if re.search(r'\b' + re.escape(w) + r'\b', seed_lower):
+            return True
+    for zh in _PLAYER_SECOND_PERSON_ZH:
+        if zh in seed:
+            return True
+    return False
 
 
 def _inject_player_refs(
@@ -895,15 +918,7 @@ def _inject_player_refs(
     if not player_discord_id:
         return refs, subjects, appearances
 
-    seed_lower = (seed or "").lower()
-    player_name_lower = (player_display_name or "").lower()
-    seed_tokens = set(seed_lower.split())
-
-    player_in_seed = (
-        (player_name_lower and player_name_lower in seed_lower)
-        or bool(seed_tokens & _PLAYER_SECOND_PERSON)
-    )
-    if not player_in_seed:
+    if not _player_in_seed(seed or "", player_display_name or ""):
         return refs, subjects, appearances
 
     player_profile = database.get_user_profile(player_discord_id)
@@ -1333,10 +1348,7 @@ async def run_scene_image(
             if _player_profile_check:
                 _pname = (_player_profile_check.get("discord_name") or player_display_name or "").strip()
                 _plooks = (_player_profile_check.get("looks") or "").strip()
-                _pin_seed = (
-                    bool(player_display_name and player_display_name.lower() in seed.lower())
-                    or bool(set(seed.lower().split()) & _PLAYER_SECOND_PERSON)
-                )
+                _pin_seed = _player_in_seed(seed, player_display_name or "")
                 if _plooks and _pin_seed:
                     enriched = (
                         enriched
