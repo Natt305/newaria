@@ -53,6 +53,44 @@ _cooldown = commands.CooldownMapping.from_cooldown(
     3, 60.0, commands.BucketType.channel
 )
 
+# ── Per-channel location cache ────────────────────────────────────────────────
+# Keyed by str(channel_id). Stores the last known location/setting phrase
+# extracted from an enhanced scene prompt. Used as a fallback anchor when the
+# LMStudio scene-only enhancer omits location on emotionally-charged turns.
+
+_scene_location_cache: dict[str, str] = {}
+
+# Regex that matches "in/inside/at/within [article] [adjectives] LOCATION_NOUN"
+# and captures the noun phrase. Covers the most common English setting nouns.
+# NOTE: "an?" handles both "a" and "an" without the alternation order issue.
+_LOCATION_EXTRACT_RE = re.compile(
+    r"\b(?:in|inside|within|at|on)\b\s+(?:an?\b|the\b|this\b|her\b|his\b|their\b)?\s*"
+    r"((?:[\w''-]+\s+){0,4}"
+    r"(?:room|chamber|bedchamber|boudoir|parlour|salon|foyer|office|corridor|"
+    r"bedroom|hallway|hall|street|rooftop|roof|"
+    r"kitchen|bathroom|bath|library|forest|garden|courtyard|alley|laboratory|lab|"
+    r"dungeon|arena|balcony|tavern|inn|castle|palace|mansion|apartment|"
+    r"classroom|gym|hospital|clinic|park|plaza|beach|shore|mountain|field|meadow|"
+    r"cave|tunnel|bridge|studio|stage|workshop|warehouse|basement|attic|"
+    r"lobby|staircase|terrace|patio|porch|yard|road|path|throne))",
+    re.IGNORECASE,
+)
+
+
+def clear_scene_location_cache(channel_id) -> None:
+    """Remove the cached scene location for a channel (call on /clear)."""
+    _scene_location_cache.pop(str(channel_id), None)
+
+
+def _update_location_cache(channel_id: str, enhanced_prompt: str) -> None:
+    """Scan an enhanced prompt and cache the first location phrase found."""
+    m = _LOCATION_EXTRACT_RE.search(enhanced_prompt)
+    if m:
+        location = m.group(1).strip().rstrip(".,;:")
+        if location:
+            _scene_location_cache[channel_id] = location
+            print(f"[SceneImage] Location cache updated for channel {channel_id}: {location!r}")
+
 
 # ── Per-channel toggle ────────────────────────────────────────────────────────
 
@@ -780,6 +818,20 @@ async def run_scene_image(
         # photo. Switch the enhancer into scene-only mode whenever Qwen has
         # at least one reference photo to consume.
         _scene_only = bool(llm_refs) and backend == "comfyui" and engine == "qwen"
+
+        # Inject cached location as a seed anchor so the scene-only enhancer
+        # honours the established setting even on emotionally-charged turns
+        # where it tends to skip the location extraction step.
+        _str_channel_id = str(channel_id)
+        _cached_loc = _scene_location_cache.get(_str_channel_id)
+        if _cached_loc:
+            _seed_lower = seed.lower()
+            _loc_lower = _cached_loc.lower()
+            # Only prepend if no location word from the cache is already present
+            if _loc_lower not in _seed_lower:
+                seed = f"[Location: {_cached_loc}] {seed}"
+                print(f"[SceneImage] Injected cached location into seed: {_cached_loc!r}")
+
         enriched_base = await _derive_prompt(
             seed, looks, bot_name,
             llm_refs=llm_refs if llm_refs else None,
@@ -788,6 +840,10 @@ async def run_scene_image(
             prose_context=prose_context,
         )
         enriched_base = enriched_base.rstrip(",. \n")
+
+        # Update the location cache from the freshly-enhanced prompt so future
+        # turns carry the correct setting forward.
+        _update_location_cache(_str_channel_id, enriched_base)
 
         # 3. Engine-tier ref assembly (Qwen reuses the prefetched result)
         gen_kwargs: dict = {}

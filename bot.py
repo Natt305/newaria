@@ -3165,6 +3165,7 @@ async def clear_cmd(ctx):
         return
     channel_id = str(ctx.channel.id)
     conversation_contexts.pop(channel_id, None)
+    scene_image.clear_scene_location_cache(channel_id)
     await ctx.reply("✅ 此頻道的對話歷史已清除！", mention_author=False)
 
 
