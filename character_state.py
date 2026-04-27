@@ -14,7 +14,10 @@ and are injected into every subsequent scene image:
   marks        — lasting marks (scar, revealed tattoo…)
                  survive scene overrides; clear when RP implies recovery
 
-State is in-memory only (same lifecycle as conversation_contexts in bot.py).
+State is backed by the SQLite database (history.db, character_state table).
+On first access per channel per session the state is lazily loaded from the DB,
+so bot restarts mid-roleplay do not lose outfit/accessory/wound/restraint history.
+Every meaningful appearance change is persisted immediately after being applied.
 The LLM extractor detects both EXPLICIT and IMPLIED changes: "the user cut the
 ropes" removes restraints even without a literal "she is no longer tied" line.
 """
@@ -25,6 +28,8 @@ import json as _json
 import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
+
+import database as _db
 
 # ---------------------------------------------------------------------------
 # State dataclass
@@ -86,10 +91,60 @@ class CharacterState:
 
 _states: dict[str, CharacterState] = {}
 _turn_counters: dict[str, int] = {}
+_loaded_from_db: set[str] = set()   # channels whose DB row has been fetched this session
+
+
+# ---------------------------------------------------------------------------
+# DB serialisation helpers
+# ---------------------------------------------------------------------------
+
+def _state_to_dict(state: CharacterState) -> dict:
+    return {
+        "outfit":      state.outfit,
+        "body_state":  state.body_state,
+        "accessories": state.accessories,
+        "restraints":  state.restraints,
+        "wounds":      state.wounds,
+        "marks":       state.marks,
+    }
+
+
+def _state_from_dict(d: dict) -> CharacterState:
+    return CharacterState(
+        outfit=d.get("outfit", ""),
+        body_state=d.get("body_state", "clothed"),
+        accessories=list(d.get("accessories") or []),
+        restraints=list(d.get("restraints") or []),
+        wounds=list(d.get("wounds") or []),
+        marks=list(d.get("marks") or []),
+    )
+
+
+def _load_from_db(channel_id: str) -> CharacterState | None:
+    """Attempt to load state from the database. Returns None if no row exists."""
+    try:
+        row = _db.get_character_state(channel_id)
+        if row is None:
+            return None
+        state = _state_from_dict(row)
+        print(f"[CharState] Loaded persisted state for channel {channel_id}: {state.format_debug()}")
+        return state
+    except Exception as e:
+        print(f"[CharState] Could not load state from DB for channel {channel_id}: {e}")
+        return None
 
 
 def get_state(channel_id: str) -> CharacterState:
-    """Return the current appearance state for a channel (blank default if none)."""
+    """Return the current appearance state for a channel.
+
+    On first access per session, tries to restore the state from the database
+    so that bot restarts mid-RP don't reset outfit/accessory/wound history.
+    """
+    if channel_id not in _states and channel_id not in _loaded_from_db:
+        _loaded_from_db.add(channel_id)
+        loaded = _load_from_db(channel_id)
+        if loaded is not None:
+            _states[channel_id] = loaded
     return _states.get(channel_id, CharacterState())
 
 
@@ -98,10 +153,14 @@ def reset_state(channel_id: str | None = None) -> None:
     if channel_id is None:
         _states.clear()
         _turn_counters.clear()
+        _loaded_from_db.clear()
+        _db.delete_character_state(None)
         print("[CharState] All channel states cleared.")
     else:
         removed = _states.pop(channel_id, None)
         _turn_counters.pop(channel_id, None)
+        _loaded_from_db.discard(channel_id)
+        _db.delete_character_state(channel_id)
         if removed:
             print(f"[CharState] State cleared for channel {channel_id}.")
 
@@ -346,7 +405,7 @@ async def update_state(
     if not _needs_update(user_text, bot_reply):
         return get_state(channel_id)
 
-    current = _states.get(channel_id, CharacterState())
+    current = get_state(channel_id)
     turn = _next_turn(channel_id)
     print(f"[CharState] ch={channel_id} turn={turn} — pre-filter triggered, calling extractor…")
 
@@ -365,4 +424,5 @@ async def update_state(
     print(f"[CharState] Applying delta: {meaningful}")
     updated = _apply_delta(current, delta, turn)
     _states[channel_id] = updated
+    _db.set_character_state(channel_id, _state_to_dict(updated))
     return updated

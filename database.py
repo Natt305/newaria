@@ -1029,8 +1029,68 @@ def _init_history_db():
             created_at TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS character_state (
+            channel_id TEXT PRIMARY KEY,
+            state_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
+
+
+# ── Character appearance state (SQLite) ───────────────────────────────────────
+
+def get_character_state(channel_id: str) -> Optional[Dict[str, Any]]:
+    """Return the persisted appearance state dict for a channel, or None."""
+    conn = _get_history_conn()
+    row = conn.execute(
+        "SELECT state_json FROM character_state WHERE channel_id = ?",
+        (channel_id,),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    try:
+        return json.loads(row["state_json"])
+    except Exception as e:
+        print(f"[DB] Could not parse character_state JSON for channel {channel_id}: {e}")
+        return None
+
+
+def set_character_state(channel_id: str, state_dict: Dict[str, Any]) -> None:
+    """Upsert the appearance state dict for a channel."""
+    try:
+        conn = _get_history_conn()
+        conn.execute(
+            """
+            INSERT INTO character_state (channel_id, state_json, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(channel_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                updated_at = excluded.updated_at
+            """,
+            (channel_id, json.dumps(state_dict, ensure_ascii=False), datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Failed to save character_state for channel {channel_id}: {e}")
+
+
+def delete_character_state(channel_id: Optional[str] = None) -> None:
+    """Delete appearance state for one channel, or ALL channels when None."""
+    try:
+        conn = _get_history_conn()
+        if channel_id is None:
+            conn.execute("DELETE FROM character_state")
+        else:
+            conn.execute("DELETE FROM character_state WHERE channel_id = ?", (channel_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Failed to delete character_state (channel={channel_id}): {e}")
 
 
 def save_conversation(channel_id: str, user_id: str, user_name: str, content: str, role: str):
