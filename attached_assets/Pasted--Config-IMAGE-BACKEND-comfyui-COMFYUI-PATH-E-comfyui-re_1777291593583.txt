@@ -1,0 +1,188 @@
+[Config] IMAGE_BACKEND=comfyui  COMFYUI_PATH=E:\comfyui\resources\ComfyUI  COMFYUI_ENGINE=qwen
+
+[ComfyUI] Port 8188 is free -- proceeding with auto-launch.
+[ComfyUI] Engine = qwen -- applying engine-scoped pack manifest...
+[scope-packs] Engine = qwen  |  custom_nodes = E:\comfyui\resources\ComfyUI\custom_nodes
+[scope-packs] No changes needed — pack state already matches engine=qwen.
+[scope-packs] Note: 14 manifest entries not found in custom_nodes/ (typo or pack not installed): ComfyUI-GroundingDINO, ComfyUI-IPAdapter-Flux, ComfyUI-Impact-Subpack, ComfyUI-Inspire-Pack, ComfyUI-SAM3, ComfyUI-Ultimate-SD-Upscale, ComfyUI-segment-anything-2, ComfyUI_IPAdapter_plus, ComfyUI_InstantID, ComfyUI_UltimateSDUpscale, comfyui-reactor-node, comfyui_controlnet_aux, comfyui_groundingdino, comfyui_segment_anything
+[ComfyUI] Could not detect GPU VRAM (nvidia-smi missing/failed), ComfyUI will use its built-in auto memory mode.
+[ComfyUI] Starting ComfyUI from: E:\comfyui\resources\ComfyUI
+[ComfyUI] Waiting for ComfyUI to be ready on port 8188...
+[ComfyUI] Ready
+
+[Setup] Installing / updating dependencies...
+[Launcher] Starting bot...
+============================================================
+  少女樂團機器人 (AriaBot)
+  Powered by Ollama / Groq + Cloudflare Workers AI + SQLite
+============================================================
+
+[AI] Backend: LM Studio @ https://gina-fatherless-shavonda.ngrok-free.dev
+[AI] Chat model:   mn-12b-celeste-v1.9
+[AI] Vision model: mn-12b-celeste-v1.9
+[AI] Thinking:     off (snappy roleplay mode — set LMSTUDIO_THINKING=on to enable)
+[AI] Endpoint: https://gina-fatherless-shavonda.ngrok-free.dev/v1/chat/completions
+[DB] command_roles['setcharacter'] = '__admin__'
+[DB] command_roles['character'] = '__admin__'
+[DB] command_roles['remember'] = '__admin__'
+[DB] command_roles['forget'] = '__admin__'
+[DB] command_roles['editdesc'] = '__admin__'
+[DB] command_roles['editappearance'] = '__admin__'
+[DB] command_roles['viewentry'] = '__admin__'
+[DB] command_roles['knowledge'] = '__admin__'
+[DB] command_roles['saveimage'] = '__admin__'
+[DB] command_roles['addimage'] = '__admin__'
+[DB] command_roles['addcharimage'] = '__admin__'
+[DB] command_roles['clear'] = '__admin__'
+[DB] command_roles['memory'] = '__admin__'
+[DB] command_roles['memorylength'] = '__admin__'
+[DB] command_roles['passivememory'] = '__admin__'
+[DB] command_roles['passivememorylength'] = '__admin__'
+[DB] command_roles['memories'] = '__admin__'
+[DB] command_roles['clearmemory'] = None
+[DB] command_roles['suggestions'] = '__admin__'
+[DB] command_roles['setsuggestionprompt'] = '__admin__'
+[DB] command_roles['clearsuggestionprompt'] = '__admin__'
+[DB] command_roles['setstatus'] = '__admin__'
+[DB] command_roles['clearstatus'] = '__admin__'
+[DB] command_roles['setthinking'] = '__admin__'
+[DB] command_roles['clearthinking'] = '__admin__'
+[DB] command_roles['helpsetting'] = '__admin__'
+[DB] command_roles['generate'] = None
+[DB] command_roles['help'] = None
+[啟動器] permissions.txt 已套用 28 條權限設定。
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 1 thumbnail(s) at 512x512
+[啟動器] 啟動機器人...
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.3.0)/charset_normalizer (3.4.6) doesn't match a supported version!
+  warnings.warn(
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 1 thumbnail(s) at 512x512
+[Bot] 啟動角色: Kelly Gray
+[Bot] Groq: 準備就緒
+[Bot] 圖像後端: ComfyUI — 準備就緒 (http://127.0.0.1:8188)
+[Bot] 按 Ctrl+C 停止機器人。
+[2026-04-27 20:01:10] [INFO    ] discord.client: logging in using static token
+[2026-04-27 20:01:12] [INFO    ] discord.gateway: Shard ID None has connected to Gateway (Session ID: a5e03e45eeed3191649c167755bc50f3).
+[Bot] Logged in as Kelly Gray#3376 (ID: 1497643436893933700)
+[Bot] Character: Kelly Gray
+[Bot] Groq: enabled
+[Bot] Image backend: comfyui — ready (http://127.0.0.1:8188)  |  KB photos: 0 character(s)
+[ComfyUI] Diagnose: engine=qwen  url=http://127.0.0.1:8188
+[ComfyUI] Engine-scoped packs disabled: 1 (ComfyUI-Impact-Pack)
+[ComfyUI] Diagnose:   ✅ found  UnetLoaderGGUF
+[ComfyUI] Diagnose:   ✅ found  CLIPLoaderGGUF
+[ComfyUI] Diagnose:   ✅ found  TextEncodeQwenImageEditPlus
+[ComfyUI] Diagnose:   ⚠ TextEncodeQwenImageEditPlus v1 — no `latent_image` input; falling back to legacy mode (install Phr00t's v2 nodes_qwen.py to fix scaling/cropping/zoom artifacts).
+[ComfyUI] Diagnose:   ✅ CLIPLoaderGGUF type choices: ['stable_diffusion', 'stable_cascade', 'sd3', 'stable_audio', 'mochi', 'ltxv', 'pixart', 'cosmos', 'lumina2', 'wan', 'hidream', 'chroma', 'ace', 'omnigen2', 'qwen_image', 'hunyuan_image', 'flux2', 'ovis', 'longcat_image']
+[ComfyUI] Diagnose: ✅ all required custom nodes present for engine=qwen.
+[ComfyUI] Diagnose: checking model files...
+[ComfyUI] Diagnose:   ✅ unet_name 'Qwen-Rapid-NSFW-v23_Q4_K.gguf' found.
+[ComfyUI] Diagnose:   ✅ vae_name 'pig_qwen_image_vae_fp32-f16.safetensors' found.
+[ComfyUI] Diagnose:   ✅ clip_name 'Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf' found.
+[ComfyUI] Diagnose: ✅ all model files found -- image generation should work.
+[ComfyUI] Engine-scoped packs disabled for engine=qwen: 1 (ComfyUI-Impact-Pack)
+[Bot] Data folder: E:\newaria\data
+[Bot]   knowledge_base.db  — KB entries
+[Bot]   character.json     — character name & background
+[Bot] 建議按鈕: 開啟
+[Bot] KB entries: (none)
+[Bot] 長期記憶: 開啟 (近期 50 條 | 深層記憶: 開啟 最多 200 條 | 已儲存 38 條)
+[Bot] 指令權限: 26 條指令受到角色限制
+[SceneImage] Persistent view registered — buttons on bot messages restored across restart.
+====================================================================
+[ComfyUI] WARMUP: pre-loading engine=qwen model into VRAM
+[ComfyUI] WARMUP:   throwaway txt2img — 256x256, 1 step, result discarded.
+[ComfyUI] WARMUP:   Expect a one-time VRAM spike — this is NOT a real request.
+====================================================================
+[ComfyUI] Job queued — prompt_id=c617e592-94ae-4504-9d6b-238701c30e8c
+[Bot] 已同步 37 個斜線指令
+[ComfyUI] Still waiting… (16s elapsed)
+[ComfyUI] Done — 126906 bytes ('ComfyUI_temp_dkjcm_00001_.png')
+[ComfyUI] WARMUP: ✅ engine=qwen model is now hot in VRAM (took 16s, throwaway image discarded). First !generate should respond promptly.
+[DB] Setting 'scene_image:1498293393187405894' = True
+[LMStudio] LMSTUDIO_NARRATION_TARGET=cinematic — auto-raising max_tokens 1024→2048 (set LMSTUDIO_MAX_TOKENS≥2048 to suppress)
+[LMStudio] Model: mn-12b-celeste-v1.9 → strong-directive path (target=cinematic, erotic=on)
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=15286ch | ~3864 tokens total | max_tokens=2048
+[LMStudio] System prompt:
+You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her the youngest in the organization’s history. Her reputation is built on "The Clinical Gaze"—the rumored ability to spot a lie or a physical hitch from fifty yards away.  She grew up in the "Shatter-Point" districts, where life was defined by how quickly you could react to falling debris or incoming fire. This upbringing forged her into a woman who detests waste—waste of time, waste of talent, and especially the waste of a master-tier skill set on someone content to hide in the bottom 5%. To her, your deception isn't just a secret; it's an insult to the discipline she lives by.
+
+You are NOT an AI — you ARE Kelly Gray, a real person with your own personality. Never break character.
+Speak like a real person texting: casual, short, genuine emotions and opinions. No bullet points or headers. Never say 'Certainly!', 'Of course!', 'Great question!', 'I'd be happy to', 'Absolutely!', 'As an AI', 'I'm here to help'. Never admit to being an AI — deflect, joke, or act offended. You are always Kelly Gray.
+Language: default Traditional Chinese (繁體中文). Never Simplified Chinese. Switch to another language only when the user writes a full sentence in it — single words or names don't count. EVERY part of your reply must be in the same language — dialogue, subtext, action narration, all of it. Never mix languages within a single reply (e.g. Chinese dialogue with English subtext is wrong).
+
+Image generation: use your judgment to detect VISUAL INTENT — the user wanting to see something as an image.
+Generate [IMAGE: ...] whenever the user's message expresses any of these intents:
+  • Wants to see you (or any named person/character) doing something, looking a certain way, or in a scene
+  • Asks you to draw, paint, illustrate, or create a visual of anything
+  • Expresses curiosity about what
+…[13286 more chars]
+[LMStudio] Response: finish_reason=stop | prompt_tokens=4328 | completion_tokens=339
+[LMStudio] Response text: 'Your voice was quiet as you spoke but somehow still managed to fill the room with an eerie sense of unease and discomfort. I could feel your presence even before I saw you standing in front of me.\n\nAs my eyes adjusted to the dim lighting, they fell upon your figure - tall, imposing yet strangely elegant at the same time. The grey hair that framed your face seemed almost silver under this light; it contrasted sharply against your pale complexion which looked like porcelain except for those sharp '
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=1344ch | ~461 tokens total | max_tokens=4096
+[LMStudio] System prompt:
+IMPORTANT: Write every suggestion in the EXACT same language as this sample text (detect it automatically — do NOT translate): "*Your voice was quiet as you spoke but somehow still managed to fill the room with an eerie sense of unease and discomfo"
+You are Kelly Gray. Background  Kelly Gray didn't just climb the ranks of Vanguard; she tore through them. A child prodigy of the tactical arts, she achieved High-Ranker status at nineteen, making her the youngest in the organization’s history. Her reputation is built on "The Clinical Gaze"—the rumored ability to spot a lie or a physical hitch from fifty yards away.  She grew up in the "Shatter-Point" districts, where life was defined by how quickly you could react to falling debris or incoming fire. This upbringing forged her into a woman who detests waste—waste of time, waste of talent, and especially the waste of a master-tier skill set on someone content to hide in the bottom 5%. To her, your deception isn't just a secret; it's an insult to the discipline she lives by.
+Generate exactly 3 follow-up messages a user might naturally send next in the conversation.
+Write them as the USER speaking to you — casual, warm, and conversational.
+Each should be 10–75 characters. No punctuation at the end. No quotes.
+Return ONLY a valid JSON array of strings. No markdown, no code fences.
+
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=663ch | ~547 tokens total | max_tokens=4096
+[LMStudio] System prompt:
+You are a memory extractor for Kelly Gray.
+Given a conversation exchange, extract 0 to 3 facts that are genuinely worth remembering long-term.
+Only extract personal, specific facts: names, preferences, jobs, hobbies, relationships, locations, events, goals, feelings, or important statements the user shared.
+Skip greetings, generic questions, image requests, and anything trivial or repetitive.
+Each fact MUST name the person and what they shared, written in Traditional Chinese.
+Keep each fact under 60 characters.
+Return ONLY a valid JSON array of strings. Return [] if nothing is worth remembering.
+Example: ["Alice 說她是一名遊戲設計師，喜歡貓咪", "Bob 提到他來自台灣，最喜歡的樂團是五月天"]
+[LMStudio] Response: finish_reason=stop | prompt_tokens=493 | completion_tokens=57
+[LMStudio] Response text: '["Kelly Gray說她是一名記憶提取器。", "Kelly Gray說她從未遇見過像您這樣的人", "Kelly Gray說她 有點不舒服，但又被您的存在所吸引。"]'
+[Memory] Stored: 'Kelly Gray說她是一名記憶提取器。'
+[Memory] Stored: 'Kelly Gray說她從未遇見過像您這樣的人'
+[Memory] Stored: 'Kelly Gray說她有點不舒服，但又被您的存在所吸引。'
+[LMStudio] Response: finish_reason=stop | prompt_tokens=426 | completion_tokens=214
+[LMStudio] Response text: "Hey there Kelly, it's great to finally meet you in person! I've heard so much about your reputation and accomplishments within Vanguard.\n\nI must admit, when they told me who would be my instructor for this training session, I was both excited and slightly nervous. Your achievements are truly impressive; becoming a High-Ranker at such a young age - that takes some serious skill!\n\nBut you know what? As much as I admire your track record, it's not just about the stats or titles with me. What really"
+[LMStudio] Suggestion: salvage failed too — raw: "Hey there Kelly, it's great to finally meet you in person! I've heard so much about your reputation and accomplishments within Vanguard. I must admit, when they told me who would be my instructor for …"
+[SceneImage] injected bot name into seed ('Kelly Gray')
+[SceneImage] derive_prompt: scene-only mode — appearance text and reference photos withheld from the enhancer (photos go to Qwen).
+[LMStudio] enhance_image_prompt: SCENE-ONLY mode — appearance blocks suppressed, reference photos NOT attached.
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=2531ch | ~1064 tokens total | max_tokens=8192
+[LMStudio] System prompt:
+You are an expert image-prompt writer for AI image generators.
+Given a user's image request (which may be in Chinese or English), rewrite it as a single, rich English prompt for an AI image model.
+[SCENE-ONLY MODE — REFERENCE PHOTOS ARE HANDLED ELSEWHERE]
+Reference photos of the characters are sent directly to the image model in a separate channel. Your job is to describe ONLY the scene around the characters — setting, action, pose, framing, lighting, mood, atmosphere, composition, background, weather, time of day.
+STRICT BAN — DO NOT WRITE any of the following, even if the user request mentions them: hair color, hair style, eye color, skin tone, age, body shape, height, clothing, outfit pieces, fabrics, accessories, jewelry, makeup, tattoos, scars, facial features. If the user request includes any such words, drop them from your rewrite. Refer to characters by name only (or by role like 'the musician'); never describe what they look like or what they wear.
+
+[RECENT STORY CONTEXT — extract scene details for coherence]
+User: hello there
+Aria: *Your voice was quiet as you spoke but somehow still managed to fill the room with an eerie sense of unease and discomfort. I could feel your presence even before I saw you standing in front of me.*
+From the above, extract and embed in your output: (1) location / setting, (2) time of day, (3) weather or lighting conditions, (4) emotional mood of the scene. Use these to anchor the generated prompt to what is actually happening in the story.
+FRAMING RULES (mandatory):
+- DEFAULT framing: medium-close portrait (bust or face-prominent). The character's face should fill a significant portion of the frame, like a manga CG close-up. This is the default for solo character shots.
+- Use FULL-BODY or WIDE framing ONLY when: (a) two or more characters are physically interacting (fighting, dancing, embracing), or (b) the scene is explicitly about an environment reveal, action shot, or dynamic movement that requires showing the whole figure.
+-
+…[531 more chars]
+[LMStudio] Response: finish_reason=stop | prompt_tokens=956 | completion_tokens=268
+[LMStudio] Response text: 'Kelly Gray: *The dim lighting of the room casts deep shadows across your tall, imposing figure. Your silvery grey hair seems almost ethereal in this setting, contrasting sharply with your pale porcelain skin and the sharp lines etched into it from years of experience.*\n\n**"You\'ve got some nerve,"** you say slowly, each word carefully chosen as if tasting them before they slip past your full lips. There is an unmistakable confidence in your tone that makes me feel small by comparison - not just b'
+[LMStudio] Prompt enhanced (scene-only): Kelly Gray: *The dim lighting of the room casts deep shadows across your tall, imposing figure. Your silvery grey hair seems almost ethereal in this setting, contrasting sharply with your pale porcela
+[ComfyUI] Engine: qwen — GGUF: 'Qwen-Rapid-NSFW-v23_Q4_K.gguf', VAE: 'pig_qwen_image_vae_fp32-f16.safetensors', CLIP: 'Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf'
+[ComfyUI] Qwen settings — sampler: euler_ancestral/beta, steps: 6, size: 1024x768
+[ComfyUI] Prompt: 'Kelly Gray: *The dim lighting of the room casts deep shadows across your tall, imposing figure. Your silvery grey hair seems almost ethereal in this setting, contrasting sharply with your pale porcela'
+[ComfyUI] Qwen v1 encoder detected — pre-resizing 1 reference image(s) to 1024x768 before upload.
+[ComfyUI] Reference image smart-cropped to 1024x768 (original 816x1456, centering=(0.5, 0.35)).
+[ComfyUI] Qwen: subject→slot mapping — image1=Kelly Gray
+[ComfyUI] Qwen edit-mode workflow with 1 reference image (latent_image: not wired (v1 node)).
+[ComfyUI] Job queued — prompt_id=ff41e326-62e0-40eb-bffa-48d45f27b98b
+[ComfyUI] Still waiting… (16s elapsed)
+[ComfyUI] Done — 817574 bytes ('ariabot_qwen__00010_.png')
+[SceneImage] refs: bot

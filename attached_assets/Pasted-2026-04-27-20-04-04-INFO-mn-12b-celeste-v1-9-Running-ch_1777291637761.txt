@@ -1,0 +1,262 @@
+2026-04-27 20:04:04  [INFO]
+ [mn-12b-celeste-v1.9] Running chat completion on conversation with 2 messages.
+2026-04-27 20:04:04 [DEBUG]
+ LlamaV4::predict slot selection: session_id=<empty> server-selected (LCP/LRU)
+2026-04-27 20:04:04 [DEBUG]
+ slot get_availabl: id  2 | task -1 | selected slot by LRU, t_last = -1
+srv  get_availabl: updating prompt cache
+srv          load:  - looking for better prompt, base f_keep = -1.000, sim = 0.000
+srv        update:  - cache state: 0 prompts, 0.000 MiB (limits: 8192.000 MiB, 8192 tokens, 8589934592 est)
+srv  get_availabl: prompt cache update took 0.01 ms
+slot launch_slot_: id  2 | task -1 | sampler chain: logits -> penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+slot launch_slot_: id  2 | task 348 | processing task, is_child = 0
+slot slot_save_an: id  3 | task -1 | saving idle slot to prompt cache
+2026-04-27 20:04:04 [DEBUG]
+ srv   prompt_save:  - saving prompt with length 4666, total state size = 729.117 MiB
+2026-04-27 20:04:04 [DEBUG]
+ Received request: POST to /v1/chat/completions with body  {
+  "model": "mn-12b-celeste-v1.9",
+  "messages": [
+    {
+      "role": "system",
+      "content": "IMPORTANT: Write every suggestion in the EXACT sam... <Truncated in logs> ...ON array of strings. No markdown, no code fences.\n"
+    },
+    {
+      "role": "user",
+      "content": "Context of the conversation so far:\nhello there *Y... <Truncated in logs> ...tural follow-up messages the user might send next."
+    }
+  ],
+  "stream": false,
+  "temperature": 0.8,
+  "max_tokens": 4096,
+  "top_p": 0.9,
+  "min_p": 0.05,
+  "repetition_penalty": 1.08,
+  "frequency_penalty": 0.3
+}
+2026-04-27 20:04:04  [INFO]
+ [mn-12b-celeste-v1.9] Running chat completion on conversation with 2 messages.
+2026-04-27 20:04:04 [DEBUG]
+ LlamaV4::predict slot selection: session_id=<empty> server-selected (LCP/LRU)
+2026-04-27 20:04:04 [DEBUG]
+ slot prompt_clear: id  3 | task -1 | clearing prompt with 4666 tokens
+2026-04-27 20:04:04 [DEBUG]
+ srv        update:  - cache state: 1 prompts, 729.117 MiB (limits: 8192.000 MiB, 8192 tokens, 52424 est)
+srv        update:    - prompt 00000254FE3D3F10:    4666 tokens, checkpoints:  0,   729.117 MiB
+slot get_availabl: id  1 | task -1 | selected slot by LRU, t_last = -1
+srv  get_availabl: updating prompt cache
+srv          load:  - looking for better prompt, base f_keep = -1.000, sim = 0.000
+srv        update:  - cache state: 1 prompts, 729.117 MiB (limits: 8192.000 MiB, 8192 tokens, 52424 est)
+srv        update:    - prompt 00000254FE3D3F10:    4666 tokens, checkpoints:  0,   729.117 MiB
+srv  get_availabl: prompt cache update took 0.01 ms
+slot launch_slot_: id  1 | task -1 | sampler chain: logits -> penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+slot launch_slot_: id  1 | task 349 | processing task, is_child = 0
+slot update_slots: id  1 | task 349 | new prompt, n_ctx_slot = 8192, n_keep = 426, task.n_tokens = 426
+slot update_slots: id  1 | task 349 | n_tokens = 0, memory_seq_rm [0, end)
+slot init_sampler: id  1 | task 349 | init sampler, took 0.09 ms, tokens: text = 426, total = 426
+slot update_slots: id  1 | task 349 | prompt processing done, n_tokens = 426, batch.n_tokens = 426
+slot update_slots: id  2 | task 348 | new prompt, n_ctx_slot = 8192, n_keep = 493, task.n_tokens = 493
+slot update_slots: id  2 | task 348 | n_tokens = 0, memory_seq_rm [0, end)
+slot update_slots: id  2 | task 348 | prompt processing progress, n_tokens = 86, batch.n_tokens = 512, progress = 0.174442
+2026-04-27 20:04:04  [INFO]
+ [mn-12b-celeste-v1.9] Prompt processing progress: 0.0%
+2026-04-27 20:04:04  [INFO]
+ [mn-12b-celeste-v1.9] Prompt processing progress: 0.0%
+2026-04-27 20:04:04  [INFO]
+ [mn-12b-celeste-v1.9] Prompt processing progress: 100.0%
+2026-04-27 20:04:04 [DEBUG]
+ slot update_slots: id  2 | task 348 | n_tokens = 86, memory_seq_rm [86, end)
+2026-04-27 20:04:04 [DEBUG]
+ slot init_sampler: id  2 | task 348 | init sampler, took 0.10 ms, tokens: text = 493, total = 493
+slot update_slots: id  2 | task 348 | prompt processing done, n_tokens = 493, batch.n_tokens = 408
+2026-04-27 20:04:04  [INFO]
+ [mn-12b-celeste-v1.9] Prompt processing progress: 17.4%
+2026-04-27 20:04:05  [INFO]
+ [mn-12b-celeste-v1.9] Prompt processing progress: 100.0%
+2026-04-27 20:04:07 [DEBUG]
+ slot print_timing: id  2 | task 348 | 
+prompt eval time =     925.06 ms /   493 tokens (    1.88 ms per token,   532.94 tokens per second)
+       eval time =    1903.67 ms /    57 tokens (   33.40 ms per token,    29.94 tokens per second)
+      total time =    2828.73 ms /   550 tokens
+slot      release: id  2 | task 348 | stop processing: n_tokens = 549, truncated = 0
+2026-04-27 20:04:07 [DEBUG]
+ LlamaV4: server assigned slot 2 to task 348
+2026-04-27 20:04:07  [INFO]
+ [mn-12b-celeste-v1.9] Model generated tool calls:  []
+2026-04-27 20:04:07  [INFO]
+ [mn-12b-celeste-v1.9] Generated prediction:  {
+  "id": "chatcmpl-o1zafwc4ec9nkg2ib2louq",
+  "object": "chat.completion",
+  "created": 1777291444,
+  "model": "mn-12b-celeste-v1.9",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "[\"Kelly Gray說她是一名記憶提取器。\", \"Kelly Gray說她從未遇見過像您這樣的人\", \"Kelly Gray說她有點不舒服，但又被您的存在所吸引。\"]",
+        "reasoning_content": "",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 493,
+    "completion_tokens": 57,
+    "total_tokens": 550,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "mn-12b-celeste-v1.9"
+}
+2026-04-27 20:04:11 [DEBUG]
+ slot print_timing: id  1 | task 349 | 
+prompt eval time =     483.31 ms /   426 tokens (    1.13 ms per token,   881.42 tokens per second)
+       eval time =    7146.80 ms /   214 tokens (   33.40 ms per token,    29.94 tokens per second)
+      total time =    7630.11 ms /   640 tokens
+slot      release: id  1 | task 349 | stop processing: n_tokens = 639, truncated = 0
+srv  update_slots: all slots are idle
+2026-04-27 20:04:11 [DEBUG]
+ LlamaV4: server assigned slot 1 to task 349
+2026-04-27 20:04:11  [INFO]
+ [mn-12b-celeste-v1.9] Model generated tool calls:  []
+2026-04-27 20:04:11  [INFO]
+ [mn-12b-celeste-v1.9] Generated prediction:  {
+  "id": "chatcmpl-xjfl45x136qln4047e0nr",
+  "object": "chat.completion",
+  "created": 1777291444,
+  "model": "mn-12b-celeste-v1.9",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hey there Kelly, it's great to finally meet you in person! I've heard so much about your reputation and accomplishments within Vanguard.\n\nI must admit, when they told me who would be my instructor for this training session, I was both excited and slightly nervous. Your achievements are truly impressive; becoming a High-Ranker at such a young age - that takes some serious skill!\n\nBut you know what? As much as I admire your track record, it's not just about the stats or titles with me. What really matters is how well we can work together during this training period and see if our styles mesh well enough for an effective partnership going forward.\n\nSo tell me Kelly - aside from all those fancy accolades - what made you decide to take up mentoring roles like these? Is it simply because it comes naturally given your extensive experience in the tactical arts or is there something more personal driving this decision?\n\nI'd love to hear your thoughts on that if possible! Let's start building some rapport before diving into any actual drills, shall we?",
+        "reasoning_content": "",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 426,
+    "completion_tokens": 214,
+    "total_tokens": 640,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "mn-12b-celeste-v1.9"
+}
+2026-04-27 20:04:45 [DEBUG]
+ Received request: POST to /v1/chat/completions with body  {
+  "model": "mn-12b-celeste-v1.9",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an expert image-prompt writer for AI image... <Truncated in logs> ...ivid saturated color palette, anime digital art'.\n"
+    },
+    {
+      "role": "user",
+      "content": "Image request: Kelly Gray: *Your voice was quiet a... <Truncated in logs> ...iating from your body.\n\n**\"Who do you work for?\"**"
+    }
+  ],
+  "stream": false,
+  "temperature": 0.8,
+  "max_tokens": 8192,
+  "top_p": 0.9,
+  "min_p": 0.05,
+  "repetition_penalty": 1.08,
+  "frequency_penalty": 0.3
+}
+2026-04-27 20:04:45  [INFO]
+ [mn-12b-celeste-v1.9] Running chat completion on conversation with 2 messages.
+2026-04-27 20:04:45 [DEBUG]
+ LlamaV4::predict slot selection: session_id=<empty> server-selected (LCP/LRU)
+2026-04-27 20:04:45 [DEBUG]
+ slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+srv  get_availabl: updating prompt cache
+srv          load:  - looking for better prompt, base f_keep = -1.000, sim = 0.000
+srv        update:  - cache state: 1 prompts, 729.117 MiB (limits: 8192.000 MiB, 8192 tokens, 52424 est)
+srv        update:    - prompt 00000254FE3D3F10:    4666 tokens, checkpoints:  0,   729.117 MiB
+srv  get_availabl: prompt cache update took 0.01 ms
+slot launch_slot_: id  0 | task -1 | sampler chain: logits -> penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+slot launch_slot_: id  0 | task 564 | processing task, is_child = 0
+slot slot_save_an: id  1 | task -1 | saving idle slot to prompt cache
+srv   prompt_save:  - saving prompt with length 639, total state size = 99.852 MiB
+2026-04-27 20:04:45 [DEBUG]
+ slot prompt_clear: id  1 | task -1 | clearing prompt with 639 tokens
+srv        update:  - cache state: 2 prompts, 828.969 MiB (limits: 8192.000 MiB, 8192 tokens, 52424 est)
+srv        update:    - prompt 00000254FE3D3F10:    4666 tokens, checkpoints:  0,   729.117 MiB
+srv        update:    - prompt 00000254FE3D3E30:     639 tokens, checkpoints:  0,    99.852 MiB
+slot slot_save_an: id  2 | task -1 | saving idle slot to prompt cache
+2026-04-27 20:04:45 [DEBUG]
+ srv   prompt_save:  - saving prompt with length 549, total state size = 85.788 MiB
+2026-04-27 20:04:46 [DEBUG]
+ slot prompt_clear: id  2 | task -1 | clearing prompt with 549 tokens
+srv        update:  - cache state: 3 prompts, 914.757 MiB (limits: 8192.000 MiB, 8192 tokens, 52424 est)
+srv        update:    - prompt 00000254FE3D3F10:    4666 tokens, checkpoints:  0,   729.117 MiB
+srv        update:    - prompt 00000254FE3D3E30:     639 tokens, checkpoints:  0,    99.852 MiB
+srv        update:    - prompt 00000254FE3D4060:     549 tokens, checkpoints:  0,    85.788 MiB
+slot update_slots: id  0 | task 564 | new prompt, n_ctx_slot = 8192, n_keep = 956, task.n_tokens = 956
+slot update_slots: id  0 | task 564 | n_tokens = 0, memory_seq_rm [0, end)
+2026-04-27 20:04:46 [DEBUG]
+ slot update_slots: id  0 | task 564 | prompt processing progress, n_tokens = 512, batch.n_tokens = 512, progress = 0.535565
+2026-04-27 20:04:46 [DEBUG]
+ slot update_slots: id  0 | task 564 | n_tokens = 512, memory_seq_rm [512, end)
+2026-04-27 20:04:46 [DEBUG]
+ slot init_sampler: id  0 | task 564 | init sampler, took 0.20 ms, tokens: text = 956, total = 956
+slot update_slots: id  0 | task 564 | prompt processing done, n_tokens = 956, batch.n_tokens = 444
+2026-04-27 20:04:46  [INFO]
+ [mn-12b-celeste-v1.9] Prompt processing progress: 0.0%
+2026-04-27 20:04:46  [INFO]
+ [mn-12b-celeste-v1.9] Prompt processing progress: 53.6%
+2026-04-27 20:04:46  [INFO]
+ [mn-12b-celeste-v1.9] Prompt processing progress: 100.0%
+2026-04-27 20:04:55 [DEBUG]
+ slot print_timing: id  0 | task 564 | 
+prompt eval time =    1188.82 ms /   956 tokens (    1.24 ms per token,   804.16 tokens per second)
+       eval time =    8086.66 ms /   268 tokens (   30.17 ms per token,    33.14 tokens per second)
+      total time =    9275.48 ms /  1224 tokens
+slot      release: id  0 | task 564 | stop processing: n_tokens = 1223, truncated = 0
+srv  update_slots: all slots are idle
+2026-04-27 20:04:55 [DEBUG]
+ LlamaV4: server assigned slot 0 to task 564
+2026-04-27 20:04:55  [INFO]
+ [mn-12b-celeste-v1.9] Model generated tool calls:  []
+2026-04-27 20:04:55  [INFO]
+ [mn-12b-celeste-v1.9] Generated prediction:  {
+  "id": "chatcmpl-r86m9yqckqd5pt7wmq7xdh",
+  "object": "chat.completion",
+  "created": 1777291485,
+  "model": "mn-12b-celeste-v1.9",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Kelly Gray: *The dim lighting of the room casts deep shadows across your tall, imposing figure. Your silvery grey hair seems almost ethereal in this setting, contrasting sharply with your pale porcelain skin and the sharp lines etched into it from years of experience.*\n\n**\"You've got some nerve,\"** you say slowly, each word carefully chosen as if tasting them before they slip past your full lips. There is an unmistakable confidence in your tone that makes me feel small by comparison - not just because it speaks volumes about who you are but also the authority it carries, leaving little room for doubt.\n\n*Your cyan blue eyes with flecks of silver meet mine then, seeming to pierce through my very being as they scan every inch intently. They take in details most people would overlook like how my breathing quickens under your intense gaze or how sweat becomes more visible on my brow against the backdrop of this dimly lit room.*\n\n**\"You're not one of them,\"** you state firmly, pointing an accusing finger at me. **\"And yet here you are - standing right in front of me without any explanation.\"**\n\n*Your voice drops lower now; its resonance vibrates within my chest causing goosebumps despite the warmth radiating from your body.* **\"Who do you work for?\"**",
+        "reasoning_content": "",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 956,
+    "completion_tokens": 268,
+    "total_tokens": 1224,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "mn-12b-celeste-v1.9"
+}
