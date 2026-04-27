@@ -1,0 +1,40 @@
+#6 - Cinematic Richness Enforcement
+What & Why
+
+The user has set LMSTUDIO_NARRATION_TARGET=cinematic, expecting 6–10 immersive paragraphs per reply, but replies still come back "way too short". Two things in lmstudio_ai.py defeat the setting in practice:
+
+    Qwen / hauhaucs ChatML models bypass the strong directive. chat() only injects the full _roleplay_format_directive(...) (the one with the worked example and the strict "NEVER produce a single bare line or a reply shorter than six full paragraphs" instruction) when _is_qwen_model(active_model) is False. For Qwen models it instead injects _qwen_subtext_length_hint(...), whose own docstring admits the hint is "intentionally soft" and "cannot override trained behaviour". So a Qwen LM Studio model on cinematic only ever sees a soft "( 6–10 sentences)" parenthetical and no example.
+    No length floor is enforced after generation. Existing post-generation guards only retry on token-loop repetition, language mismatch, and Simplified-Chinese leakage. A 2-paragraph reply when the operator chose cinematic is silently accepted. The bot has every signal it needs (the chosen target) to detect and re-roll a too-short reply but doesn't.
+
+We also want to make sure LMSTUDIO_MAX_TOKENS is not the silent culprit — at the default 1024 tokens, 6–10 literary paragraphs may simply not fit, and the model would truncate.
+Done looks like
+
+    When LMSTUDIO_NARRATION_TARGET=cinematic is set, replies from both Qwen-family and Mistral-family models reliably hit at least 6 paragraphs of narration, with the same wrapped-dialogue / one-quote-per-paragraph shape the existing directive describes.
+    Replies that fall under the floor for the active richness target trigger one retry with a stricter system-prompt nudge before being accepted; the retry is logged with a [LMStudio] Reply too short for target=cinematic (Nch / Mp) — retrying line so operators can see it firing.
+    The retry is bounded to one extra round per turn so a stubborn model can never hang the chat loop.
+    LMSTUDIO_MAX_TOKENS is auto-bumped to a sensible floor (e.g. 2048) when the active target is cinematic and the operator has not pinned a higher value, so the model has room to write the requested length.
+    Existing terse / brief / standard / rich behaviour is unchanged — only cinematic (and arguably rich, which wants 4–5 paragraphs) get the new floor.
+    tokens.txt comments around LMSTUDIO_NARRATION_TARGET mention the new behaviour briefly.
+
+Out of scope
+
+    Replacing the Qwen ChatML output format. Qwen/hauhaucs models still emit <reply>/<subtext>; we only strengthen the depth nudge inside that format and add the post-generation floor on the rendered text.
+    Adding a brand-new richness level beyond cinematic.
+    Touching the Groq / Ollama / Cloudflare backends — only LM Studio calls are reported as too-short.
+    Changing the cinematic-[SCENE: …] marker behaviour (covered by the sibling task on scene-image names).
+
+Steps
+
+    Investigate which path is firing for the user. Confirm whether the user's LMSTUDIO_MODEL matches _is_qwen_model(...) (substring qwen in the model id). If so, the soft Qwen path is the primary culprit; if not, a too-low max_tokens or a missing length floor is. Use the existing [LMStudio] Sending to {model} | … max_tokens=N startup print to anchor the diagnosis.
+    Strengthen the cinematic guidance for Qwen models. Promote _qwen_subtext_length_hint's cinematic branch from a single parenthetical into a multi-line directive that mirrors the strong directive's wording (literary pace, environmental atmosphere, extended internal monologue, "NEVER under 6 paragraphs / <subtext> blocks"). Keep the format compatible with the existing Qwen ChatML expectations — i.e. talk about <subtext> block depth, not about plain paragraphs, and do not contradict the trained <reply>/<subtext> shape.
+    Add a paragraph-count floor with one retry. After a successful chat completion in lmstudio_ai.chat(), if the active narration target is rich or cinematic, count meaningful paragraphs in the rendered reply (separate by blank lines, ignore short lines under ~20 chars, ignore the optional trailing [SCENE: …] marker line). If the count is below the target's floor (4 for rich, 6 for cinematic), retry the call once with a stricter system-prompt addendum that quotes the exact missing-paragraph count and demands the floor explicitly. Cap to one retry per turn; log the trigger and the result.
+    Auto-floor LMSTUDIO_MAX_TOKENS for cinematic. Where max_tokens is resolved from LMSTUDIO_MAX_TOKENS, raise the effective value to at least 2048 when the active target is cinematic and the operator has not explicitly pinned a higher value via env. Keep the operator's explicit value when it is already ≥ the floor. Log the bump once per process so operators can see it.
+    Document the new floor and bump. Update the LMSTUDIO_NARRATION_TARGET block in tokens.txt (Chinese + English halves) with one short paragraph noting that cinematic now enforces a paragraph floor with one retry and auto-bumps LMSTUDIO_MAX_TOKENS.
+
+Relevant files
+
+    lmstudio_ai.py:1020-1230
+    lmstudio_ai.py:1233-1268
+    lmstudio_ai.py:1313-1402
+    lmstudio_ai.py:1620-1700
+    tokens.txt:185-225

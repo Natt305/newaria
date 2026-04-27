@@ -1139,10 +1139,10 @@ def _run_generate_qwen(
     # NOTE: `steps_override` is intentionally ignored for Qwen.
     # Upstream call sites in bot.py compute it from `COMFYUI_STEPS`, which is
     # FLUX-oriented (FLUX wants ~20 steps). The Qwen-Image-Edit-Rapid AIO
-    # GGUF is distilled and is meant to run at 4 steps (Phr00t's reference
-    # workflow). Honoring a FLUX-tuned 20-step override on Qwen would waste
-    # ~5x the wall-clock time per image with no quality gain. Qwen reads
-    # only its own COMFYUI_QWEN_STEPS env var.
+    # GGUF is distilled and runs in the 4–6 step range (DEFAULT_QWEN_STEPS).
+    # Honoring a FLUX-tuned 20-step override on Qwen would waste ~3–5x the
+    # wall-clock time per image with no quality gain. Qwen reads only its
+    # own COMFYUI_QWEN_STEPS env var.
     if steps_override is not None and steps_override != DEFAULT_QWEN_STEPS:
         print(f"[ComfyUI] Qwen: ignoring steps_override={steps_override} "
               f"(FLUX-oriented); using COMFYUI_QWEN_STEPS / default {DEFAULT_QWEN_STEPS} instead.")

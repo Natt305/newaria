@@ -656,20 +656,23 @@ async def run_scene_image(
 
         # Carry resolved subject names into the final prompt: append a short
         # "featuring …" tail naming any matched subjects that don't already
-        # appear in the enriched body. This keeps the model aware of WHO is
-        # in the scene (matching the reference photos it was given). Cap to
-        # the first 3 to avoid over-padding short prompts.
+        # appear in the enriched body. Gated to the ComfyUI-Qwen path because
+        # that's where multi-ref edit runs — FLUX/local_diffusers/hf_spaces
+        # already get bot context through `_derive_prompt`'s `character_context`,
+        # and Cloudflare is text-only with no refs to name. Cap to the first 3
+        # subjects to avoid over-padding short prompts.
         enriched_lower = enriched_base.lower()
         featured: list[str] = []
-        for s in all_subjects[:3]:
-            s_clean = (s or "").strip()
-            if not s_clean or s_clean.lower() == "self":
-                continue
-            if s_clean.lower() in enriched_lower:
-                continue
-            if s_clean.lower() in (f.lower() for f in featured):
-                continue
-            featured.append(s_clean)
+        if backend == "comfyui" and engine == "qwen":
+            for s in all_subjects[:3]:
+                s_clean = (s or "").strip()
+                if not s_clean or s_clean.lower() == "self":
+                    continue
+                if s_clean.lower() in enriched_lower:
+                    continue
+                if s_clean.lower() in (f.lower() for f in featured):
+                    continue
+                featured.append(s_clean)
         if featured:
             enriched = enriched_base + ", featuring " + ", ".join(featured) + CINEMATIC_SUFFIX
         else:
