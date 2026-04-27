@@ -1817,26 +1817,27 @@ async def chat(
     #     3-4 sentences every few paragraphs (invisible to _REPETITION_RE which
     #     only sees character-level token runs).  Runs after the character-level
     #     check so both truncations act on the same `text` variable.
-    if text and text.strip():
+    #     Gated to the user-facing roleplay path (same guard as the floor retry)
+    #     to avoid touching internal/structured-output calls.
+    if (
+        text
+        and text.strip()
+        and enforce_user_lang
+        and not _is_qwen_model(active_model)
+    ):
+        import difflib as _difflib
+
         _paras = [p for p in text.split("\n\n") if p.strip()]
         _seen_paras: list[str] = []
         _dup_idx: int | None = None
         for _pi, _para in enumerate(_paras):
             _norm = " ".join(_para.lower().split())
             for _prev in _seen_paras:
-                _prev_len = len(_prev)
-                _curr_len = len(_norm)
-                if _prev_len == 0 or _curr_len == 0:
-                    continue
-                # Jaccard-style character overlap: count chars in common by
-                # comparing the shorter string character-by-character against
-                # the longer.  Cheap O(n) approximation sufficient here.
-                _shorter, _longer = (
-                    (_norm, _prev) if _curr_len <= _prev_len else (_prev, _norm)
-                )
-                _common = sum(1 for c in _shorter if c in _longer)
-                _overlap = _common / max(_prev_len, _curr_len)
-                if _overlap >= 0.80:
+                # SequenceMatcher.ratio() gives a proper normalised similarity
+                # based on longest common subsequences, not just character
+                # presence — far more accurate for detecting repeated prose.
+                _ratio = _difflib.SequenceMatcher(None, _prev, _norm, autojunk=False).ratio()
+                if _ratio >= 0.80:
                     _dup_idx = _pi
                     break
             if _dup_idx is not None:
