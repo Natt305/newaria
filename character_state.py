@@ -126,7 +126,7 @@ def _state_from_dict(d: dict) -> CharacterState:
 
 
 def _load_from_db(channel_id: str) -> CharacterState | None:
-    """Attempt to load state and history from the database. Returns None if no row exists."""
+    """Attempt to load state, history, and turn counter from the database. Returns None if no row exists."""
     try:
         row = _db.get_character_state(channel_id)
         if row is None:
@@ -137,6 +137,10 @@ def _load_from_db(channel_id: str) -> CharacterState | None:
         if saved_history:
             _history[channel_id] = saved_history
             print(f"[CharState] Restored {len(saved_history)} history entries for channel {channel_id}")
+        saved_counter = _db.get_character_turn_counter(channel_id)
+        if saved_counter:
+            _turn_counters[channel_id] = saved_counter
+            print(f"[CharState] Restored turn counter {saved_counter} for channel {channel_id}")
         return state
     except Exception as e:
         print(f"[CharState] Could not load state from DB for channel {channel_id}: {e}")
@@ -483,5 +487,6 @@ async def update_state(
     updated = _apply_delta(current, delta, turn)
     _states[channel_id] = updated
     _db.set_character_state(channel_id, _state_to_dict(updated))
+    _db.set_character_turn_counter(channel_id, turn)
     _record_history(channel_id, turn, before_snapshot, updated)
     return updated

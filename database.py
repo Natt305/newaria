@@ -1040,6 +1040,10 @@ def _init_history_db():
         conn.execute("ALTER TABLE character_state ADD COLUMN history_json TEXT")
     except Exception:
         pass
+    try:
+        conn.execute("ALTER TABLE character_state ADD COLUMN turn_counter INTEGER DEFAULT 0")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -1134,6 +1138,42 @@ def set_character_history(channel_id: str, history: List[Dict[str, Any]]) -> Non
         conn.close()
     except Exception as e:
         print(f"[DB] Failed to save character history for channel {channel_id}: {e}")
+
+
+def get_character_turn_counter(channel_id: str) -> int:
+    """Return the persisted turn counter for a channel, or 0 if none stored."""
+    try:
+        conn = _get_history_conn()
+        row = conn.execute(
+            "SELECT turn_counter FROM character_state WHERE channel_id = ?",
+            (channel_id,),
+        ).fetchone()
+        conn.close()
+        if row is None or row["turn_counter"] is None:
+            return 0
+        return int(row["turn_counter"])
+    except Exception as e:
+        print(f"[DB] Could not load turn_counter for channel {channel_id}: {e}")
+        return 0
+
+
+def set_character_turn_counter(channel_id: str, counter: int) -> None:
+    """Persist the turn counter for a channel.
+
+    Requires a character_state row to already exist for the channel (i.e. call
+    set_character_state first). This is always the case because the turn counter
+    is only incremented during update_state, which writes the state row first.
+    """
+    try:
+        conn = _get_history_conn()
+        conn.execute(
+            "UPDATE character_state SET turn_counter = ? WHERE channel_id = ?",
+            (counter, channel_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Failed to save turn_counter for channel {channel_id}: {e}")
 
 
 def save_conversation(channel_id: str, user_id: str, user_name: str, content: str, role: str):
