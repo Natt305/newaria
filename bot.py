@@ -1277,7 +1277,7 @@ async def process_chat(
                     else ("image_tag_reroute" if image_prompt
                           else "intent_reroute")
                 ),
-                hint_prompt=image_prompt or user_text,
+                hint_prompt=image_prompt or None,
                 seed_override=_scene_prompt,
                 acker=None,
                 prose_context=_prose_ctx,
@@ -1930,8 +1930,10 @@ async def _update_character_appearance_state(
 ):
     """Background task: update per-channel character appearance state from an exchange.
 
-    Uses Groq as the LLM backend (same as memory extraction). Fires and forgets
-    — failures are logged but never surface to the user.
+    Routes to LM Studio (tight utility params) when AI_BACKEND=lmstudio so that
+    NSFW exchanges are not rejected by content moderation. For other backends,
+    delegates to groq_ai and aborts cleanly on failure. Fires and forgets —
+    failures are logged but never surface to the user.
     """
     if not user_text and not bot_reply:
         return
@@ -1948,8 +1950,21 @@ async def _update_character_appearance_state(
 
     async def _chat_fn(messages: list, system: str) -> str:
         try:
-            text, *_ = await groq_ai.chat(messages, system_prompt=system)
-            return text or ""
+            if os.environ.get("AI_BACKEND", "").strip().lower() == "lmstudio":
+                import lmstudio_ai
+                text, *_ = await lmstudio_ai.chat(
+                    messages,
+                    system_prompt=system,
+                    max_tokens=512,
+                    temperature=0.1,
+                    enforce_user_lang=False,
+                )
+                return text or ""
+            else:
+                text, _, _, success, *_ = await groq_ai.chat(messages, system_prompt=system)
+                if not success:
+                    return ""
+                return text or ""
         except Exception as exc:
             print(f"[CharState] chat_fn error: {type(exc).__name__}: {exc}")
             return ""
