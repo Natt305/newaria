@@ -501,9 +501,11 @@ async def generate_suggestions(
 
     base = (
         f"{lang_instruction}"
-        f"You are {bot_name}. {character_background}\n"
+        f"You are writing short follow-up messages FROM the user's side, directed at "
+        f"{bot_name} during roleplay. Do NOT write as {bot_name} — write as the USER.\n"
+        f"{bot_name}'s personality and appearance for context: {character_background}\n"
         f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
-        f"Write them as the USER speaking to you — casual, warm, and conversational.\n"
+        f"Write them as the USER speaking to {bot_name} — casual, warm, and conversational.\n"
         f"Each should be 10–75 characters. No punctuation at the end. No quotes.\n"
         f"{return_line}"
     )

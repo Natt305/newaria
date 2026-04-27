@@ -101,6 +101,10 @@ def main():
         print(f"[AI] Vision model: {lm_vision_model}")
         print(f"[AI] Thinking:     {'on (slower, deeper reasoning)' if lm_thinking_on else 'off (snappy roleplay mode — set LMSTUDIO_THINKING=on to enable)'}")
         print(f"[AI] Endpoint: {lm_base_url}/v1/chat/completions")
+        _use_json_schema = os.environ.get("LMSTUDIO_USE_JSON_SCHEMA", "").strip().lower() in ("on", "true", "1", "yes")
+        if not _use_json_schema:
+            print("[AI] Tip: set LMSTUDIO_USE_JSON_SCHEMA=on to enable constrained JSON decoding for "
+                  "suggestions & memory extraction (forces schema-valid output at the sampler level).")
     else:
         if not os.environ.get("GROQ_API_KEY"):
             print("[Warning] GROQ_API_KEY is not set. Text chat will be unavailable.")

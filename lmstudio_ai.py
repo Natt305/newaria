@@ -1340,6 +1340,7 @@ async def chat(
     model: str = "",
     context_images: Optional[list] = None,
     max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
     enforce_user_lang: bool = True,
     character_name: str = "",
     response_format: Optional[dict] = None,
@@ -1595,6 +1596,7 @@ async def chat(
         lm_messages,
         model=active_model,
         max_tokens=max_tokens,
+        temperature=temperature,
         response_format=response_format,
     )
 
@@ -1619,6 +1621,7 @@ async def chat(
             plain_messages,
             model=active_model,
             max_tokens=max_tokens,
+            temperature=temperature,
             response_format=response_format,
         )
 
@@ -1643,6 +1646,7 @@ async def chat(
                 retry_messages,
                 model=active_model,
                 max_tokens=max_tokens,
+                temperature=temperature,
                 response_format=response_format,
             )
             if retry_text and retry_text.strip():
@@ -1918,6 +1922,7 @@ async def chat(
                     _floor_retry_msgs,
                     model=active_model,
                     max_tokens=max_tokens,
+                    temperature=temperature,
                     response_format=response_format,
                 )
                 if _floor_retry_text and _floor_retry_text.strip():
@@ -2061,9 +2066,9 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     response_format = _memory_response_format() if _json_schema_enabled() else None
 
     try:
-        # Larger budget than chat() default — qwen3 reasoning often needs
-        # 2-3K tokens before producing the JSON output. Falls back gracefully
-        # to [] when LM Studio still hides everything in reasoning_content.
+        # Tight budget: 3 facts × ≤60 chars ≈ 90 tokens max. A large budget
+        # lets mn-12b-celeste drift into roleplay prose. temperature=0.1 keeps
+        # sampling near-deterministic so the model follows the JSON instruction.
         # enforce_user_lang=False: the user-message wrapper here is English
         # ("Extract memorable facts: …") but the system prompt requires the
         # extracted facts to be written in Traditional Chinese. Letting the
@@ -2072,7 +2077,8 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
         text, *_ = await chat(
             messages,
             system_prompt=system,
-            max_tokens=4096,
+            max_tokens=192,
+            temperature=0.1,
             enforce_user_lang=False,
             response_format=response_format,
         )
@@ -2546,16 +2552,18 @@ async def generate_suggestions(
     )
 
     async def _chat(messages: list, system_prompt: str) -> str:
-        # Suggestions need a bigger budget than chat() default since the model
-        # reasons about language matching and tone before producing JSON.
+        # Tight token budget: 3 suggestions × ≤80 chars ≈ 60–100 tokens max.
+        # A large budget lets mn-12b-celeste drift into roleplay prose instead
+        # of emitting the JSON array. temperature=0.15 keeps sampling near-
+        # deterministic so the model follows the JSON instruction rather than
+        # improvising creative content.
         # enforce_user_lang=False: language matching is handled by the
-        # `language_sample` directive in the system prompt; the user message
-        # wrapper is English ("Generate {count} natural follow-up messages…")
-        # but the suggestions themselves should follow `language_sample`.
+        # `language_sample` directive in the system prompt.
         text, *_ = await chat(
             messages,
             system_prompt=system_prompt,
-            max_tokens=4096,
+            max_tokens=256,
+            temperature=0.15,
             enforce_user_lang=False,
             response_format=response_format,
         )
