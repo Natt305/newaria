@@ -523,22 +523,64 @@ def get_current_topic(channel_id: str) -> str:
 
 
 # ── System-marker sanitizer ───────────────────────────────────────────────────
-# Some LLMs bleed internal memory/system block delimiters into their reply text.
-# Strip any line that consists solely of a bracketed system marker.
+# Some LLMs bleed internal memory/system block delimiters, image-generation
+# tags, scene markers, or thinking tokens into their reply text.  This
+# sanitizer is applied both at display time (before sending to Discord) and at
+# memory-extraction time (inside _extract_and_store_memories) so the memory
+# store never receives raw marker strings or system-prompt fragments.
 
+# Standalone bracketed system / memory block headers that should never appear
+# in a reply visible to users or stored as a memory fact.
 _SYSTEM_MARKER_RE = _re.compile(
     r"^\s*\[(?:END OF[^\]]*|近期記憶|深層記憶[^\]]*|CHARACTER APPEARANCE[^\]]*"
     r"|END OF CHARACTER[^\]]*|MEMORY LOG[^\]]*|記憶日誌[^\]]*)\]\s*$",
     _re.MULTILINE | _re.IGNORECASE,
 )
 
+# Scene-image trigger tags: [SCENE] or [SCENE: ...].
+_SCENE_MARKER_STRIP_RE = _re.compile(r"\[\s*SCENE(?:\s*:[^\]]*?)?\s*\]", _re.IGNORECASE)
 
-def _strip_system_markers(text: str) -> str:
-    """Remove standalone LLM-leaked system/memory marker lines from a reply."""
-    if not text or "[" not in text:
+# Image-generation tags: [IMAGE: ...] (any content inside brackets).
+_IMAGE_MARKER_STRIP_RE = _re.compile(r"\[\s*IMAGE\s*:[^\]]*\]", _re.IGNORECASE)
+
+# Reasoning-suppression directive that Qwen3-family models may echo.
+_NO_THINK_LINE_RE = _re.compile(r"^\s*/no_think\s*$", _re.MULTILINE)
+
+# Full <think>...</think> reasoning blocks (multiline, non-greedy).
+_THINK_BLOCK_RE = _re.compile(r"<think>.*?</think>", _re.DOTALL | _re.IGNORECASE)
+
+
+def _strip_system_markers(text: str, *, strict: bool = False) -> str:
+    """Remove LLM-leaked system/memory markers, image tags, and thinking blocks.
+
+    Applied both at display time and before memory extraction so the memory
+    store never receives raw marker strings or system-prompt fragments.
+
+    Parameters
+    ----------
+    text:
+        The raw model reply to sanitize.
+    strict:
+        When False (default, display path), a fully-stripped result falls back
+        to the original text so Discord never receives a blank message.
+        When True (memory-extraction path), returns ``""`` if all content is
+        stripped — preventing raw marker strings from being stored as facts.
+    """
+    if not text:
         return text
-    cleaned = _SYSTEM_MARKER_RE.sub("", text)
+    cleaned = text
+    # Remove <think>...</think> reasoning blocks first (may span many lines).
+    if "<think>" in cleaned.lower():
+        cleaned = _THINK_BLOCK_RE.sub("", cleaned)
+    if "[" in cleaned:
+        cleaned = _SYSTEM_MARKER_RE.sub("", cleaned)
+        cleaned = _SCENE_MARKER_STRIP_RE.sub("", cleaned)
+        cleaned = _IMAGE_MARKER_STRIP_RE.sub("", cleaned)
+    if "/no_think" in cleaned:
+        cleaned = _NO_THINK_LINE_RE.sub("", cleaned)
     cleaned = _re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if strict:
+        return cleaned
     return cleaned if cleaned else text
 
 
@@ -1846,7 +1888,8 @@ async def _extract_and_store_memories(
         return
     if not user_text and not bot_response:
         return
-    exchange = f"User ({user_name}): {user_text}\n{bot_name}: {bot_response}"
+    clean_response = _strip_system_markers(bot_response, strict=True)
+    exchange = f"User ({user_name}): {user_text}\n{bot_name}: {clean_response}"
     facts = await groq_ai.extract_memories(exchange, bot_name)
     for fact in facts:
         database.add_memory(user_id, user_name, fact)
