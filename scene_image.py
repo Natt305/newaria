@@ -60,20 +60,34 @@ _cooldown = commands.CooldownMapping.from_cooldown(
 
 _scene_location_cache: dict[str, str] = {}
 
-# Regex that matches "in/inside/at/within [article] [adjectives] LOCATION_NOUN"
-# and captures the noun phrase. Covers the most common English setting nouns.
-# NOTE: "an?" handles both "a" and "an" without the alternation order issue.
-_LOCATION_EXTRACT_RE = re.compile(
-    r"\b(?:in|inside|within|at|on)\b\s+(?:an?\b|the\b|this\b|her\b|his\b|their\b)?\s*"
-    r"((?:[\w''-]+\s+){0,4}"
+# Two patterns cover the two main phrasings the scene-only enhancer uses:
+#   1. Prepositional:  "in/inside/at/within [article] [adj…] NOUN"
+#   2. Sentence-start: "[article] [adj…] NOUN" at the start of a sentence
+# Both share the same noun list — common English setting nouns.
+_LOCATION_NOUN_GROUP = (
     r"(?:room|chamber|bedchamber|boudoir|parlour|salon|foyer|office|corridor|"
     r"bedroom|hallway|hall|street|rooftop|roof|"
     r"kitchen|bathroom|bath|library|forest|garden|courtyard|alley|laboratory|lab|"
     r"dungeon|arena|balcony|tavern|inn|castle|palace|mansion|apartment|"
     r"classroom|gym|hospital|clinic|park|plaza|beach|shore|mountain|field|meadow|"
     r"cave|tunnel|bridge|studio|stage|workshop|warehouse|basement|attic|"
-    r"lobby|staircase|terrace|patio|porch|yard|road|path|throne))",
+    r"lobby|staircase|terrace|patio|porch|yard|road|path|throne)"
+)
+
+# Pattern 1: preposition-led phrase (most reliable)
+_LOCATION_EXTRACT_RE = re.compile(
+    r"\b(?:in|inside|within|at|on)\b\s+(?:an?\b|the\b|this\b|her\b|his\b|their\b)?\s*"
+    r"((?:[\w''-]+\s+){0,4}" + _LOCATION_NOUN_GROUP + r")",
     re.IGNORECASE,
+)
+
+# Pattern 2: sentence-initial noun phrase (no preposition).
+# Matches at the very start of the string or right after a sentence boundary.
+_LOCATION_SENTENCE_START_RE = re.compile(
+    r"(?:(?:^|(?<=\. )|(?<=\.\n)))"
+    r"(?:an?\b|the\b|this\b|her\b|his\b|their\b)?\s*"
+    r"((?:[\w''-]+\s+){0,4}" + _LOCATION_NOUN_GROUP + r")",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -83,8 +97,15 @@ def clear_scene_location_cache(channel_id) -> None:
 
 
 def _update_location_cache(channel_id: str, enhanced_prompt: str) -> None:
-    """Scan an enhanced prompt and cache the first location phrase found."""
+    """Scan an enhanced prompt and cache the first location phrase found.
+
+    Tries the preposition-led pattern first (most reliable), then falls back
+    to the sentence-initial pattern to catch outputs that open directly with
+    a noun phrase (e.g. "Bedchamber at night, candlelight…").
+    """
     m = _LOCATION_EXTRACT_RE.search(enhanced_prompt)
+    if m is None:
+        m = _LOCATION_SENTENCE_START_RE.search(enhanced_prompt)
     if m:
         location = m.group(1).strip().rstrip(".,;:")
         if location:
