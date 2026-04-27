@@ -3268,7 +3268,27 @@ async def scenedebug_cmd(ctx):
             lines.append(f"{k}: {text}")
         return "\n".join(lines) + "\n"
 
-    body = _fmt(scene_snap, "scene_image (last)") + "\n" + _fmt(qwen_snap, "comfyui_ai qwen workflow (last)")
+    import character_state as _cs
+    channel_id = str(ctx.channel.id) if ctx.channel else None
+    history_section = ""
+    if channel_id:
+        history = _cs.get_history(channel_id, n=5)
+        lines = ["=== Appearance State History (last 5) ==="]
+        if history:
+            for entry in history:
+                changes_str = "; ".join(entry["changes"])
+                lines.append(f"  turn {entry['turn']}: {changes_str}")
+        else:
+            lines.append("  (no transitions recorded yet)")
+        history_section = "\n".join(lines) + "\n"
+
+    body = (
+        _fmt(scene_snap, "scene_image (last)")
+        + "\n"
+        + _fmt(qwen_snap, "comfyui_ai qwen workflow (last)")
+        + "\n"
+        + history_section
+    )
     # Discord hard cap is 2000 chars per message; leave room for the code-fence wrapper.
     if len(body) > 1900:
         body = body[:1900] + "\n…[truncated — see console for full prompt]"

@@ -24,6 +24,7 @@ ropes" removes restraints even without a literal "she is no longer tied" line.
 
 from __future__ import annotations
 
+import copy as _copy
 import json as _json
 import re
 from dataclasses import dataclass, field
@@ -93,6 +94,10 @@ _states: dict[str, CharacterState] = {}
 _turn_counters: dict[str, int] = {}
 _loaded_from_db: set[str] = set()   # channels whose DB row has been fetched this session
 
+# Appearance transition history: channel_id -> list of {"turn": int, "changes": [str]}
+_history: dict[str, list[dict]] = {}
+_HISTORY_MAX: int = 10  # max entries kept per channel
+
 
 # ---------------------------------------------------------------------------
 # DB serialisation helpers
@@ -154,12 +159,14 @@ def reset_state(channel_id: str | None = None) -> None:
         _states.clear()
         _turn_counters.clear()
         _loaded_from_db.clear()
+        _history.clear()
         _db.delete_character_state(None)
         print("[CharState] All channel states cleared.")
     else:
         removed = _states.pop(channel_id, None)
         _turn_counters.pop(channel_id, None)
         _loaded_from_db.discard(channel_id)
+        _history.pop(channel_id, None)
         _db.delete_character_state(channel_id)
         if removed:
             print(f"[CharState] State cleared for channel {channel_id}.")
@@ -168,6 +175,47 @@ def reset_state(channel_id: str | None = None) -> None:
 def _next_turn(channel_id: str) -> int:
     _turn_counters[channel_id] = _turn_counters.get(channel_id, 0) + 1
     return _turn_counters[channel_id]
+
+
+def _diff_states(before: CharacterState, after: CharacterState) -> list[str]:
+    """Return a list of human-readable descriptions of what changed between two states."""
+    changes: list[str] = []
+    if before.outfit != after.outfit:
+        changes.append(f"outfit: {before.outfit!r} → {after.outfit!r}")
+    if before.body_state != after.body_state:
+        changes.append(f"body_state: {before.body_state!r} → {after.body_state!r}")
+    for attr in ("accessories", "restraints", "wounds", "marks"):
+        before_set = set(getattr(before, attr))
+        after_set = set(getattr(after, attr))
+        added = after_set - before_set
+        removed = before_set - after_set
+        if added:
+            changes.append(f"{attr} +{sorted(added)}")
+        if removed:
+            changes.append(f"{attr} -{sorted(removed)}")
+    return changes
+
+
+def _record_history(channel_id: str, turn: int, before: CharacterState, after: CharacterState) -> None:
+    """Append a history entry if anything actually changed."""
+    changes = _diff_states(before, after)
+    if not changes:
+        return
+    entry = {"turn": turn, "changes": changes}
+    bucket = _history.setdefault(channel_id, [])
+    bucket.append(entry)
+    if len(bucket) > _HISTORY_MAX:
+        del bucket[: len(bucket) - _HISTORY_MAX]
+
+
+def get_history(channel_id: str, n: int = 5) -> list[dict]:
+    """Return the last *n* state-transition entries for a channel (oldest first).
+
+    Each entry is a dict with keys:
+      ``turn``    – turn counter when the change was applied
+      ``changes`` – list of human-readable change strings
+    """
+    return list(_history.get(channel_id, [])[-n:])
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +470,13 @@ async def update_state(
         return current
 
     print(f"[CharState] Applying delta: {meaningful}")
+    before_snapshot = _copy.copy(current)
+    before_snapshot.accessories = list(current.accessories)
+    before_snapshot.restraints = list(current.restraints)
+    before_snapshot.wounds = list(current.wounds)
+    before_snapshot.marks = list(current.marks)
     updated = _apply_delta(current, delta, turn)
     _states[channel_id] = updated
+    _record_history(channel_id, turn, before_snapshot, updated)
     _db.set_character_state(channel_id, _state_to_dict(updated))
     return updated
