@@ -868,13 +868,22 @@ def _build_multi_edit_workflow_qwen(
     wrapper around this function.
     Falls back to the txt2img graph if `uploaded_image_names` is empty.
     """
-    enhanced_prompt = prompt + _ANATOMY_SUFFIX
     n = min(len(uploaded_image_names), 4)
     if n < 1:
         return _build_txt2img_workflow_qwen(
             prompt, gguf_path, vae_name, clip_gguf_name,
             steps, width, height, seed, sampler_name, scheduler_name,
         )
+    # In edit-mode (≥1 ref) prepend an appearance-lock instruction.  The
+    # Qwen-Image-Edit model will follow explicit "do NOT change …" directives
+    # even when the rest of the prompt describes the scene differently — this
+    # prevents a hallucinated text colour (e.g. "ash-blonde") from overriding
+    # the hair colour that is plainly visible in the reference image.
+    _APPEARANCE_LOCK = (
+        "Preserve the exact appearance of all characters from the reference images. "
+        "Do NOT change hair colour, eye colour, skin tone, or facial features. "
+    )
+    enhanced_prompt = _APPEARANCE_LOCK + prompt + _ANATOMY_SUFFIX
 
     workflow: dict = {
         "1": {

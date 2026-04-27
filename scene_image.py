@@ -482,8 +482,20 @@ def _gather_refs(
 
 # ── Prompt derivation ─────────────────────────────────────────────────────────
 
-async def _derive_prompt(seed: str, looks: str, bot_name: str) -> str:
+async def _derive_prompt(
+    seed: str,
+    looks: str,
+    bot_name: str,
+    llm_refs: Optional[list] = None,
+    llm_ref_labels: Optional[list] = None,
+) -> str:
     """Run prompt enhancement against the active backend's enhancer.
+
+    When ``llm_refs`` is provided (list of ``(bytes, mime)`` tuples, one per
+    unique subject), they are forwarded to ``enhance_image_prompt`` as
+    ``reference_images`` so the LLM can read character appearance directly
+    from the photos instead of inventing traits. ``llm_ref_labels`` is the
+    matching list of subject names used to build the photo-order map.
 
     Falls back to the seed itself on any failure — scene-image generation is
     never blocked by enhancement issues.
@@ -494,10 +506,15 @@ async def _derive_prompt(seed: str, looks: str, bot_name: str) -> str:
             f"[Authoritative written appearance — {bot_name or 'character'}]\n"
             f"{looks}"
         )
+    has_llm_refs = bool(llm_refs)
+    if has_llm_refs:
+        print(f"[SceneImage] passing {len(llm_refs)} LLM ref image(s) to enhancer: {llm_ref_labels}")
     try:
         enriched = await groq_ai.enhance_image_prompt(
             seed,
             character_context=char_context,
+            reference_images=llm_refs if has_llm_refs else None,
+            reference_image_labels=llm_ref_labels if has_llm_refs else None,
         )
         if enriched and isinstance(enriched, str):
             return enriched.strip()
@@ -619,18 +636,46 @@ async def run_scene_image(
                 seed = f"{bot_name}: {seed}"
                 print(f"[SceneImage] injected bot name into seed ({bot_name!r})")
 
-        enriched_base = await _derive_prompt(seed, looks, bot_name)
-        enriched_base = enriched_base.rstrip(",. \n")
-
-        # 2. Engine-tier ref assembly
+        # 2. Engine-tier detection (needed before enhancement so Qwen can
+        # pass reference photos to the prompt enhancer).
         backend = os.environ.get("IMAGE_BACKEND", "cloudflare").lower()
         engine = os.environ.get("COMFYUI_ENGINE", "qwen").lower()
 
+        # For Qwen: gather refs NOW so the enhancer sees character photos.
+        # Both the bot's own character photo and each matched KB entry photo
+        # are forwarded — one photo per unique subject, labelled by name.
+        # This lets the LLM read actual hair/eye colour instead of inventing
+        # them. The full refs list (up to 2 photos per subject) is preserved
+        # for ComfyUI; we only de-duplicate for the LLM call.
+        _qwen_prefetch: Optional[tuple] = None
+        llm_refs: list = []
+        llm_ref_labels: list = []
+        if backend == "comfyui" and engine == "qwen":
+            _early_refs, _early_subjects, _early_appearances = _gather_refs(
+                seed, explicit_subjects
+            )
+            _qwen_prefetch = (_early_refs, _early_subjects, _early_appearances)
+            _seen_llm: set = set()
+            for _r, _s in zip(_early_refs, _early_subjects):
+                _s_key = (_s or "self").strip().lower()
+                if _s_key not in _seen_llm:
+                    _seen_llm.add(_s_key)
+                    llm_refs.append(_r)
+                    llm_ref_labels.append((_s or "self").strip())
+
+        enriched_base = await _derive_prompt(
+            seed, looks, bot_name,
+            llm_refs=llm_refs if llm_refs else None,
+            llm_ref_labels=llm_ref_labels if llm_ref_labels else None,
+        )
+        enriched_base = enriched_base.rstrip(",. \n")
+
+        # 3. Engine-tier ref assembly (Qwen reuses the prefetched result)
         gen_kwargs: dict = {}
         resolved_subjects: list[str] = []
         all_subjects: list[str] = []
         if backend == "comfyui" and engine == "qwen":
-            refs, subjects, appearances = _gather_refs(seed, explicit_subjects)
+            refs, subjects, appearances = _qwen_prefetch  # type: ignore[misc]
             if refs:
                 gen_kwargs["reference_images"] = refs
                 gen_kwargs["reference_subjects"] = subjects
