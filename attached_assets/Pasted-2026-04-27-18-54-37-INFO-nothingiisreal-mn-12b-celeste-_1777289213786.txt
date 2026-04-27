@@ -1,0 +1,191 @@
+2026-04-27 18:54:37  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Running chat completion on conversation with 2 messages.
+2026-04-27 18:54:37 [DEBUG]
+ LlamaV4::predict slot selection: session_id=<empty> server-selected (LCP/LRU)
+2026-04-27 18:54:37 [DEBUG]
+ slot get_availabl: id  2 | task -1 | selected slot by LRU, t_last = 130796658537
+srv  get_availabl: updating prompt cache
+srv          load:  - looking for better prompt, base f_keep = -1.000, sim = 0.000
+srv          load:  - found better prompt with f_keep = 0.514, sim = 0.963
+2026-04-27 18:54:37 [DEBUG]
+ srv        update:  - cache state: 37 prompts, 7992.182 MiB (limits: 8192.000 MiB, 4096 tokens, 52424 est)
+srv        update:    - prompt 00000200B1158FF0:     594 tokens, checkpoints:  0,    92.820 MiB
+srv        update:    - prompt 000002012B5061C0:     446 tokens, checkpoints:  0,    69.694 MiB
+srv        update:    - prompt 00000200B1158DC0:     592 tokens, checkpoints:  0,    92.508 MiB
+srv        update:    - prompt 00000200B1158F80:     512 tokens, checkpoints:  0,    80.007 MiB
+srv        update:    - prompt 00000200B1158C00:     484 tokens, checkpoints:  0,    75.631 MiB
+srv        update:    - prompt 000002057BFE8E00:     530 tokens, checkpoints:  0,    82.819 MiB
+srv        update:    - prompt 00000200B11588F0:    2141 tokens, checkpoints:  0,   334.557 MiB
+srv        update:    - prompt 00000200B118EA00:     437 tokens, checkpoints:  0,    68.287 MiB
+srv        update:    - prompt 00000200B118E920:     651 tokens, checkpoints:  0,   101.727 MiB
+srv        update:    - prompt 00000200B118E7D0:     693 tokens, checkpoints:  0,   108.290 MiB
+srv        update:    - prompt 00000200B118E8B0:     643 tokens, checkpoints:  0,   100.477 MiB
+srv        update:    - prompt 00000200B118E760:    3068 tokens, checkpoints:  0,   479.411 MiB
+srv        update:    - prompt 000002012B5062A0:     492 tokens, checkpoints:  0,    76.882 MiB
+srv        update:    - prompt 00000200B118D820:     569 tokens, checkpoints:  0,    88.914 MiB
+srv        update:    - prompt 00000200B118D890:     633 tokens, checkpoints:  0,    98.914 MiB
+srv        update:    - prompt 00000200B118D740:     580 tokens, checkpoints:  0,    90.633 MiB
+srv        update:    - prompt 00000200B118E840:     528 tokens, checkpoints:  0,    82.507 MiB
+srv        update:    - prompt 00000200B118E990:     545 tokens, checkpoints:  0,    85.163 MiB
+srv        update:    - prompt 00000200B1158CE0:     482 tokens, checkpoints:  0,    75.319 MiB
+srv        update:    - prompt 00000200B118D9E0:     466 tokens, checkpoints:  0,    72.819 MiB
+srv        update:    - prompt 00000200B118E6F0:    3205 tokens, checkpoints:  0,   500.819 MiB
+srv        update:    - prompt 000002057C476040:    1479 tokens, checkpoints:  0,   231.112 MiB
+srv        update:    - prompt 000002057C476190:    3532 tokens, checkpoints:  0,   551.916 MiB
+srv        update:    - prompt 000002057C475E10:    3815 tokens, checkpoints:  0,   596.138 MiB
+srv        update:    - prompt 000002057C475A90:     413 tokens, checkpoints:  0,    64.537 MiB
+srv        update:    - prompt 000002057C475FD0:    4048 tokens, checkpoints:  0,   632.547 MiB
+srv        update:    - prompt 000002057C475D30:     340 tokens, checkpoints:  0,    53.130 MiB
+srv        update:    - prompt 000002057C475B00:    3947 tokens, checkpoints:  0,   616.765 MiB
+srv        update:    - prompt 000002057C475DA0:     455 tokens, checkpoints:  0,    71.100 MiB
+srv        update:    - prompt 000002057C475E80:     461 tokens, checkpoints:  0,    72.037 MiB
+srv        update:    - prompt 000002057C475EF0:    4040 tokens, checkpoints:  0,   631.297 MiB
+srv        update:    - prompt 000002057C475CC0:     457 tokens, checkpoints:  0,    71.412 MiB
+srv        update:    - prompt 000002057BFE1460:     781 tokens, checkpoints:  0,   122.041 MiB
+srv        update:    - prompt 000002057BFE12A0:    4039 tokens, checkpoints:  0,   631.141 MiB
+srv        update:    - prompt 000002057BFE1150:     438 tokens, checkpoints:  0,    68.443 MiB
+srv        update:    - prompt 000002057BFE11C0:     528 tokens, checkpoints:  0,    82.507 MiB
+srv        update:    - prompt 000002055D5E3820:    4082 tokens, checkpoints:  0,   637.860 MiB
+srv  get_availabl: prompt cache update took 38.67 ms
+2026-04-27 18:54:37 [DEBUG]
+ slot launch_slot_: id  2 | task -1 | sampler chain: logits -> penalties -> ?dry -> ?top-n-sigma -> ?top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+slot launch_slot_: id  2 | task 25717 | processing task, is_child = 0
+slot slot_save_an: id  0 | task -1 | saving idle slot to prompt cache
+srv   prompt_save:  - saving prompt with length 471, total state size = 73.600 MiB
+2026-04-27 18:54:37 [DEBUG]
+ slot prompt_clear: id  0 | task -1 | clearing prompt with 471 tokens
+2026-04-27 18:54:37 [DEBUG]
+ srv        update:  - cache state: 38 prompts, 8065.782 MiB (limits: 8192.000 MiB, 4096 tokens, 52424 est)
+srv        update:    - prompt 00000200B1158FF0:     594 tokens, checkpoints:  0,    92.820 MiB
+srv        update:    - prompt 000002012B5061C0:     446 tokens, checkpoints:  0,    69.694 MiB
+srv        update:    - prompt 00000200B1158DC0:     592 tokens, checkpoints:  0,    92.508 MiB
+srv        update:    - prompt 00000200B1158F80:     512 tokens, checkpoints:  0,    80.007 MiB
+srv        update:    - prompt 00000200B1158C00:     484 tokens, checkpoints:  0,    75.631 MiB
+srv        update:    - prompt 000002057BFE8E00:     530 tokens, checkpoints:  0,    82.819 MiB
+srv        update:    - prompt 00000200B11588F0:    2141 tokens, checkpoints:  0,   334.557 MiB
+srv        update:    - prompt 00000200B118EA00:     437 tokens, checkpoints:  0,    68.287 MiB
+srv        update:    - prompt 00000200B118E920:     651 tokens, checkpoints:  0,   101.727 MiB
+srv        update:    - prompt 00000200B118E7D0:     693 tokens, checkpoints:  0,   108.290 MiB
+srv        update:    - prompt 00000200B118E8B0:     643 tokens, checkpoints:  0,   100.477 MiB
+srv        update:    - prompt 00000200B118E760:    3068 tokens, checkpoints:  0,   479.411 MiB
+srv        update:    - prompt 000002012B5062A0:     492 tokens, checkpoints:  0,    76.882 MiB
+srv        update:    - prompt 00000200B118D820:     569 tokens, checkpoints:  0,    88.914 MiB
+srv        update:    - prompt 00000200B118D890:     633 tokens, checkpoints:  0,    98.914 MiB
+srv        update:    - prompt 00000200B118D740:     580 tokens, checkpoints:  0,    90.633 MiB
+srv        update:    - prompt 00000200B118E840:     528 tokens, checkpoints:  0,    82.507 MiB
+srv        update:    - prompt 00000200B118E990:     545 tokens, checkpoints:  0,    85.163 MiB
+srv        update:    - prompt 00000200B1158CE0:     482 tokens, checkpoints:  0,    75.319 MiB
+srv        update:    - prompt 00000200B118D9E0:     466 tokens, checkpoints:  0,    72.819 MiB
+srv        update:    - prompt 00000200B118E6F0:    3205 tokens, checkpoints:  0,   500.819 MiB
+srv        update:    - prompt 000002057C476040:    1479 tokens, checkpoints:  0,   231.112 MiB
+srv        update:    - prompt 000002057C476190:    3532 tokens, checkpoints:  0,   551.916 MiB
+srv        update:    - prompt 000002057C475E10:    3815 tokens, checkpoints:  0,   596.138 MiB
+srv        update:    - prompt 000002057C475A90:     413 tokens, checkpoints:  0,    64.537 MiB
+srv        update:    - prompt 000002057C475FD0:    4048 tokens, checkpoints:  0,   632.547 MiB
+srv        update:    - prompt 000002057C475D30:     340 tokens, checkpoints:  0,    53.130 MiB
+srv        update:    - prompt 000002057C475B00:    3947 tokens, checkpoints:  0,   616.765 MiB
+srv        update:    - prompt 000002057C475DA0:     455 tokens, checkpoints:  0,    71.100 MiB
+srv        update:    - prompt 000002057C475E80:     461 tokens, checkpoints:  0,    72.037 MiB
+srv        update:    - prompt 000002057C475EF0:    4040 tokens, checkpoints:  0,   631.297 MiB
+srv        update:    - prompt 000002057C475CC0:     457 tokens, checkpoints:  0,    71.412 MiB
+srv        update:    - prompt 000002057BFE1460:     781 tokens, checkpoints:  0,   122.041 MiB
+srv        update:    - prompt 000002057BFE12A0:    4039 tokens, checkpoints:  0,   631.141 MiB
+srv        update:    - prompt 000002057BFE1150:     438 tokens, checkpoints:  0,    68.443 MiB
+srv        update:    - prompt 000002057BFE11C0:     528 tokens, checkpoints:  0,    82.507 MiB
+srv        update:    - prompt 000002055D5E3820:    4082 tokens, checkpoints:  0,   637.860 MiB
+srv        update:    - prompt 000002055D5E3A50:     471 tokens, checkpoints:  0,    73.600 MiB
+slot slot_save_an: id  1 | task -1 | saving idle slot to prompt cache
+srv   prompt_save:  - saving prompt with length 577, total state size = 90.164 MiB
+2026-04-27 18:54:37 [DEBUG]
+ slot prompt_clear: id  1 | task -1 | clearing prompt with 577 tokens
+2026-04-27 18:54:37 [DEBUG]
+ srv        update:  - cache state: 39 prompts, 8155.946 MiB (limits: 8192.000 MiB, 4096 tokens, 52424 est)
+srv        update:    - prompt 00000200B1158FF0:     594 tokens, checkpoints:  0,    92.820 MiB
+srv        update:    - prompt 000002012B5061C0:     446 tokens, checkpoints:  0,    69.694 MiB
+srv        update:    - prompt 00000200B1158DC0:     592 tokens, checkpoints:  0,    92.508 MiB
+srv        update:    - prompt 00000200B1158F80:     512 tokens, checkpoints:  0,    80.007 MiB
+srv        update:    - prompt 00000200B1158C00:     484 tokens, checkpoints:  0,    75.631 MiB
+srv        update:    - prompt 000002057BFE8E00:     530 tokens, checkpoints:  0,    82.819 MiB
+srv        update:    - prompt 00000200B11588F0:    2141 tokens, checkpoints:  0,   334.557 MiB
+srv        update:    - prompt 00000200B118EA00:     437 tokens, checkpoints:  0,    68.287 MiB
+srv        update:    - prompt 00000200B118E920:     651 tokens, checkpoints:  0,   101.727 MiB
+srv        update:    - prompt 00000200B118E7D0:     693 tokens, checkpoints:  0,   108.290 MiB
+srv        update:    - prompt 00000200B118E8B0:     643 tokens, checkpoints:  0,   100.477 MiB
+srv        update:    - prompt 00000200B118E760:    3068 tokens, checkpoints:  0,   479.411 MiB
+srv        update:    - prompt 000002012B5062A0:     492 tokens, checkpoints:  0,    76.882 MiB
+srv        update:    - prompt 00000200B118D820:     569 tokens, checkpoints:  0,    88.914 MiB
+srv        update:    - prompt 00000200B118D890:     633 tokens, checkpoints:  0,    98.914 MiB
+srv        update:    - prompt 00000200B118D740:     580 tokens, checkpoints:  0,    90.633 MiB
+srv        update:    - prompt 00000200B118E840:     528 tokens, checkpoints:  0,    82.507 MiB
+srv        update:    - prompt 00000200B118E990:     545 tokens, checkpoints:  0,    85.163 MiB
+srv        update:    - prompt 00000200B1158CE0:     482 tokens, checkpoints:  0,    75.319 MiB
+srv        update:    - prompt 00000200B118D9E0:     466 tokens, checkpoints:  0,    72.819 MiB
+srv        update:    - prompt 00000200B118E6F0:    3205 tokens, checkpoints:  0,   500.819 MiB
+srv        update:    - prompt 000002057C476040:    1479 tokens, checkpoints:  0,   231.112 MiB
+srv        update:    - prompt 000002057C476190:    3532 tokens, checkpoints:  0,   551.916 MiB
+srv        update:    - prompt 000002057C475E10:    3815 tokens, checkpoints:  0,   596.138 MiB
+srv        update:    - prompt 000002057C475A90:     413 tokens, checkpoints:  0,    64.537 MiB
+srv        update:    - prompt 000002057C475FD0:    4048 tokens, checkpoints:  0,   632.547 MiB
+srv        update:    - prompt 000002057C475D30:     340 tokens, checkpoints:  0,    53.130 MiB
+srv        update:    - prompt 000002057C475B00:    3947 tokens, checkpoints:  0,   616.765 MiB
+srv        update:    - prompt 000002057C475DA0:     455 tokens, checkpoints:  0,    71.100 MiB
+srv        update:    - prompt 000002057C475E80:     461 tokens, checkpoints:  0,    72.037 MiB
+srv        update:    - prompt 000002057C475EF0:    4040 tokens, checkpoints:  0,   631.297 MiB
+srv        update:    - prompt 000002057C475CC0:     457 tokens, checkpoints:  0,    71.412 MiB
+srv        update:    - prompt 000002057BFE1460:     781 tokens, checkpoints:  0,   122.041 MiB
+srv        update:    - prompt 000002057BFE12A0:    4039 tokens, checkpoints:  0,   631.141 MiB
+srv        update:    - prompt 000002057BFE1150:     438 tokens, checkpoints:  0,    68.443 MiB
+srv        update:    - prompt 000002057BFE11C0:     528 tokens, checkpoints:  0,    82.507 MiB
+srv        update:    - prompt 000002055D5E3820:    4082 tokens, checkpoints:  0,   637.860 MiB
+srv        update:    - prompt 000002055D5E3A50:     471 tokens, checkpoints:  0,    73.600 MiB
+srv        update:    - prompt 000002055D5E3900:     577 tokens, checkpoints:  0,    90.164 MiB
+slot update_slots: id  2 | task 25717 | new prompt, n_ctx_slot = 4096, n_keep = 350, task.n_tokens = 350
+slot update_slots: id  2 | task 25717 | n_tokens = 337, memory_seq_rm [337, end)
+slot init_sampler: id  2 | task 25717 | init sampler, took 0.07 ms, tokens: text = 350, total = 350
+2026-04-27 18:54:37 [DEBUG]
+ slot update_slots: id  2 | task 25717 | prompt processing done, n_tokens = 350, batch.n_tokens = 13
+2026-04-27 18:54:37  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 0.0%
+2026-04-27 18:54:37  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Prompt processing progress: 100.0%
+2026-04-27 18:54:41 [DEBUG]
+ slot print_timing: id  2 | task 25717 | 
+prompt eval time =      97.20 ms /    13 tokens (    7.48 ms per token,   133.74 tokens per second)
+       eval time =    3934.38 ms /    76 tokens (   51.77 ms per token,    19.32 tokens per second)
+      total time =    4031.58 ms /    89 tokens
+slot      release: id  2 | task 25717 | stop processing: n_tokens = 425, truncated = 0
+srv  update_slots: all slots are idle
+2026-04-27 18:54:41 [DEBUG]
+ LlamaV4: server assigned slot 2 to task 25717
+2026-04-27 18:54:41  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Model generated tool calls:  []
+2026-04-27 18:54:41  [INFO]
+ [nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf] Generated prediction:  {
+  "id": "chatcmpl-40ftlrniugui5jjr21c90g",
+  "object": "chat.completion",
+  "created": 1777287277,
+  "model": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Kelly Gray approaches me in a dark, rain-soaked alleyway at dusk. The shadows of crumbling brick buildings loom over us as raindrops splash into puddles on the grimy pavement. A dim streetlamp casts an orange glow through the drizzle, highlighting her determined stride and intense gaze as she closes the distance between us under the night sky.",
+        "reasoning_content": "",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 350,
+    "completion_tokens": 76,
+    "total_tokens": 426,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "nothingiisreal/mn-12b-celeste-v1.9-gguf/q5_k_m.gguf"
+}
