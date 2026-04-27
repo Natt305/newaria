@@ -1,0 +1,342 @@
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.3.0)/charset_normalizer (3.4.6) doesn't match a supported version!
+  warnings.warn(
+[START] Security scan
+[DONE] Security scan
+## ComfyUI-Manager: installing dependencies done.
+** ComfyUI startup time: 2026-04-27 08:23:47.442
+** Platform: Windows
+** Python version: 3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]
+** Python executable: C:\Users\user\AppData\Local\Programs\Python\Python314\python.exe
+** ComfyUI Path: E:\comfyui\resources\ComfyUI
+** ComfyUI Base Folder Path: E:\comfyui\resources\ComfyUI
+** User directory: E:\comfyui\resources\ComfyUI\user
+** ComfyUI-Manager config path: E:\comfyui\resources\ComfyUI\user\__manager\config.ini
+** Log path: E:\comfyui\resources\ComfyUI\user\comfyui.log
+
+Prestartup times for custom nodes:
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Easy-Use
+   2.5 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\comfyui-manager
+
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\cuda\__init__.py:61: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+Found comfy_kitchen backend cuda: {'available': True, 'disabled': False, 'unavailable_reason': None, 'capabilities': ['apply_rope', 'apply_rope1', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8', 'scaled_mm_nvfp4']}
+Found comfy_kitchen backend eager: {'available': True, 'disabled': False, 'unavailable_reason': None, 'capabilities': ['apply_rope', 'apply_rope1', 'dequantize_mxfp8', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8', 'scaled_mm_mxfp8', 'scaled_mm_nvfp4']}
+Found comfy_kitchen backend triton: {'available': True, 'disabled': True, 'unavailable_reason': None, 'capabilities': ['apply_rope', 'apply_rope1', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8']}
+Checkpoint files will always be loaded safely.
+Total VRAM 16376 MB, total RAM 48245 MB
+pytorch version: 2.12.0.dev20260324+cu130
+Set vram state to: NORMAL_VRAM
+Device: cuda:0 NVIDIA GeForce RTX 4070 Ti SUPER : cudaMallocAsync
+Using async weight offloading with 2 streams
+Enabled pinned memory 19298.0
+Using pytorch attention
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\einops\_torch_specific.py:115: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(rearrange)
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\_dynamo\decorators.py:1412: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(einops.rearrange)
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\_dynamo\decorators.py:1414: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(einops.reduce)
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\_dynamo\decorators.py:1417: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(einops.repeat)  # available since einops 0.2.0
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\_dynamo\decorators.py:1420: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(einops.einsum)  # available since einops 0.5.0
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\_dynamo\decorators.py:1423: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(einops.pack)  # available since einops 0.6.0
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\_dynamo\decorators.py:1426: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(einops.unpack)  # available since einops 0.6.0
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\einops\_torch_specific.py:116: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(reduce)
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\einops\_torch_specific.py:117: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(repeat)
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\einops\_torch_specific.py:118: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(einsum)
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\einops\_torch_specific.py:119: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(pack)
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\einops\_torch_specific.py:120: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  allow_in_graph(unpack)
+aimdo: src-win/cuda-detour.c:77:INFO:aimdo_setup_hooks: found driver at 00007FFA922E0000, installing 4 hooks
+aimdo: src-win/cuda-detour.c:61:DEBUG:install_hook_entrys: hooks successfully installed
+aimdo: src/control.c:69:INFO:comfy-aimdo inited for GPU: NVIDIA GeForce RTX 4070 Ti SUPER (VRAM: 16375 MB)
+DynamicVRAM support detected and enabled
+Python version: 3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]
+ComfyUI version: 0.19.5
+comfy-aimdo version: 0.2.12
+comfy-kitchen version: 0.2.8
+Failed to check frontend version: 'NoneType' object has no attribute 'split'
+[Prompt Server] web root: C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\comfyui_frontend_package\static
+Asset seeder disabled
+[Crystools INFO] Crystools version: 1.27.4
+[Crystools INFO] Platform release: 10
+[Crystools INFO] JETSON: Not detected.
+[Crystools INFO] CPU: AMD Ryzen 7 7700 8-Core Processor - Arch: AMD64 - OS: Windows 10
+[Crystools INFO] pynvml (NVIDIA) initialized.
+[Crystools INFO] GPU/s:
+[Crystools INFO] 0) NVIDIA GeForce RTX 4070 Ti SUPER
+[Crystools INFO] NVIDIA Driver: 595.79
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention_processor.py:51: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\compiler\__init__.py:148: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  return torch._dynamo.allow_in_graph(fn)
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\hooks\context_parallel.py:339: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:537: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:579: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:751: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:1132: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention.py:1334: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\auraflow_transformer_2d.py:146: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\auraflow_transformer_2d.py:196: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\cogvideox_transformer_3d.py:37: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\consisid_transformer_3d.py:231: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\hunyuan_transformer_2d.py:56: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\stable_audio_transformer.py:64: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_allegro.py:35: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention_dispatch.py:1782: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\attention_dispatch.py:1816: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_bria.py:365: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_bria.py:450: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_bria_fibo.py:243: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_bria_fibo.py:306: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_flux.py:355: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_flux.py:409: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_chroma.py:203: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_chroma.py:275: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_chronoedit.py:433: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_cogview4.py:455: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_easyanimate.py:208: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_glm_image.py:350: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_helios.py:373: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hidream_image.py:139: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hidream_image.py:420: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hidream_image.py:489: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hunyuanimage.py:266: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hunyuanimage.py:460: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_hunyuanimage.py:537: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_longcat_image.py:214: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_longcat_image.py:268: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_ltx.py:281: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_ltx.py:384: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_mochi.py:118: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_mochi.py:308: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_ovis_image.py:214: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_ovis_image.py:271: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_qwenimage.py:576: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_sd3.py:38: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_skyreels_v2.py:438: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_wan.py:419: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\diffusers\models\transformers\transformer_z_image.py:183: FutureWarning: torch._dynamo.allow_in_graph is deprecated and will be removed in a future version. Use torch._dynamo.nonstrict_trace instead.
+  @maybe_allow_in_graph
+[ComfyUI-Easy-Use] server: v1.3.7 Loaded
+[ComfyUI-Easy-Use] web root: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Easy-Use\web_version/v2 Loaded
+ComfyUI-Env-Manager v0.1.0 routes registered
+ComfyUI-GGUF: Allowing full torch compile
+[LoRA-Manager] Found LoRA roots:
+ - E:/comfyui/resources/ComfyUI/models/loras
+[LoRA-Manager] Found checkpoint roots:
+ - E:/comfyui/resources/ComfyUI/models/checkpoints
+ - E:/comfyui/resources/ComfyUI/models/diffusion_models
+ - E:/comfyui/resources/ComfyUI/models/unet
+[LoRA-Manager] Found embedding roots:
+ - E:/comfyui/resources/ComfyUI/models/embeddings
+[LoRA-Manager] Symlink cache loaded with 0 mappings
+[LoRA-Manager] Symlink mappings restored from cache in 2.72 ms
+[LoRA-Manager] Updated 'comfyui' library with current folder paths
+[LoRA-Manager] Detected async ComfyUI execution, installing async metadata hooks
+[LoRA-Manager] Metadata collection hooks installed for runtime values
+[LoRA-Manager] ComfyUI Metadata Collector initialized
+[LoRA-Manager] Example images path:
+[LoRA-Manager] Added static route for locales: /locales -> E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Lora-Manager\locales
+### Loading: ComfyUI-Manager (V3.39.2)
+[ComfyUI-Manager] network_mode: public
+[ComfyUI-Manager] ComfyUI per-queue preview override detected (PR #11261). Manager's preview method feature is disabled. Use ComfyUI's --preview-method CLI option or 'Settings > Execution > Live preview method'.
+### ComfyUI Revision: UNKNOWN (The currently installed ComfyUI is not a Git repository)
+ComfyUI-Multiband loaded: 15 nodes registered
+Error loading E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_BodySegment.py: No module named 'onnxruntime'
+[ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/alter-list.json
+[ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/model-list.json
+[ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/github-stats.json
+[ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/extension-node-map.json
+[ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json
+Warning: GroundingDINO not available. Text prompts will use fallback method.
+Error loading E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_SegmentV2.py: No module named 'groundingdino'
+Error loading E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_BodySegment.py: No module named 'onnxruntime'
+Warning: GroundingDINO not available. Text prompts will use fallback method.
+Error loading E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_SegmentV2.py: No module named 'groundingdino'
+[ComfyUI-RMBG] v3.0.0 | 41 nodes Loaded
+ImageCompositeMaskedWithSwitch: 检测父节点类型 - V3支持=True, 父节点是V3=True
+ImageCompositeMaskedWithSwitch: 使用 V3 Schema 模式
+No module named 'google.generativeai'
+Traceback (most recent call last):
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-utils-nodes\__init__.py", line 46, in <module>
+    imported_module = importlib.import_module(".py.{}".format(name), __name__)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1398, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1342, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 938, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 759, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-utils-nodes\py\node_gemini_enhance_prompt.py", line 5, in <module>
+    import google.generativeai as genai
+ModuleNotFoundError: No module named 'google.generativeai'
+No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-utils-nodes\__init__.py", line 46, in <module>
+    imported_module = importlib.import_module(".py.{}".format(name), __name__)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1398, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1342, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 938, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 759, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-utils-nodes\py\node_nsfw.py", line 3, in <module>
+    from ..r_nudenet.nudenet import NudeDetector
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-utils-nodes\r_nudenet\nudenet.py", line 6, in <module>
+    import onnxruntime
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "E:\comfyui\resources\ComfyUI\nodes.py", line 2227, in load_custom_node
+    module_spec.loader.exec_module(module)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 759, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\comfyui-various\__init__.py", line 78, in <module>
+    load_nodes(module_name)
+    ~~~~~~~~~~^^^^^^^^^^^^^
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\comfyui-various\__init__.py", line 43, in load_nodes
+    module = importlib.import_module(module_name, package=__name__)
+  File "C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1398, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1342, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 938, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 759, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "E:\comfyui\resources\ComfyUI\custom_nodes\comfyui-various\comfyui_sound.py", line 7, in <module>
+    import soundfile as sf
+ModuleNotFoundError: No module named 'soundfile'
+
+Cannot import E:\comfyui\resources\ComfyUI\custom_nodes\comfyui-various module for custom nodes: No module named 'soundfile'
+# 😺dzNodes: LayerStyle -> Cannot import name 'guidedFilter' from 'cv2.ximgproc'
+A few nodes cannot works properly, while most nodes are not affected. Please REINSTALL package 'opencv-contrib-python'.
+For detail refer to https://github.com/chflame163/ComfyUI_LayerStyle/issues/5
+Using pytorch attention
+(RES4LYF) Init
+(RES4LYF) Importing beta samplers.
+(RES4LYF) Importing legacy samplers.
+WAS Node Suite: OpenCV Python FFMPEG support is enabled
+WAS Node Suite Warning: `ffmpeg_bin_path` is not set in `E:\comfyui\resources\ComfyUI\custom_nodes\was-node-suite-comfyui\was_suite_config.json` config file. Will attempt to use system ffmpeg binaries if available.
+WAS Node Suite: Finished. Loaded 220 nodes successfully.
+
+        "Art is a harmony parallel with nature." - Paul Cézanne
+
+
+Import times for custom nodes:
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\websocket_image_save.py
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-BRIA_AI-RMBG
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-ReferenceChain
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\comfyui-inpaint-cropandstitch
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Env-Manager
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-List-Utils
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-GGUF
+   0.0 seconds (IMPORT FAILED): E:\comfyui\resources\ComfyUI\custom_nodes\comfyui-various
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI_essentials
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI_HavocsCall_Custom_Nodes
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Multiband
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-KJNodes
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\x-flux-comfyui
+   0.0 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\comfyui-manager
+   0.1 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-VideoHelperSuite
+   0.1 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Crystools
+   0.1 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-utils-nodes
+   0.1 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Lora-Manager
+   0.1 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI_LayerStyle
+   0.4 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\RES4LYF
+   0.8 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-RMBG
+   1.1 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\was-node-suite-comfyui
+   3.2 seconds: E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Easy-Use
+
+Context impl SQLiteImpl.
+Will assume non-transactional DDL.
+Starting server
+
+To see the GUI go to: http://127.0.0.1:8188
+[LoRA-Manager] Checkpoint cache hydrated from persisted snapshot with 1 models
+[LoRA-Manager] Lora cache initialized in 0.00 seconds. Found 0 models
+[LoRA-Manager] Recipe cache miss: performing full directory scan
+[LoRA-Manager] Embedding cache initialized in 0.01 seconds. Found 0 models
+[LoRA-Manager] Recipe cache initialized in 0.02 seconds. Found 0 recipes
+[LoRA-Manager] FTS index validated, reusing existing index with 0 recipes
+FETCH ComfyRegistry Data: 5/141
+got prompt
+Failed to validate prompt for output 9:
+* VAELoader 3:
+  - Value not in list: vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']
+Output will be ignored
+invalid prompt: {'type': 'prompt_outputs_failed_validation', 'message': 'Prompt outputs failed validation', 'details': '', 'extra_info': {}}
+FETCH ComfyRegistry Data: 10/141
+FETCH ComfyRegistry Data: 15/141
+FETCH ComfyRegistry Data: 20/141
+FETCH ComfyRegistry Data: 25/141
+FETCH ComfyRegistry Data: 30/141
+FETCH ComfyRegistry Data: 35/141
+got prompt
+Failed to validate prompt for output 9:
+* VAELoader 3:
+  - Value not in list: vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']
+Output will be ignored
+invalid prompt: {'type': 'prompt_outputs_failed_validation', 'message': 'Prompt outputs failed validation', 'details': '', 'extra_info': {}}
+FETCH ComfyRegistry Data: 40/141
+FETCH ComfyRegistry Data: 45/141

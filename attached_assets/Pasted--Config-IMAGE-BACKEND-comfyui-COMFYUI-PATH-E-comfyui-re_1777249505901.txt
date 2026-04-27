@@ -1,0 +1,125 @@
+[Config] IMAGE_BACKEND=comfyui  COMFYUI_PATH=E:\comfyui\resources\ComfyUI  COMFYUI_ENGINE=qwen
+
+[ComfyUI] Port 8188 is free -- proceeding with auto-launch.
+[ComfyUI] Engine = qwen -- applying engine-scoped pack manifest...
+[scope-packs] Engine = qwen  |  custom_nodes = E:\comfyui\resources\ComfyUI\custom_nodes
+[scope-packs] No changes needed — pack state already matches engine=qwen.
+[scope-packs] Note: 14 manifest entries not found in custom_nodes/ (typo or pack not installed): ComfyUI-GroundingDINO, ComfyUI-IPAdapter-Flux, ComfyUI-Impact-Subpack, ComfyUI-Inspire-Pack, ComfyUI-SAM3, ComfyUI-Ultimate-SD-Upscale, ComfyUI-segment-anything-2, ComfyUI_IPAdapter_plus, ComfyUI_InstantID, ComfyUI_UltimateSDUpscale, comfyui-reactor-node, comfyui_controlnet_aux, comfyui_groundingdino, comfyui_segment_anything
+[ComfyUI] Could not detect GPU VRAM (nvidia-smi missing/failed), ComfyUI will use its built-in auto memory mode.
+[ComfyUI] Starting ComfyUI from: E:\comfyui\resources\ComfyUI
+[ComfyUI] Waiting for ComfyUI to be ready on port 8188...
+[ComfyUI] Ready
+
+[Setup] Installing / updating dependencies...
+[Launcher] Starting bot...
+============================================================
+  少女樂團機器人 (AriaBot)
+  Powered by Ollama / Groq + Cloudflare Workers AI + SQLite
+============================================================
+
+[AI] Backend: LM Studio @ https://gina-fatherless-shavonda.ngrok-free.dev
+[AI] Chat model:   mn-12b-celeste-v1.9
+[AI] Vision model: mn-12b-celeste-v1.9
+[AI] Thinking:     off (snappy roleplay mode — set LMSTUDIO_THINKING=on to enable)
+[AI] Endpoint: https://gina-fatherless-shavonda.ngrok-free.dev/v1/chat/completions
+[DB] command_roles['setcharacter'] = '__admin__'
+[DB] command_roles['character'] = '__admin__'
+[DB] command_roles['remember'] = '__admin__'
+[DB] command_roles['forget'] = '__admin__'
+[DB] command_roles['editdesc'] = '__admin__'
+[DB] command_roles['editappearance'] = '__admin__'
+[DB] command_roles['viewentry'] = '__admin__'
+[DB] command_roles['knowledge'] = '__admin__'
+[DB] command_roles['saveimage'] = '__admin__'
+[DB] command_roles['addimage'] = '__admin__'
+[DB] command_roles['addcharimage'] = '__admin__'
+[DB] command_roles['clear'] = '__admin__'
+[DB] command_roles['memory'] = '__admin__'
+[DB] command_roles['memorylength'] = '__admin__'
+[DB] command_roles['passivememory'] = '__admin__'
+[DB] command_roles['passivememorylength'] = '__admin__'
+[DB] command_roles['memories'] = '__admin__'
+[DB] command_roles['clearmemory'] = None
+[DB] command_roles['suggestions'] = '__admin__'
+[DB] command_roles['setsuggestionprompt'] = '__admin__'
+[DB] command_roles['clearsuggestionprompt'] = '__admin__'
+[DB] command_roles['setstatus'] = '__admin__'
+[DB] command_roles['clearstatus'] = '__admin__'
+[DB] command_roles['setthinking'] = '__admin__'
+[DB] command_roles['clearthinking'] = '__admin__'
+[DB] command_roles['helpsetting'] = '__admin__'
+[DB] command_roles['generate'] = None
+[DB] command_roles['help'] = None
+[啟動器] permissions.txt 已套用 28 條權限設定。
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 1 thumbnail(s) at 512x512
+[啟動器] 啟動機器人...
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.3.0)/charset_normalizer (3.4.6) doesn't match a supported version!
+  warnings.warn(
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 1 thumbnail(s) at 512x512
+[Bot] 啟動角色: Kelly Gray
+[Bot] Groq: 準備就緒
+[Bot] 圖像後端: ComfyUI — 準備就緒 (http://127.0.0.1:8188)
+[Bot] 按 Ctrl+C 停止機器人。
+[2026-04-27 08:24:04] [INFO    ] discord.client: logging in using static token
+[2026-04-27 08:24:05] [INFO    ] discord.gateway: Shard ID None has connected to Gateway (Session ID: 10f252120c176c02e0f65a64f46edbd1).
+[Bot] Logged in as Kelly Gray#3376 (ID: 1497643436893933700)
+[Bot] Character: Kelly Gray
+[Bot] Groq: enabled
+[Bot] Image backend: comfyui — ready (http://127.0.0.1:8188)  |  KB photos: 0 character(s)
+[ComfyUI] Diagnose: engine=qwen  url=http://127.0.0.1:8188
+[ComfyUI] Engine-scoped packs disabled: 1 (ComfyUI-Impact-Pack)
+[ComfyUI] Diagnose:   ✅ found  UnetLoaderGGUF
+[ComfyUI] Diagnose:   ✅ found  CLIPLoaderGGUF
+[ComfyUI] Diagnose:   ✅ found  TextEncodeQwenImageEditPlus
+[ComfyUI] Diagnose:   ⚠ TextEncodeQwenImageEditPlus v1 — no `latent_image` input; falling back to legacy mode (install Phr00t's v2 nodes_qwen.py to fix scaling/cropping/zoom artifacts).
+[ComfyUI] Diagnose:   ✅ CLIPLoaderGGUF type choices: ['stable_diffusion', 'stable_cascade', 'sd3', 'stable_audio', 'mochi', 'ltxv', 'pixart', 'cosmos', 'lumina2', 'wan', 'hidream', 'chroma', 'ace', 'omnigen2', 'qwen_image', 'hunyuan_image', 'flux2', 'ovis', 'longcat_image']
+[ComfyUI] Diagnose: ✅ all required custom nodes present for engine=qwen.
+[ComfyUI] Engine-scoped packs disabled for engine=qwen: 1 (ComfyUI-Impact-Pack)
+[Bot] Data folder: E:\newaria\data
+[Bot]   knowledge_base.db  — KB entries
+[Bot]   character.json     — character name & background
+[Bot] 建議按鈕: 開啟
+[Bot] KB entries: (none)
+[Bot] 長期記憶: 開啟 (近期 50 條 | 深層記憶: 開啟 最多 200 條 | 已儲存 18 條)
+[Bot] 指令權限: 26 條指令受到角色限制
+[SceneImage] Persistent view registered — buttons on bot messages restored across restart.
+====================================================================
+[ComfyUI] WARMUP: pre-loading engine=qwen model into VRAM
+[ComfyUI] WARMUP:   throwaway txt2img — 256x256, 1 step, result discarded.
+[ComfyUI] WARMUP:   Expect a one-time VRAM spike — this is NOT a real request.
+====================================================================
+[ComfyUI] /prompt rejected (HTTP 400): {"error": {"type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation", "details": "", "extra_info": {}}, "node_errors": {"3": {"errors": [{"type": "value_not_in_list", "message": "Value not in list", "details": "vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']", "extra_info": {"input_n
+[ComfyUI]   Node 3 (VAELoader): [value_not_in_list] Value not in list — vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']
+[ComfyUI] WARMUP WARN: pre-warm job did not complete after 0s — first !generate will pay the full model-load cost.
+[Bot] 已同步 36 個斜線指令
+[LMStudio] Sending to mn-12b-celeste-v1.9 | sys_prompt=810ch | ~407 tokens total | max_tokens=8192
+[LMStudio] System prompt:
+You are an expert image-prompt writer for AI image generators.
+Given a user's image request (which may be in Chinese or English), rewrite it as a single, rich English prompt for an AI image model.
+Rules:
+- Output ONLY the prompt text — no intro, no quotes, no explanation.
+- Always write in English.
+- Be specific: include subject, art style, lighting, colors, mood, and setting.
+- Aim for 150-300 words.
+- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.
+- Physical details from character context (hair color, eye color, hairstyle, skin tone) ALWAYS take priority over anything in the raw prompt.
+- ART STYLE (mandatory, always fixed): The art style is ALWAYS 'clean 2D anime illustration, flat cel-shaded coloring, soft gradient shading, vivid saturated color palette, anime digital art'.
+
+[LMStudio] Response: finish_reason=stop | prompt_tokens=399 | completion_tokens=288
+[LMStudio] Response text: 'A tense confrontation in the restricted area of a high-security facility, captured in the style of clean 2D anime illustration with flat cel-shading, vivid saturated colors, and soft gradient shading.\n\nIn the foreground, a mysterious intruder is bound at the wrists with rope, standing under an intense spotlight. They wear dark clothing that blends into the shadowy background.\n\nCrouching down before them is the security guard who apprehended them. She has short blonde hair, steely blue eyes, and '
+[LMStudio] Prompt enhanced: A tense confrontation in the restricted area of a high-security facility, captured in the style of clean 2D anime illustration with flat cel-shading, vivid saturated colors, and soft gradient shading.
+[ComfyUI] Engine: qwen — GGUF: 'Qwen-Rapid-NSFW-v23_Q4_K.gguf', VAE: 'pig_qwen_image_vae_fp32-f16.gguf', CLIP: 'Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf'
+[ComfyUI] Qwen settings — sampler: euler_ancestral/beta, steps: 4, size: 1024x1024
+[ComfyUI] Prompt: 'A tense confrontation in the restricted area of a high-security facility, captured in the style of clean 2D anime illustration with flat cel-shading, vivid saturated colors, and soft gradient shading.'
+[ComfyUI] Qwen edit-mode workflow with 1 reference image (latent_image: not wired (v1 node)).
+[ComfyUI] /prompt rejected (HTTP 400): {"error": {"type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation", "details": "", "extra_info": {}}, "node_errors": {"3": {"errors": [{"type": "value_not_in_list", "message": "Value not in list", "details": "vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']", "extra_info": {"input_n
+[ComfyUI]   Node 3 (VAELoader): [value_not_in_list] Value not in list — vae_name: 'pig_qwen_image_vae_fp32-f16.gguf' not in ['diffusion_pytorch_model.safetensors', 'flux2-vae.safetensors', 'pixel_space']
+[SceneImage] no image produced for trigger=button
