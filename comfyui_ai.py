@@ -772,7 +772,7 @@ def _build_txt2img_workflow_qwen(
     Stack:
         UnetLoaderGGUF                            → MODEL
         CLIPLoaderGGUF (type=qwen_image)          → CLIP
-        VAELoader                                 → VAE
+        VAELoaderGGUF                             → VAE
         CLIPTextEncode (positive + empty negative)
         EmptySD3LatentImage                       → LATENT (16-channel)
         KSampler (CFG=1.0, configurable sampler/scheduler/steps)
