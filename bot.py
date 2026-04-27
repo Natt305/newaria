@@ -521,6 +521,40 @@ def get_current_topic(channel_id: str) -> str:
     return " ".join(m["content"] for m in recent)[:500]
 
 
+# ── System-marker sanitizer ───────────────────────────────────────────────────
+# Some LLMs bleed internal memory/system block delimiters into their reply text.
+# Strip any line that consists solely of a bracketed system marker.
+
+_SYSTEM_MARKER_RE = _re.compile(
+    r"^\s*\[(?:END OF[^\]]*|近期記憶|深層記憶[^\]]*|CHARACTER APPEARANCE[^\]]*"
+    r"|END OF CHARACTER[^\]]*|MEMORY LOG[^\]]*|記憶日誌[^\]]*)\]\s*$",
+    _re.MULTILINE | _re.IGNORECASE,
+)
+
+
+def _strip_system_markers(text: str) -> str:
+    """Remove standalone LLM-leaked system/memory marker lines from a reply."""
+    if not text or "[" not in text:
+        return text
+    cleaned = _SYSTEM_MARKER_RE.sub("", text)
+    cleaned = _re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned if cleaned else text
+
+
+def _build_prose_context(history: list, n_pairs: int = 4) -> Optional[str]:
+    """Build a condensed recent-dialogue excerpt for scene-image coherence."""
+    if not history:
+        return None
+    recent = history[-(n_pairs * 2):]
+    lines: list[str] = []
+    for msg in recent:
+        role = "User" if msg.get("role") == "user" else "Aria"
+        content = (msg.get("content") or "").strip()
+        if content:
+            lines.append(f"{role}: {content[:300]}")
+    return "\n".join(lines) if lines else None
+
+
 def has_clear_topic(channel_id: str) -> bool:
     return len(get_channel_context(channel_id)) >= 2
 
@@ -957,6 +991,11 @@ async def process_chat(
     image_mime: Optional[str] = None,
 ):
     """Core chat handler — used by on_message and button callbacks."""
+    guild_id: Optional[str] = (
+        str(channel.guild.id)
+        if channel is not None and hasattr(channel, "guild") and channel.guild
+        else None
+    )
     bot_name, background, personality, looks = load_character()
 
     image_analysis = ""
@@ -1067,6 +1106,9 @@ async def process_chat(
         await reply_target.reply(response_text, mention_author=False)
         return
 
+    if response_text:
+        response_text = _strip_system_markers(response_text)
+
     saved_text = response_text or f"[圖像生成: {image_prompt}]"
     add_to_context(channel_id, "assistant", saved_text)
     database.save_conversation(
@@ -1094,11 +1136,15 @@ async def process_chat(
         and scene_image.is_scene_mode_on(channel_id)
     )
     if _scene_mode_on:
-        _route_to_scene = bool(
+        _auto_on = scene_image.is_auto_scene_on(channel_id, guild_id)
+        _route_to_scene = _auto_on and bool(
             _wants_scene
             or (image_prompt and _image_ready())
             or scene_image.is_user_visual_intent(user_text)
         )
+        # Build a condensed prose excerpt for cinematic coherence in the
+        # scene-image enhancer (last 4 exchange pairs before this turn).
+        _prose_ctx = _build_prose_context(get_channel_context(channel_id))
         # Send the prose. 🎬 is now a message reaction (added after send)
         # so all button rows are free for suggestion buttons.
         prose = response_text or "…"
@@ -1155,6 +1201,7 @@ async def process_chat(
                 hint_prompt=image_prompt or user_text,
                 seed_override=_scene_prompt,
                 acker=None,
+                prose_context=_prose_ctx,
             )
         return
 
@@ -3122,6 +3169,114 @@ async def sceneimage_cmd(ctx, action: Optional[str] = None):
     )
     embed.set_footer(
         text="再次執行此指令可切換狀態。設定在重啟後保留 (儲存於 settings)。"
+    )
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.hybrid_command(
+    name="sceneauto",
+    description="切換場景圖片自動觸發 (LLM [SCENE] + 視覺意圖偵測)",
+)
+@app_commands.describe(
+    action="on / off / status — 缺省為 status",
+    scope="guild (伺服器預設) / channel (此頻道覆蓋) / channel-clear (移除覆蓋) — 缺省 guild",
+)
+async def sceneauto_cmd(
+    ctx,
+    action: Optional[str] = None,
+    scope: Optional[str] = None,
+):
+    """Toggle the auto-trigger for scene images (guild-wide or per-channel).
+
+    When auto-trigger is ON the bot will automatically fire run_scene_image
+    whenever the LLM emits [SCENE] / [IMAGE:] or the user message reads as a
+    visual-intent request — but ONLY when scene mode is enabled for the channel.
+
+    Guild default is OFF. Per-channel override takes precedence over guild.
+    """
+    if not await check_command_role(ctx):
+        return
+
+    channel_id = str(ctx.channel.id)
+    guild_id_str = str(ctx.guild.id) if ctx.guild else None
+    cmd = (action or "status").strip().lower()
+    scope_str = (scope or "guild").strip().lower()
+
+    if scope_str in ("channel-clear", "channel_clear", "clear"):
+        scene_image.set_auto_scene_mode(channel_id, None)
+        await ctx.reply(
+            "🎬 **自動觸發** 此頻道覆蓋已清除 — 將沿用伺服器預設值。",
+            mention_author=False,
+        )
+        return
+
+    use_channel = scope_str in ("channel", "chan", "頻道")
+
+    if cmd in ("on", "enable", "enabled", "true", "1", "開啟", "開"):
+        new_state = True
+    elif cmd in ("off", "disable", "disabled", "false", "0", "關閉", "關"):
+        new_state = False
+    elif cmd in ("status", "stat", "查看", "狀態"):
+        new_state = None
+    else:
+        await ctx.reply(
+            "用法: `/sceneauto on` `/sceneauto off` `/sceneauto status`\n"
+            "加上 `scope:channel` 可設定此頻道的獨立覆蓋，`scope:channel-clear` 移除覆蓋。",
+            mention_author=False,
+        )
+        return
+
+    if new_state is not None:
+        if use_channel:
+            scene_image.set_auto_scene_mode(channel_id, new_state)
+        elif guild_id_str:
+            scene_image.set_guild_auto_scene_mode(guild_id_str, new_state)
+
+    guild_val = (
+        scene_image.is_auto_scene_on("__none__", guild_id_str) if guild_id_str else False
+    )
+    chan_raw = database.get_setting(f"scene_auto:{channel_id}")
+    chan_override = chan_raw if chan_raw is not None else None
+    effective = scene_image.is_auto_scene_on(channel_id, guild_id_str)
+
+    def _label(v) -> str:
+        if v is True:
+            return "✅ 開啟"
+        if v is False:
+            return "❌ 關閉"
+        return "（繼承伺服器）"
+
+    embed = discord.Embed(
+        title="🎬 場景圖片自動觸發設定",
+        color=discord.Color.green() if effective else discord.Color.red(),
+    )
+    embed.add_field(
+        name="伺服器預設",
+        value="✅ 開啟" if guild_val else "❌ 關閉",
+        inline=True,
+    )
+    embed.add_field(
+        name=f"此頻道覆蓋 (#{ctx.channel.name})",
+        value=_label(chan_override),
+        inline=True,
+    )
+    embed.add_field(
+        name="實際生效",
+        value="✅ 開啟" if effective else "❌ 關閉",
+        inline=True,
+    )
+    embed.add_field(
+        name="說明",
+        value=(
+            "自動觸發開啟時，LLM 發出 `[SCENE]`、`[IMAGE:]` 標記或使用者訊息被判定為視覺意圖，"
+            "機器人將自動生成場景圖片。\n"
+            "🎬 按鈕觸發不受此設定影響，隨時可手動點擊。\n"
+            "此功能需同時開啟場景圖片模式 (`/sceneimage on`) 才會生效。"
+        ),
+        inline=False,
+    )
+    embed.set_footer(
+        text="scope:guild 設定伺服器預設；scope:channel 設定此頻道覆蓋；scope:channel-clear 移除覆蓋。"
     )
     await ctx.reply(embed=embed, mention_author=False)
 

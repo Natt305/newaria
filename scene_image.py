@@ -41,8 +41,8 @@ import ai_backend as groq_ai
 
 
 CINEMATIC_SUFFIX = (
-    ", cinematic composition, soft rim light, "
-    "shallow depth of field, film grain"
+    ", medium-close portrait shot, face prominent in frame, "
+    "cinematic composition, soft rim light, shallow depth of field, film grain"
 )
 
 
@@ -66,6 +66,46 @@ def is_scene_mode_on(channel_id) -> bool:
 
 def set_scene_mode(channel_id, enabled: bool) -> bool:
     return database.set_setting(_setting_key(channel_id), bool(enabled))
+
+
+# ── Auto-trigger toggle (guild-wide default + per-channel override) ───────────
+#
+# Keys:
+#   scene_auto:guild:{guild_id}  — guild-wide default (bool or None)
+#   scene_auto:{channel_id}      — per-channel override (True/False/None)
+#
+# Resolution order: channel-explicit → guild default → False (off).
+# Storing None in a channel key removes the override so the guild default
+# applies again (uses set_setting(key, None) convention).
+
+def _auto_guild_key(guild_id) -> str:
+    return f"scene_auto:guild:{guild_id}"
+
+
+def _auto_channel_key(channel_id) -> str:
+    return f"scene_auto:{channel_id}"
+
+
+def is_auto_scene_on(channel_id, guild_id=None) -> bool:
+    """Check if auto-trigger is enabled.  Channel override wins over guild default."""
+    chan_val = database.get_setting(_auto_channel_key(channel_id))
+    if chan_val is not None:
+        return bool(chan_val)
+    if guild_id is not None:
+        guild_val = database.get_setting(_auto_guild_key(guild_id))
+        if guild_val is not None:
+            return bool(guild_val)
+    return False
+
+
+def set_auto_scene_mode(channel_id, enabled) -> bool:
+    """Set per-channel auto-trigger override.  Pass None to clear (inherit guild)."""
+    return database.set_setting(_auto_channel_key(channel_id), enabled)
+
+
+def set_guild_auto_scene_mode(guild_id, enabled: bool) -> bool:
+    """Set guild-wide auto-trigger default."""
+    return database.set_setting(_auto_guild_key(guild_id), bool(enabled))
 
 
 # ── Visual-intent reuse ───────────────────────────────────────────────────────
@@ -542,6 +582,7 @@ async def _derive_prompt(
     llm_refs: Optional[list] = None,
     llm_ref_labels: Optional[list] = None,
     scene_only: bool = False,
+    prose_context: Optional[str] = None,
 ) -> str:
     """Run prompt enhancement against the active backend's enhancer.
 
@@ -583,6 +624,7 @@ async def _derive_prompt(
             reference_images=llm_refs if (has_llm_refs and not scene_only) else None,
             reference_image_labels=llm_ref_labels if (has_llm_refs and not scene_only) else None,
             scene_only=scene_only,
+            prose_context=prose_context,
         )
         if enriched and isinstance(enriched, str):
             return enriched.strip()
@@ -605,6 +647,7 @@ async def run_scene_image(
     hint_prompt: Optional[str] = None,
     seed_override: Optional[str] = None,
     acker: Optional[Callable[[str], Awaitable[None]]] = None,
+    prose_context: Optional[str] = None,
 ) -> None:
     """Generate a scene image and edit it onto `bot_message` in place.
 
@@ -742,6 +785,7 @@ async def run_scene_image(
             llm_refs=llm_refs if llm_refs else None,
             llm_ref_labels=llm_ref_labels if llm_ref_labels else None,
             scene_only=_scene_only,
+            prose_context=prose_context,
         )
         enriched_base = enriched_base.rstrip(",. \n")
 

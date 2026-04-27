@@ -2105,6 +2105,7 @@ async def enhance_image_prompt(
     reference_image_labels: list = None,
     n_subjects_override: int = None,
     scene_only: bool = False,
+    prose_context: str = None,
 ) -> str:
     """Translate and expand a raw prompt into a rich English image-generation prompt.
 
@@ -2141,6 +2142,12 @@ async def enhance_image_prompt(
             )
         else:
             output_rule_so = "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
+        _prose_block_so = ""
+        if prose_context and prose_context.strip():
+            _prose_block_so = (
+                "\n[RECENT STORY CONTEXT — use to keep scene tonally coherent]\n"
+                f"{prose_context.strip()}\n"
+            )
         system_so = (
             "You are an expert image-prompt writer for AI image generators.\n"
             "Given a user's image request (which may be in Chinese or English), "
@@ -2157,6 +2164,17 @@ async def enhance_image_prompt(
             "If the user request includes any such words, drop them from your "
             "rewrite. Refer to characters by name only (or by role like 'the "
             "musician'); never describe what they look like or what they wear.\n"
+            f"{_prose_block_so}"
+            "FRAMING RULES (mandatory):\n"
+            "- DEFAULT framing: medium-close portrait (bust or face-prominent). "
+            "The character's face should fill a significant portion of the frame, "
+            "like a manga CG close-up. This is the default for solo character shots.\n"
+            "- Use FULL-BODY or WIDE framing ONLY when: (a) two or more characters "
+            "are physically interacting (fighting, dancing, embracing), or (b) the "
+            "scene is explicitly about an environment reveal, action shot, or "
+            "dynamic movement that requires showing the whole figure.\n"
+            "- NEVER default to a full-body or distant shot for a solo character "
+            "standing, sitting, talking, or posing — always prefer the tighter frame.\n"
             "Rules:\n"
             f"{output_rule_so}"
             "- Always write in English.\n"
@@ -2279,6 +2297,14 @@ async def enhance_image_prompt(
     else:
         output_rule = "- Output ONLY the prompt text — no intro, no quotes, no explanation.\n"
 
+    _prose_block = ""
+    if prose_context and prose_context.strip():
+        _prose_block = (
+            "\n[RECENT STORY CONTEXT — use to keep the scene tonally coherent "
+            "with the ongoing roleplay]\n"
+            f"{prose_context.strip()}\n"
+        )
+
     system = (
         "You are an expert image-prompt writer for AI image generators.\n"
         "Given a user's image request (which may be in Chinese or English), "
@@ -2286,6 +2312,17 @@ async def enhance_image_prompt(
         f"{image_note}"
         f"{char_block}"
         f"{ref_block}"
+        f"{_prose_block}"
+        "FRAMING RULES (mandatory):\n"
+        "- DEFAULT framing: medium-close portrait (bust or face-prominent). "
+        "The character's face should fill a significant portion of the frame, "
+        "like a manga CG close-up. This is the default for solo character shots.\n"
+        "- Use FULL-BODY or WIDE framing ONLY when: (a) two or more characters "
+        "are physically interacting (fighting, dancing, embracing), or (b) the "
+        "scene is explicitly about an environment reveal, action shot, or "
+        "dynamic movement that requires showing the whole figure.\n"
+        "- NEVER default to a full-body or distant shot for a solo character "
+        "standing, sitting, talking, or posing — always prefer the tighter frame.\n"
         "Rules:\n"
         f"{output_rule}"
         "- Always write in English.\n"

@@ -109,16 +109,23 @@ async def enhance_image_prompt(
     reference_image_labels: list = None,
     n_subjects_override: int = None,
     scene_only: bool = False,
+    prose_context: str = None,
 ) -> str:
     """Forward to the active backend's enhancer.
 
     `scene_only` is a Qwen-edit-pipeline-only flag honoured by the LM Studio
     backend; for Groq / Ollama it's silently dropped (their enhancers don't
     accept the kwarg) so non-LMStudio rigs keep working unchanged.
+
+    `prose_context` is a condensed excerpt of recent chat for cinematic
+    coherence — forwarded to LM Studio only; Groq/Ollama ignore it silently.
     """
     extra: dict = {}
-    if scene_only and _backend() == "lmstudio":
+    _b = _backend()
+    if scene_only and _b == "lmstudio":
         extra["scene_only"] = True
+    if prose_context and _b == "lmstudio":
+        extra["prose_context"] = prose_context
     return await _mod().enhance_image_prompt(
         raw_prompt,
         character_context=character_context,
