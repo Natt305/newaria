@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import os
+import re as _re
 import asyncio
 import aiohttp
 import io
