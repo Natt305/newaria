@@ -1055,6 +1055,17 @@ def _init_history_db():
             updated_at   TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS player_state (
+            channel_id   TEXT NOT NULL,
+            discord_id   TEXT NOT NULL,
+            state_json   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL,
+            history_json TEXT,
+            turn_counter INTEGER DEFAULT 0,
+            PRIMARY KEY (channel_id, discord_id)
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -1110,6 +1121,131 @@ def delete_character_state(channel_id: Optional[str] = None) -> None:
         conn.close()
     except Exception as e:
         print(f"[DB] Failed to delete character_state (channel={channel_id}): {e}")
+
+
+# ── Player appearance state (SQLite) ──────────────────────────────────────────
+
+def get_player_state(channel_id: str, discord_id: str) -> Optional[Dict[str, Any]]:
+    """Return the persisted player appearance state dict, or None."""
+    conn = _get_history_conn()
+    row = conn.execute(
+        "SELECT state_json FROM player_state WHERE channel_id = ? AND discord_id = ?",
+        (channel_id, discord_id),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    try:
+        return json.loads(row["state_json"])
+    except Exception as e:
+        print(f"[DB] Could not parse player_state JSON for channel {channel_id} / user {discord_id}: {e}")
+        return None
+
+
+def set_player_state(channel_id: str, discord_id: str, state_dict: Dict[str, Any]) -> None:
+    """Upsert the player appearance state dict."""
+    try:
+        conn = _get_history_conn()
+        conn.execute(
+            """
+            INSERT INTO player_state (channel_id, discord_id, state_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(channel_id, discord_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                updated_at = excluded.updated_at
+            """,
+            (channel_id, discord_id, json.dumps(state_dict, ensure_ascii=False), datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Failed to save player_state for channel {channel_id} / user {discord_id}: {e}")
+
+
+def delete_player_state(channel_id: Optional[str] = None, discord_id: Optional[str] = None) -> None:
+    """Delete player appearance state.
+
+    - Both None: delete all rows.
+    - Only channel_id: delete all players in that channel.
+    - Both set: delete that specific player in that channel.
+    """
+    try:
+        conn = _get_history_conn()
+        if channel_id is None and discord_id is None:
+            conn.execute("DELETE FROM player_state")
+        elif discord_id is None:
+            conn.execute("DELETE FROM player_state WHERE channel_id = ?", (channel_id,))
+        else:
+            conn.execute(
+                "DELETE FROM player_state WHERE channel_id = ? AND discord_id = ?",
+                (channel_id, discord_id),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Failed to delete player_state (channel={channel_id}, discord_id={discord_id}): {e}")
+
+
+def get_player_history(channel_id: str, discord_id: str) -> List[Dict[str, Any]]:
+    """Return the persisted player appearance history list, or []."""
+    try:
+        conn = _get_history_conn()
+        row = conn.execute(
+            "SELECT history_json FROM player_state WHERE channel_id = ? AND discord_id = ?",
+            (channel_id, discord_id),
+        ).fetchone()
+        conn.close()
+        if row is None or row["history_json"] is None:
+            return []
+        return json.loads(row["history_json"])
+    except Exception as e:
+        print(f"[DB] Could not load player history for channel {channel_id} / user {discord_id}: {e}")
+        return []
+
+
+def set_player_history(channel_id: str, discord_id: str, history: List[Dict[str, Any]]) -> None:
+    """Persist the player appearance history list."""
+    try:
+        conn = _get_history_conn()
+        conn.execute(
+            "UPDATE player_state SET history_json = ? WHERE channel_id = ? AND discord_id = ?",
+            (json.dumps(history, ensure_ascii=False), channel_id, discord_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Failed to save player history for channel {channel_id} / user {discord_id}: {e}")
+
+
+def get_player_turn_counter(channel_id: str, discord_id: str) -> int:
+    """Return the persisted turn counter for a player in a channel, or 0."""
+    try:
+        conn = _get_history_conn()
+        row = conn.execute(
+            "SELECT turn_counter FROM player_state WHERE channel_id = ? AND discord_id = ?",
+            (channel_id, discord_id),
+        ).fetchone()
+        conn.close()
+        if row is None or row["turn_counter"] is None:
+            return 0
+        return int(row["turn_counter"])
+    except Exception as e:
+        print(f"[DB] Could not load player turn_counter for channel {channel_id} / user {discord_id}: {e}")
+        return 0
+
+
+def set_player_turn_counter(channel_id: str, discord_id: str, counter: int) -> None:
+    """Persist the turn counter for a player in a channel."""
+    try:
+        conn = _get_history_conn()
+        conn.execute(
+            "UPDATE player_state SET turn_counter = ? WHERE channel_id = ? AND discord_id = ?",
+            (counter, channel_id, discord_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Failed to save player turn_counter for channel {channel_id} / user {discord_id}: {e}")
 
 
 # ── User profiles ─────────────────────────────────────────────────────────────

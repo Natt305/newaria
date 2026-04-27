@@ -17,6 +17,7 @@ import views as ui
 import help_config
 import scene_image
 import character_state
+import player_state as _player_state_mod
 
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -1199,6 +1200,10 @@ async def process_chat(
     asyncio.create_task(_update_character_appearance_state(
         channel_id, user_text, saved_text, bot_name,
     ))
+    # Fire background player appearance state update (non-blocking)
+    asyncio.create_task(_update_player_appearance_state(
+        channel_id, str(author.id), user_text, saved_text, author.display_name,
+    ))
 
     # ── Scene-mode routing (no-duplicates guarantee) ──────────────────────
     # When scene mode is on for this channel AND the active backend is
@@ -1981,6 +1986,60 @@ async def _update_character_appearance_state(
         print(f"[CharState] update_state error: {type(exc).__name__}: {exc}")
 
 
+async def _update_player_appearance_state(
+    channel_id: str,
+    discord_id: str,
+    user_text: str,
+    bot_reply: str,
+    player_name: str,
+):
+    """Background task: update per-(channel, player) appearance state from an exchange.
+
+    Mirrors _update_character_appearance_state but tracks the human player's
+    outfit and accessories instead of the bot character's.
+    Fires and forgets — failures are logged but never surface to the user.
+    """
+    if not user_text and not bot_reply:
+        return
+
+    # When bot_reply is purely an image-generation marker the bot text contains
+    # image prompt text (outfit/clothing descriptions for Qwen) rather than RP
+    # prose, so we strip it before passing to the extractor.  Unlike the character
+    # state updater we do NOT return early: the player's own message may still
+    # contain outfit-change language and should be processed against empty bot text.
+    _bot_stripped = (bot_reply or "").strip()
+    _is_image_marker = _bot_stripped.startswith("[圖像生成:") or _bot_stripped.startswith("[IMAGE:")
+    _effective_bot_reply = "" if _is_image_marker else bot_reply
+
+    async def _chat_fn(messages: list, system: str) -> str:
+        try:
+            if os.environ.get("AI_BACKEND", "").strip().lower() == "lmstudio":
+                import lmstudio_ai
+                text, *_ = await lmstudio_ai.chat(
+                    messages,
+                    system_prompt=system,
+                    max_tokens=512,
+                    temperature=0.1,
+                    enforce_user_lang=False,
+                )
+                return text or ""
+            else:
+                text, _, _, success, *_ = await groq_ai.chat(messages, system_prompt=system)
+                if not success:
+                    return ""
+                return text or ""
+        except Exception as exc:
+            print(f"[PlayerState] chat_fn error: {type(exc).__name__}: {exc}")
+            return ""
+
+    try:
+        await _player_state_mod.update_state(
+            channel_id, discord_id, user_text, _effective_bot_reply, player_name, _chat_fn
+        )
+    except Exception as exc:
+        print(f"[PlayerState] update_state error: {type(exc).__name__}: {exc}")
+
+
 async def _apply_status():
     """Apply stored presence. Thinking bubble (CustomActivity) takes priority over
     the regular activity type; the online/idle/dnd status is always preserved."""
@@ -2446,6 +2505,7 @@ async def setcharacter_cmd(ctx, name: str, background: str, personality: str = "
     if success:
         conversation_contexts.clear()
         character_state.reset_state()
+        _player_state_mod.reset_state()
         embed = ui.build_char_embed(
             name, background, personality, looks,
             title="✅ 角色已更新",
@@ -3403,6 +3463,7 @@ async def clear_cmd(ctx):
     channel_id = str(ctx.channel.id)
     conversation_contexts.pop(channel_id, None)
     character_state.reset_state(channel_id)
+    _player_state_mod.reset_state(channel_id)
     scene_image.clear_scene_location_cache(channel_id)
     await ctx.reply("✅ 此頻道的對話歷史已清除！", mention_author=False)
 

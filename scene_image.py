@@ -40,6 +40,7 @@ import database
 import image_dispatch
 import ai_backend as groq_ai
 import character_state
+import player_state as _player_state_mod
 
 
 CINEMATIC_SUFFIX = (
@@ -1338,6 +1339,8 @@ async def run_scene_image(
         # ── Player identity anchor ────────────────────────────────────────────
         # When the player appears in the scene and has a looks description,
         # append it as a post-LLM identity anchor (same pattern as bot looks).
+        # Uses the player's runtime outfit state when set, falling back to
+        # the static looks from the profile.
         # Only on Qwen path since other backends don't support multi-subject.
         if (
             player_discord_id
@@ -1349,12 +1352,65 @@ async def run_scene_image(
                 _pname = (_player_profile_check.get("discord_name") or player_display_name or "").strip()
                 _plooks = (_player_profile_check.get("looks") or "").strip()
                 _pin_seed = _player_in_seed(seed, player_display_name or "")
-                if _plooks and _pin_seed:
-                    enriched = (
-                        enriched
-                        + f". Player identity: {_plooks}"
-                    )
-                    print(f"[SceneImage] Appended {len(_plooks)}-char player looks anchor for {_pname!r}.")
+                _pstate = _player_state_mod.get_state(str(getattr(channel, "id", channel_id)), player_discord_id)
+                _ppersistent = _pstate.persistent_items()
+                _ppersistent_str = (
+                    "PLAYER PERSISTENT STATE (always visible): "
+                    + "; ".join(_ppersistent)
+                    + "."
+                ) if _ppersistent else ""
+
+                if _pin_seed:
+                    if _pstate.is_undressed():
+                        # Player is undressed — strip outfit sentences, keep identity only
+                        _pidentity = (
+                            _strip_outfit_from_looks(_plooks, fallback_to_empty=True)
+                            if _plooks else ""
+                        )
+                        _pprefix = (
+                            f"PLAYER SCENE STATE — player is {_pstate.body_state}: "
+                            f"do NOT render their default outfit. "
+                        )
+                        if _pidentity:
+                            enriched = enriched + f". {_pprefix}Player base identity only: {_pidentity}"
+                        else:
+                            enriched = enriched + f". {_pprefix}"
+                        if _ppersistent_str:
+                            enriched = enriched + " " + _ppersistent_str
+                        print(
+                            f"[SceneImage] Player scene-state override ({_pstate.body_state!r}): "
+                            f"outfit stripped for {_pname!r}. Persistent: {_ppersistent or 'none'}."
+                        )
+                    elif _pstate.outfit:
+                        # Runtime outfit override — strip default outfit, inject runtime
+                        _pidentity = (
+                            _strip_outfit_from_looks(_plooks, fallback_to_empty=True)
+                            if _plooks else ""
+                        )
+                        _poutfit_anchor = f"Player current outfit: {_pstate.outfit}."
+                        if _pidentity:
+                            enriched = (
+                                enriched
+                                + f". Player identity: {_pidentity} {_poutfit_anchor}"
+                            )
+                        else:
+                            enriched = enriched + f". {_poutfit_anchor}"
+                        if _ppersistent_str:
+                            enriched = enriched + " " + _ppersistent_str
+                        print(
+                            f"[SceneImage] Player runtime outfit for {_pname!r}: {_pstate.outfit!r}. "
+                            f"Persistent: {_ppersistent or 'none'}."
+                        )
+                    elif _plooks:
+                        # Normal: use full static looks
+                        enriched = enriched + f". Player identity: {_plooks}"
+                        if _ppersistent_str:
+                            enriched = enriched + " " + _ppersistent_str
+                        print(f"[SceneImage] Appended {len(_plooks)}-char player looks anchor for {_pname!r}.")
+                    elif _ppersistent_str:
+                        # No looks but has persistent items
+                        enriched = enriched + f". {_ppersistent_str}"
+                        print(f"[SceneImage] No player looks; injecting persistent items for {_pname!r}: {_ppersistent}.")
 
         # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
         try:
