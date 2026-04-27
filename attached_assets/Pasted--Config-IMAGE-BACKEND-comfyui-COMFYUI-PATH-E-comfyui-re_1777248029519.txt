@@ -1,0 +1,80 @@
+[Config] IMAGE_BACKEND=comfyui  COMFYUI_PATH=E:\comfyui\resources\ComfyUI  COMFYUI_ENGINE=qwen
+
+
+[Setup] Installing / updating dependencies...
+[Launcher] Starting bot...
+============================================================
+  少女樂團機器人 (AriaBot)
+  Powered by Ollama / Groq + Cloudflare Workers AI + SQLite
+============================================================
+
+[AI] Backend: LM Studio @ https://gina-fatherless-shavonda.ngrok-free.dev
+[AI] Chat model:   mn-12b-celeste-v1.9
+[AI] Vision model: mn-12b-celeste-v1.9
+[AI] Thinking:     off (snappy roleplay mode — set LMSTUDIO_THINKING=on to enable)
+[AI] Endpoint: https://gina-fatherless-shavonda.ngrok-free.dev/v1/chat/completions
+[DB] command_roles['setcharacter'] = '__admin__'
+[DB] command_roles['character'] = '__admin__'
+[DB] command_roles['remember'] = '__admin__'
+[DB] command_roles['forget'] = '__admin__'
+[DB] command_roles['editdesc'] = '__admin__'
+[DB] command_roles['editappearance'] = '__admin__'
+[DB] command_roles['viewentry'] = '__admin__'
+[DB] command_roles['knowledge'] = '__admin__'
+[DB] command_roles['saveimage'] = '__admin__'
+[DB] command_roles['addimage'] = '__admin__'
+[DB] command_roles['addcharimage'] = '__admin__'
+[DB] command_roles['clear'] = '__admin__'
+[DB] command_roles['memory'] = '__admin__'
+[DB] command_roles['memorylength'] = '__admin__'
+[DB] command_roles['passivememory'] = '__admin__'
+[DB] command_roles['passivememorylength'] = '__admin__'
+[DB] command_roles['memories'] = '__admin__'
+[DB] command_roles['clearmemory'] = None
+[DB] command_roles['suggestions'] = '__admin__'
+[DB] command_roles['setsuggestionprompt'] = '__admin__'
+[DB] command_roles['clearsuggestionprompt'] = '__admin__'
+[DB] command_roles['setstatus'] = '__admin__'
+[DB] command_roles['clearstatus'] = '__admin__'
+[DB] command_roles['setthinking'] = '__admin__'
+[DB] command_roles['clearthinking'] = '__admin__'
+[DB] command_roles['helpsetting'] = '__admin__'
+[DB] command_roles['generate'] = None
+[DB] command_roles['help'] = None
+[啟動器] permissions.txt 已套用 28 條權限設定。
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 1 thumbnail(s) at 512x512
+[啟動器] 啟動機器人...
+C:\Users\user\AppData\Local\Programs\Python\Python314\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.3.0)/charset_normalizer (3.4.6) doesn't match a supported version!
+  warnings.warn(
+[WARNING] Cloudflare API 認證未設定。圖像生成將被禁用。
+[DB] Character : E:\newaria\data\character\profile.json
+[DB] Memories  : E:\newaria\data\memories\memories.json
+[DB] Knowledge : E:\newaria\data\knowledge/
+[DB] History   : E:\newaria\data\history.db
+[DB] migrate_thumbnails: regenerated 1 thumbnail(s) at 512x512
+[Bot] 啟動角色: Kelly Gray
+[Bot] Groq: 準備就緒
+[Bot] 圖像後端: ComfyUI — 準備就緒 (http://127.0.0.1:8188)
+[Bot] 按 Ctrl+C 停止機器人。
+[2026-04-27 07:59:38] [INFO    ] discord.client: logging in using static token
+[2026-04-27 07:59:39] [INFO    ] discord.gateway: Shard ID None has connected to Gateway (Session ID: 5e81c6c25fb3e8fbdd5e8fc05d238554).
+[Bot] Logged in as Kelly Gray#3376 (ID: 1497643436893933700)
+[Bot] Character: Kelly Gray
+[Bot] Groq: enabled
+[Bot] Image backend: comfyui — ready (http://127.0.0.1:8188)  |  KB photos: 0 character(s)
+[ComfyUI] Diagnose: engine=qwen  url=http://127.0.0.1:8188
+[ComfyUI] Engine-scoped packs disabled: 0
+[ComfyUI] Diagnose: server unreachable at http://127.0.0.1:8188 (ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=8188): Max retries exceeded with url: /system_stats (Caused by NewConnectionError("HTTPConnection(host='127.0.0.1', port=8188): Failed to establish a new connection: [WinError 10061] 無法連線，因為目標電腦拒絕連線。")))
+[Bot] Data folder: E:\newaria\data
+[Bot]   knowledge_base.db  — KB entries
+[Bot]   character.json     — character name & background
+[Bot] 建議按鈕: 開啟
+[Bot] KB entries: (none)
+[Bot] 長期記憶: 開啟 (近期 50 條 | 深層記憶: 開啟 最多 200 條 | 已儲存 18 條)
+[Bot] 指令權限: 26 條指令受到角色限制
+[SceneImage] Persistent view registered — buttons on bot messages restored across restart.
+[Bot] 已同步 36 個斜線指令

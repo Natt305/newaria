@@ -11,7 +11,7 @@ echo.
 rem --- Read IMAGE_BACKEND, COMFYUI_PATH and COMFYUI_ENGINE from tokens.txt ---
 rem NOTE: chcp 65001 (UTF-8) is intentionally NOT set yet. cmd.exe's batch
 rem parser is well-known to silently mis-handle multi-byte UTF-8 inside
-rem `for /f` — it can skip lines, terminate the loop early, or assign empty
+rem `for /f` -- it can skip lines, terminate the loop early, or assign empty
 rem values, all with zero error output. tokens.txt has 100+ lines of CJK
 rem comments before the IMAGE_BACKEND line, which reliably triggers the bug.
 rem We parse under the legacy code page first, then switch to 65001 below
@@ -50,20 +50,22 @@ if "!COMFYUI_PATH!"=="" (
     goto skipcomfy
 )
 
-rem Check if ComfyUI is already listening on port 8188 (plain socket — works regardless of HTTP response)
+rem Check if ComfyUI is already listening on port 8188 (plain socket -- works regardless of HTTP response)
 python -c "import socket,sys; s=socket.socket(); s.settimeout(2); r=s.connect_ex(('127.0.0.1',8188)); s.close(); sys.exit(0 if r==0 else 1)" 2>nul
 if not errorlevel 1 (
-    echo [ComfyUI] Already running on port 8188 — skipping launch.
-    echo [ComfyUI] (Engine-scoped pack toggling is also skipped — restart ComfyUI manually if you want it to take effect.)
+    echo [ComfyUI] Port 8188 is already in use -- a ComfyUI ^(or other^) process is bound to it.
+    echo [ComfyUI] Skipping auto-launch. If this is a stale process, close it from Task Manager and re-run start.bat.
+    echo [ComfyUI] Engine-scoped pack toggling is also skipped; restart ComfyUI manually if you want it to take effect.
     echo.
     goto skipcomfy
 )
+echo [ComfyUI] Port 8188 is free -- proceeding with auto-launch.
 
 rem --- Engine-scoped custom-node toggling (frees VRAM by keeping the inactive
 rem     engine's heavy packs from auto-loading their models at boot). ---
-echo [ComfyUI] Engine = !COMFYUI_ENGINE!  — applying engine-scoped pack manifest...
+echo [ComfyUI] Engine = !COMFYUI_ENGINE! -- applying engine-scoped pack manifest...
 python scripts\scope_comfy_packs.py
-if errorlevel 1 echo [ComfyUI] WARN: scope_comfy_packs.py exited non-zero — continuing anyway.
+if errorlevel 1 echo [ComfyUI] WARN: scope_comfy_packs.py exited non-zero, continuing anyway.
 
 rem --- Optional model-path scoping: pass --extra-model-paths-config when the
 rem     engine-matching yaml exists at the repo root. Cosmetic only (cleans
@@ -112,7 +114,7 @@ if !_COMFY_VRAM_GB! GEQ 23 (
 if defined COMFY_VRAM_ARG (
     echo [ComfyUI] Detected GPU VRAM: !COMFY_VRAM_MB! MB ^(bucket=!_COMFY_VRAM_GB! GiB^) -^> !COMFY_VRAM_ARG!
 ) else (
-    echo [ComfyUI] Could not detect GPU VRAM ^(nvidia-smi missing/failed^) — ComfyUI will use its built-in auto memory mode.
+    echo [ComfyUI] Could not detect GPU VRAM ^(nvidia-smi missing/failed^), ComfyUI will use its built-in auto memory mode.
 )
 
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
