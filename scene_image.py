@@ -1430,6 +1430,7 @@ async def run_scene_image(
                 scene_state_override=_state_triggered,
                 scene_state_label=_state_label,
                 char_state=_char_state_debug,
+                player_discord_id=player_discord_id or "",
             )
         except Exception as _dbg_exc:
             print(f"[SceneImage] debug capture failed: {type(_dbg_exc).__name__}: {_dbg_exc}")

@@ -3521,12 +3521,34 @@ async def scenedebug_cmd(ctx):
             lines.append("  (no transitions recorded yet)")
         history_section = "\n".join(lines) + "\n"
 
+    player_section = ""
+    _snap_channel_id = scene_snap.get("channel_id") or channel_id
+    _snap_player_id = scene_snap.get("player_discord_id") or ""
+    if _snap_channel_id and _snap_player_id:
+        try:
+            _pstate = _player_state_mod.get_state(_snap_channel_id, _snap_player_id)
+            lines = [f"=== Player state (discord_id={_snap_player_id}) ==="]
+            lines.append(f"outfit: {_pstate.outfit!r}")
+            lines.append(f"body_state: {_pstate.body_state!r}")
+            lines.append(f"accessories: {_pstate.accessories}")
+            lines.append(f"restraints: {_pstate.restraints}")
+            lines.append(f"wounds: {_pstate.wounds}")
+            lines.append(f"marks: {_pstate.marks}")
+            lines.append(f"last_updated_turn: {_pstate.updated_at}")
+            player_section = "\n".join(lines) + "\n"
+        except Exception as _pe:
+            player_section = f"=== Player state ===\n(error: {_pe})\n"
+    else:
+        player_section = "=== Player state ===\n(no player recorded for last generation)\n"
+
     body = (
         _fmt(scene_snap, "scene_image (last)")
         + "\n"
         + _fmt(qwen_snap, "comfyui_ai qwen workflow (last)")
         + "\n"
         + history_section
+        + "\n"
+        + player_section
     )
     # Discord hard cap is 2000 chars per message; leave room for the code-fence wrapper.
     if len(body) > 1900:
