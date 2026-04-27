@@ -1847,7 +1847,7 @@ async def chat(
             _good_prefix = "\n\n".join(_paras[:_dup_idx]).rstrip()
             print(
                 f"[LMStudio] Paragraph repetition — truncated at para "
-                f"{_dup_idx}/{len(_paras)} (kept {len(_good_prefix)}ch)"
+                f"{_dup_idx + 1}/{len(_paras)} (kept {len(_good_prefix)}ch)"
             )
             if _good_prefix:
                 text = _good_prefix
