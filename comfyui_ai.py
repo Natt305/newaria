@@ -882,6 +882,10 @@ def _build_multi_edit_workflow_qwen(
     _APPEARANCE_LOCK = (
         "Preserve the exact appearance of all characters from the reference images. "
         "Do NOT change hair colour, eye colour, skin tone, or facial features. "
+        "Match the art style, line art quality, and shading technique visible in "
+        "the reference images exactly — replicate how they look, not a different "
+        "rendering style. Do NOT introduce photorealism, 3D rendering, or any "
+        "style inconsistent with what the reference images show. "
     )
     enhanced_prompt = _APPEARANCE_LOCK + prompt + _ANATOMY_SUFFIX
 

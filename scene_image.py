@@ -42,7 +42,7 @@ import ai_backend as groq_ai
 
 CINEMATIC_SUFFIX = (
     ", medium-close portrait shot, face prominent in frame, "
-    "cinematic composition, soft rim light, shallow depth of field, film grain"
+    "dramatic lighting, expressive composition"
 )
 
 

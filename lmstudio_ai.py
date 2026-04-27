@@ -2184,9 +2184,11 @@ async def enhance_image_prompt(
             "- Always write in English.\n"
             "- Aim for 100-220 words.\n"
             "- Do NOT start with 'Generate', 'Create', 'Draw', 'An image of', etc.\n"
-            "- ART STYLE (mandatory, always fixed): "
-            "The art style is ALWAYS 'clean 2D anime illustration, flat cel-shaded coloring, "
-            "soft gradient shading, vivid saturated color palette, anime digital art'.\n"
+            "- ART STYLE: Do NOT specify any art style, rendering technique, shading "
+            "method, or visual medium in your output. Reference photos of the characters "
+            "are sent directly to the image model, which will replicate their visual style "
+            "automatically. Adding style descriptors here would conflict with the reference "
+            "and cause style inconsistency — leave all style determination to the image model.\n"
         )
         user_content_so = f"Image request: {raw_prompt}"
         messages_list_so = [{"role": "user", "content": user_content_so}]
