@@ -599,7 +599,7 @@ async def generate_suggestions(
             content = msg.get("content", "")
             if not (role in ("user", "assistant") and content):
                 continue
-            label = "Player" if role == "user" else bot_name
+            label = "Player" if role == "user" else f"[{bot_name}]"
             labeled_lines.append(f"{label}: {content[:300]}")
         if labeled_lines:
             history_block = "\n".join(labeled_lines)
