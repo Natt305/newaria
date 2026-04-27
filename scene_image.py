@@ -59,6 +59,75 @@ def _cinematic_suffix_enabled() -> bool:
     return raw in ("on", "true", "1", "yes", "enabled", "enable")
 
 
+# ── Scene-state / clothing-override helpers ───────────────────────────────────
+
+# Regex patterns that signal the character is NOT in their default outfit.
+# Each entry is (compiled_regex, human_readable_label).
+_SCENE_CLOTHING_STATE_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bshower(?:ing)?\b", re.I), "in the shower (unclothed)"),
+    (re.compile(r"\bbath(?:ing|tub|water|room)?\b", re.I), "in the bath (unclothed)"),
+    (re.compile(r"\bnude\b", re.I), "nude"),
+    (re.compile(r"\bnaked\b", re.I), "naked"),
+    (re.compile(r"\bundress(?:ed|ing)?\b", re.I), "undressed"),
+    (re.compile(r"\bno\s+clothes\b", re.I), "without clothes"),
+    (re.compile(r"\bwithout\s+clothes\b", re.I), "without clothes"),
+    (re.compile(r"\bbare\s+skin\b", re.I), "bare skin showing"),
+    (re.compile(r"\bbare\s+bod(?:y|ies)\b", re.I), "bare body"),
+    (re.compile(r"\btowel\b", re.I), "wrapped in a towel (just bathed)"),
+    (re.compile(r"\bwashing\s+(?:her|his|their|up|body|hair)\b", re.I), "washing (unclothed)"),
+]
+
+# Words that flag a sentence as clothing/weapon related.  Any sentence in the
+# `looks` text that contains one of these words is dropped when a scene-state
+# override is active — only bare identity traits (hair, eyes, skin, face) remain.
+_OUTFIT_SENTENCE_WORDS: frozenset[str] = frozenset({
+    "wear", "wearing", "wears", "wore", "worn",
+    "outfit", "clothes", "clothing", "garment", "attire",
+    "dressed", "undressed",
+    "coat", "jacket", "uniform", "suit", "dress", "shirt", "blouse",
+    "pants", "trousers", "skirt", "shorts", "sweater", "hoodie",
+    "holster", "gun", "pistol", "weapon", "rifle", "firearm",
+    "sword", "blade", "combat", "tactical", "ammo",
+    "belt", "strap", "harness",
+    "gloves", "boots", "shoes", "heels", "sneakers",
+    "scarf", "tie",
+})
+
+
+def _detect_scene_clothing_override(text: str) -> tuple[bool, str]:
+    """Return (triggered, state_label) when *text* implies the character is not
+    wearing their default outfit (shower, bath, nude, etc.).
+
+    Checks both the seed and the enriched prompt text combined — pass
+    ``seed + " " + enriched_base`` as *text*.
+    """
+    for pattern, label in _SCENE_CLOTHING_STATE_PATTERNS:
+        if pattern.search(text):
+            return True, label
+    return False, ""
+
+
+def _strip_outfit_from_looks(looks_text: str) -> str:
+    """Remove clothing/weapon/outfit sentences from a character looks description.
+
+    Splits *looks_text* on sentence boundaries and drops any sentence that
+    contains an outfit-related keyword, keeping only base identity traits
+    (hair colour, eye colour, skin tone, facial features, build/height).
+
+    Falls back to the original text unchanged if the filter strips everything,
+    to avoid sending an empty identity anchor.
+    """
+    sentences = re.split(r"(?<=[.!?])\s+", looks_text.strip())
+    kept: list[str] = []
+    for sentence in sentences:
+        lower_s = sentence.lower()
+        if any(word in lower_s for word in _OUTFIT_SENTENCE_WORDS):
+            continue
+        kept.append(sentence)
+    result = " ".join(kept).strip()
+    return result if result else looks_text
+
+
 # Last-generation debug capture for /scenedebug. Overwritten per generate.
 _LAST_SCENE_GENERATION: dict = {}
 
@@ -1000,7 +1069,16 @@ async def run_scene_image(
 
         # Append `looks` post-LLM as a non-LLM identity anchor (gated by
         # QWEN_APPEND_LOOKS, default on; engine==qwen + refs required).
+        #
+        # Scene-state awareness: when the scene implies the character is not in
+        # their default outfit (shower, bath, nude, undressed, etc.) the full
+        # looks text is NOT used as the anchor — only base identity traits
+        # (hair, eyes, skin) are kept and an explicit SCENE STATE OVERRIDE
+        # instruction is prepended so Qwen does not render the default
+        # coat/holster/weapons.  Normal-outfit scenes are unaffected.
         _looks_appended = False
+        _state_triggered = False
+        _state_label = ""
         if (
             _append_looks_enabled()
             and backend == "comfyui"
@@ -1013,16 +1091,39 @@ async def run_scene_image(
             except Exception:
                 _looks_text = ""
             if _looks_text:
-                enriched = (
-                    enriched
-                    + ". Character identity (must be preserved from reference photos): "
-                    + _looks_text
-                )
+                # Detect scene-state clothing override using both the raw seed
+                # and the enhanced prompt so context from either source is caught.
+                _combined_ctx = seed + " " + enriched_base
+                _state_triggered, _state_label = _detect_scene_clothing_override(_combined_ctx)
+                if _state_triggered:
+                    # Strip outfit/weapon sentences — keep hair, eyes, skin only.
+                    _identity_only = _strip_outfit_from_looks(_looks_text)
+                    _state_prefix = (
+                        f"SCENE STATE OVERRIDE — character is {_state_label}: "
+                        f"do NOT render coat, holster, weapons, or any default outfit items; "
+                        f"scene context takes absolute priority over default clothing. "
+                    )
+                    enriched = (
+                        _state_prefix
+                        + enriched
+                        + ". Character base identity only (outfit overridden by scene): "
+                        + _identity_only
+                    )
+                    print(
+                        f"[SceneImage] Scene-state override active ({_state_label!r}): "
+                        f"outfit stripped from looks anchor, state prefix prepended."
+                    )
+                else:
+                    enriched = (
+                        enriched
+                        + ". Character identity (must be preserved from reference photos): "
+                        + _looks_text
+                    )
+                    print(
+                        f"[SceneImage] Appended {len(_looks_text)}-char looks identity suffix "
+                        f"post-LLM (QWEN_APPEND_LOOKS=on)."
+                    )
                 _looks_appended = True
-                print(
-                    f"[SceneImage] Appended {len(_looks_text)}-char looks identity suffix "
-                    f"post-LLM (QWEN_APPEND_LOOKS=on)."
-                )
 
         # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
         try:
@@ -1039,6 +1140,8 @@ async def run_scene_image(
                 bot_name=bot_name,
                 trigger=trigger,
                 channel_id=str(getattr(channel, "id", "")),
+                scene_state_override=_state_triggered,
+                scene_state_label=_state_label,
             )
         except Exception as _dbg_exc:
             print(f"[SceneImage] debug capture failed: {type(_dbg_exc).__name__}: {_dbg_exc}")
