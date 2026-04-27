@@ -1036,6 +1036,10 @@ def _init_history_db():
             updated_at TEXT NOT NULL
         )
     """)
+    try:
+        conn.execute("ALTER TABLE character_state ADD COLUMN history_json TEXT")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -1091,6 +1095,45 @@ def delete_character_state(channel_id: Optional[str] = None) -> None:
         conn.close()
     except Exception as e:
         print(f"[DB] Failed to delete character_state (channel={channel_id}): {e}")
+
+
+def get_character_history(channel_id: str) -> List[Dict[str, Any]]:
+    """Return the persisted appearance history list for a channel, or []."""
+    try:
+        conn = _get_history_conn()
+        row = conn.execute(
+            "SELECT history_json FROM character_state WHERE channel_id = ?",
+            (channel_id,),
+        ).fetchone()
+        conn.close()
+        if row is None or row["history_json"] is None:
+            return []
+        return json.loads(row["history_json"])
+    except Exception as e:
+        print(f"[DB] Could not load character history for channel {channel_id}: {e}")
+        return []
+
+
+def set_character_history(channel_id: str, history: List[Dict[str, Any]]) -> None:
+    """Persist the appearance history list for a channel.
+
+    Requires a character_state row to already exist for the channel (i.e. call
+    set_character_state first). This is always the case because history is only
+    written after a state change, which itself writes the state row.
+    """
+    try:
+        conn = _get_history_conn()
+        conn.execute(
+            """
+            UPDATE character_state SET history_json = ?
+            WHERE channel_id = ?
+            """,
+            (json.dumps(history, ensure_ascii=False), channel_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Failed to save character history for channel {channel_id}: {e}")
 
 
 def save_conversation(channel_id: str, user_id: str, user_name: str, content: str, role: str):

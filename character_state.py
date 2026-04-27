@@ -126,13 +126,17 @@ def _state_from_dict(d: dict) -> CharacterState:
 
 
 def _load_from_db(channel_id: str) -> CharacterState | None:
-    """Attempt to load state from the database. Returns None if no row exists."""
+    """Attempt to load state and history from the database. Returns None if no row exists."""
     try:
         row = _db.get_character_state(channel_id)
         if row is None:
             return None
         state = _state_from_dict(row)
         print(f"[CharState] Loaded persisted state for channel {channel_id}: {state.format_debug()}")
+        saved_history = _db.get_character_history(channel_id)
+        if saved_history:
+            _history[channel_id] = saved_history
+            print(f"[CharState] Restored {len(saved_history)} history entries for channel {channel_id}")
         return state
     except Exception as e:
         print(f"[CharState] Could not load state from DB for channel {channel_id}: {e}")
@@ -197,7 +201,7 @@ def _diff_states(before: CharacterState, after: CharacterState) -> list[str]:
 
 
 def _record_history(channel_id: str, turn: int, before: CharacterState, after: CharacterState) -> None:
-    """Append a history entry if anything actually changed."""
+    """Append a history entry if anything actually changed, then persist to DB."""
     changes = _diff_states(before, after)
     if not changes:
         return
@@ -206,6 +210,7 @@ def _record_history(channel_id: str, turn: int, before: CharacterState, after: C
     bucket.append(entry)
     if len(bucket) > _HISTORY_MAX:
         del bucket[: len(bucket) - _HISTORY_MAX]
+    _db.set_character_history(channel_id, bucket)
 
 
 def get_history(channel_id: str, n: int = 5) -> list[dict]:
@@ -477,6 +482,6 @@ async def update_state(
     before_snapshot.marks = list(current.marks)
     updated = _apply_delta(current, delta, turn)
     _states[channel_id] = updated
-    _record_history(channel_id, turn, before_snapshot, updated)
     _db.set_character_state(channel_id, _state_to_dict(updated))
+    _record_history(channel_id, turn, before_snapshot, updated)
     return updated
