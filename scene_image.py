@@ -754,13 +754,14 @@ async def run_scene_image(
                 )
                 result = None
 
-            # Surface the resolved reference subjects so users can see at a
-            # glance which KB photos actually made it into the generation —
-            # the most common silent failure mode is "the AI invented a face
-            # because the KB photo didn't match the pronoun-only paragraph".
+            # Log resolved reference subjects for ops visibility (the most
+            # common silent failure mode is "the AI invented a face because
+            # the KB photo didn't match the pronoun-only paragraph").
+            # Not surfaced in Discord — we delete the progress message on
+            # exit so the channel stays clean after generation.
             footer = _format_refs_footer(resolved_subjects, bot_name)
             if footer:
-                set_final(footer)
+                print(f"[SceneImage] {footer}")
 
         # 4. Attach in place
         if (
