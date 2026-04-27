@@ -2170,6 +2170,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
         return
     if not bot.user or message.author.id != bot.user.id:
         return
+    _reaction_prose_ctx = _build_prose_context(get_channel_context(str(payload.channel_id)))
     await scene_image.run_scene_image(
         bot_message=message,
         channel=channel,
@@ -2177,6 +2178,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
         trigger="button",
         hint_prompt=None,
         acker=None,
+        prose_context=_reaction_prose_ctx,
     )
 
 
