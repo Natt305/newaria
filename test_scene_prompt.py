@@ -85,6 +85,46 @@ def test_infer_gender_name_excluded_multiword():
     )
 
 
+def test_infer_gender_name_boy_not_classified_male():
+    """A character named 'Boy' with neutral text must not score as male."""
+    result = _infer_gender("Boy stands quietly in the corner with an unreadable expression.", name="Boy")
+    check(
+        "_infer_gender: name 'boy' excluded → ''",
+        result == "",
+        f"got {result!r}",
+    )
+
+
+def test_infer_gender_name_male_not_classified_male():
+    """A character named 'Male' with neutral text must not score as male."""
+    result = _infer_gender("Male has an average build and unremarkable features.", name="Male")
+    check(
+        "_infer_gender: name 'male' excluded → ''",
+        result == "",
+        f"got {result!r}",
+    )
+
+
+def test_infer_gender_name_gentleman_not_classified_male():
+    """A character named 'Gentleman' with neutral text must not score as male."""
+    result = _infer_gender("Gentleman moves with a calm and composed manner.", name="Gentleman")
+    check(
+        "_infer_gender: name 'gentleman' excluded → ''",
+        result == "",
+        f"got {result!r}",
+    )
+
+
+def test_infer_gender_name_woman_not_classified_female():
+    """A character named 'Woman' with neutral text must not score as female."""
+    result = _infer_gender("Woman has an unassuming look and keeps to herself.", name="Woman")
+    check(
+        "_infer_gender: name 'woman' excluded → ''",
+        result == "",
+        f"got {result!r}",
+    )
+
+
 # ── _assemble_scene_prompt edge-case tests ────────────────────────────────────
 
 FEMALE_APP = "a young woman with long hair, she is graceful"
@@ -691,6 +731,10 @@ def run_all():
     test_infer_gender_name_excluded_female_word()
     test_infer_gender_name_excluded_male_word()
     test_infer_gender_name_excluded_multiword()
+    test_infer_gender_name_boy_not_classified_male()
+    test_infer_gender_name_male_not_classified_male()
+    test_infer_gender_name_gentleman_not_classified_male()
+    test_infer_gender_name_woman_not_classified_female()
 
     print()
     test_two_females_no_substitution()
