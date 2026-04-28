@@ -1027,7 +1027,8 @@ def _assemble_scene_prompt(
     if player_display_name:
         pname = player_display_name.strip()
         if pname and pname.lower() not in seen_lower:
-            roster.append((pname, ""))
+            player_appearance = roster_appearances.get(pname, "")
+            roster.append((pname, _infer_gender(player_appearance)))
 
     # Resolve unambiguous subject and object pronouns.
     female_chars = [n for n, g in roster if g == "f"]
