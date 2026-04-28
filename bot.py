@@ -526,6 +526,21 @@ def get_current_topic(channel_id: str) -> str:
     return " ".join(m["content"] for m in recent)[:500]
 
 
+def pop_last_turn(channel_id: str) -> None:
+    """Remove the last assistant entry then the last user entry from the
+    in-memory context for *channel_id*.  Called by the Regenerate button so
+    the same user text can be re-submitted without duplicating context entries.
+    """
+    ctx = conversation_contexts.get(channel_id)
+    if not ctx:
+        return
+    for role in ("assistant", "user"):
+        for i in range(len(ctx) - 1, -1, -1):
+            if ctx[i]["role"] == role:
+                ctx.pop(i)
+                break
+
+
 # ── System-marker sanitizer ───────────────────────────────────────────────────
 # Some LLMs bleed internal memory/system block delimiters, image-generation
 # tags, scene markers, or thinking tokens into their reply text.  This
@@ -1231,6 +1246,11 @@ async def process_chat(
         # Send the prose. 🎬 is now a message reaction (added after send)
         # so all button rows are free for suggestion buttons.
         prose = response_text or "…"
+        # Always attach Regenerate (🔄) + Continue (▶️) on row 1.
+        # Suggestion buttons (row 0) are added dynamically when enabled.
+        scene_view: discord.ui.View = ui.RegenerateContinueView(
+            channel_id, timeout=300
+        )
         if _suggestions_enabled:
             _s_topic = await get_suggestion_topic(channel_id)
             _s_list = await groq_ai.generate_suggestions(
@@ -1242,9 +1262,9 @@ async def process_chat(
                 language_sample=prose[:200],
                 recent_history=get_channel_context(channel_id),
             )
-            scene_view: Optional[discord.ui.View] = SuggestionView(_s_list, channel_id) if _s_list else None
-        else:
-            scene_view = None
+            if _s_list:
+                for _s in _s_list[:3]:
+                    scene_view.add_item(SuggestionButton(_s, channel_id))
         try:
             if len(prose) > 2000:
                 _chunks = [prose[i:i+2000] for i in range(0, len(prose), 2000)]
@@ -2330,6 +2350,11 @@ async def on_ready():
         print("[SceneImage] Persistent view registered — buttons on bot messages restored across restart.")
     except Exception as _sv_exc:
         print(f"[SceneImage] add_view failed: {type(_sv_exc).__name__}: {_sv_exc}")
+    try:
+        bot.add_view(ui.RegenerateContinueView())
+        print("[Bot] RegenerateContinueView registered (🔄 再試 / ▶️ 繼續).")
+    except Exception as _rcv_exc:
+        print(f"[Bot] RegenerateContinueView add_view failed: {type(_rcv_exc).__name__}: {_rcv_exc}")
 
     await _apply_status()
     try:

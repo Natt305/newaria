@@ -45,6 +45,119 @@ class SceneImageButtonView(discord.ui.View):
         await scene_image.handle_button_click(interaction)
 
 
+class RegenerateContinueView(discord.ui.View):
+    """Persistent 🔄 Regenerate + ▶️ Continue buttons for scene-mode bot replies.
+
+    timeout=None + fixed custom_ids → Discord routes clicks back to these
+    callbacks even after a bot restart (registered once via bot.add_view()).
+
+    When scene mode is active, SuggestionButton items are added dynamically on
+    row 0 before the message is sent; they don't survive restarts, which is fine.
+    """
+
+    def __init__(self, channel_id: str = "", timeout: Optional[float] = None) -> None:
+        super().__init__(timeout=timeout)
+        self._channel_id = channel_id
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True  # type: ignore[attr-defined]
+
+    @discord.ui.button(
+        emoji="🔄",
+        label="再試",
+        style=discord.ButtonStyle.secondary,
+        custom_id="regenerate_btn",
+        row=1,
+    )
+    async def regenerate_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Discard the current bot reply and generate a fresh one."""
+        await interaction.response.defer(ephemeral=True, thinking=False)
+
+        channel_id = str(interaction.channel_id)
+        bot_msg = interaction.message
+
+        # ── Locate the user's original message ───────────────────────────────
+        user_msg = None
+        if bot_msg and bot_msg.reference and bot_msg.reference.message_id:
+            try:
+                user_msg = await interaction.channel.fetch_message(
+                    bot_msg.reference.message_id
+                )
+            except discord.HTTPException:
+                pass
+
+        if user_msg is None:
+            await interaction.followup.send(
+                "❌ 找不到原始訊息，無法重新生成。", ephemeral=True
+            )
+            return
+
+        # Current message content — if the user edited after the bot replied,
+        # user_msg.content already reflects the edited version; otherwise it's
+        # the original.  Either way we just use it as-is.
+        import bot as _bot_mod  # lazy import avoids circular dependency
+
+        user_text = user_msg.content.strip()
+        if _bot_mod.bot.user:
+            user_text = (
+                user_text
+                .replace(f"<@{_bot_mod.bot.user.id}>", "")
+                .replace(f"<@!{_bot_mod.bot.user.id}>", "")
+                .strip()
+            )
+
+        if not user_text:
+            await interaction.followup.send(
+                "❌ 原始訊息為空，無法重新生成。", ephemeral=True
+            )
+            return
+
+        # ── Strip last turn from in-memory context then regenerate ───────────
+        _bot_mod.pop_last_turn(channel_id)
+
+        try:
+            await bot_msg.delete()
+        except discord.HTTPException:
+            pass
+
+        await _bot_mod.process_chat(
+            channel=interaction.channel,
+            author=user_msg.author,
+            user_text=user_text,
+            reply_target=user_msg,
+            channel_id=channel_id,
+        )
+
+    @discord.ui.button(
+        emoji="▶️",
+        label="繼續",
+        style=discord.ButtonStyle.secondary,
+        custom_id="continue_btn",
+        row=1,
+    )
+    async def continue_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        """Prompt the bot to continue where it left off."""
+        await interaction.response.defer(ephemeral=True, thinking=False)
+        import bot as _bot_mod  # lazy import avoids circular dependency
+
+        await _bot_mod.process_chat(
+            channel=interaction.channel,
+            author=interaction.user,
+            user_text="繼續",
+            reply_target=interaction.message,
+            channel_id=str(interaction.channel_id),
+        )
+
+
 def _has_saveimage_permission(interaction: discord.Interaction) -> bool:
     """Return True if the interaction user may save to the knowledge base."""
     gate = database.get_command_roles().get("saveimage")
