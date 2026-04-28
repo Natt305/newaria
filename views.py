@@ -150,6 +150,14 @@ class RegenerateContinueView(discord.ui.View):
             )
         except Exception as exc:
             print(f"[Regen] process_chat failed: {exc}")
+            # Disable buttons on the original message (bot_msg was likely
+            # already deleted; the edit will 404 silently if so).
+            try:
+                for _item in self.children:
+                    _item.disabled = True  # type: ignore[attr-defined]
+                await interaction.message.edit(view=self)
+            except Exception:
+                pass
             try:
                 await interaction.followup.send(
                     "❌ 重新生成時發生錯誤，請稍後再試。", ephemeral=True
@@ -183,6 +191,14 @@ class RegenerateContinueView(discord.ui.View):
             )
         except Exception as exc:
             print(f"[Continue] process_chat failed: {exc}")
+            # Disable buttons on the bot message so the user sees a clear
+            # failure state rather than clickable-but-broken buttons.
+            try:
+                for _item in self.children:
+                    _item.disabled = True  # type: ignore[attr-defined]
+                await interaction.message.edit(view=self)
+            except Exception:
+                pass
             try:
                 await interaction.followup.send(
                     "❌ 繼續生成時發生錯誤，請稍後再試。", ephemeral=True
