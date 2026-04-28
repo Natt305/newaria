@@ -2215,15 +2215,27 @@ async def chat(
                     f"[LMStudio] Reply too short for target={_floor_target} "
                     f"({_para_count} para / floor {_para_floor}) — retrying"
                 )
-                _floor_addendum = (
-                    f"\n\nURGENT CORRECTION: your previous reply contained only "
-                    f"{_para_count} meaningful paragraph(s). The {_floor_target} "
-                    f"target requires at least {_para_floor} full paragraphs of "
-                    f"narration. Rewrite the reply now in full — do NOT explain "
-                    f"or apologise, simply produce the reply with at least "
-                    f"{_para_floor} and no more than {_para_ceiling} complete paragraphs "
-                    f"separated by blank lines."
-                )
+                if _schema_mode:
+                    _floor_addendum = (
+                        f"\n\nURGENT CORRECTION: your previous reply contained only "
+                        f"{_para_count} paragraph(s) in the reply array. The "
+                        f"{_floor_target} target requires at least {_para_floor} "
+                        f"elements. Rewrite the reply now — do NOT explain or "
+                        f"apologise, simply produce a valid JSON reply array with "
+                        f"at least {_para_floor} and no more than {_para_ceiling} "
+                        f"string elements, each a full paragraph of narration with "
+                        f"Discord markdown already embedded."
+                    )
+                else:
+                    _floor_addendum = (
+                        f"\n\nURGENT CORRECTION: your previous reply contained only "
+                        f"{_para_count} meaningful paragraph(s). The {_floor_target} "
+                        f"target requires at least {_para_floor} full paragraphs of "
+                        f"narration. Rewrite the reply now in full — do NOT explain "
+                        f"or apologise, simply produce the reply with at least "
+                        f"{_para_floor} and no more than {_para_ceiling} complete paragraphs "
+                        f"separated by blank lines."
+                    )
                 _floor_retry_sys = effective_system.rstrip() + _floor_addendum
                 _floor_retry_msgs = [{"role": "system", "content": _floor_retry_sys}]
                 _floor_retry_msgs.extend(
