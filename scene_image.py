@@ -121,6 +121,17 @@ _OUTFIT_SENTENCE_RE: re.Pattern = re.compile(
     re.I,
 )
 
+# Narrow weapon-specific pattern used ONLY when filtering persistent-state items
+# during scene-state overrides.  Deliberately excludes general outfit words (belt,
+# strap, boots, etc.) that _OUTFIT_SENTENCE_RE catches — accessories like a
+# leather collar or ankle cuff with a strap should survive scene overrides; only
+# actual weapons and their holsters should be suppressed in shower/nude scenes.
+_WEAPON_PERSISTENT_RE: re.Pattern = re.compile(
+    r"\b(?:holster|gun|pistol|revolver|rifle|shotgun|firearm|weapon|"
+    r"sword|blade|knife|dagger|saber|sabre|axe|bow|crossbow|baton|taser)\b",
+    re.I,
+)
+
 
 def _detect_scene_clothing_override(text: str) -> tuple[bool, str]:
     """Return (triggered, state_label) when *text* implies the character is not
@@ -814,7 +825,21 @@ def _gather_refs(
 # ── Prose-assembly helpers (scene_only / Qwen path) ───────────────────────────
 
 # Strip role-label prefixes that _build_prose_context prepends to each line.
+# The labels are always "User" and "Aria" (hardcoded in _build_prose_context),
+# but a dynamic builder is used in _assemble_scene_prompt to also cover the
+# actual bot name in case prose labels change in the future.
 _PROSE_ROLE_LABEL_RE = re.compile(r"^(?:User|Aria)\s*:\s*", re.MULTILINE)
+
+
+def _build_role_label_re(bot_name: str) -> re.Pattern:
+    """Build a role-label strip pattern that covers User, Aria, and the live bot name."""
+    labels = ["User", "Aria"]
+    if bot_name and bot_name not in labels:
+        labels.append(bot_name)
+    return re.compile(
+        r"^(?:" + "|".join(re.escape(l) for l in labels) + r")\s*:\s*",
+        re.MULTILINE,
+    )
 
 # Strip quoted dialogue from prose before using it as an image prompt.
 # Covers the four dialogue quote pairs used elsewhere in the codebase.
@@ -887,8 +912,10 @@ def _assemble_scene_prompt(
          present in the assembled text.
     """
 
+    _role_label_re = _build_role_label_re(bot_name)
+
     def _clean(raw: str) -> str:
-        cleaned = _PROSE_ROLE_LABEL_RE.sub("", raw)
+        cleaned = _role_label_re.sub("", raw)
         cleaned = _PROSE_DIALOGUE_STRIP_RE.sub("", cleaned)
         cleaned = _PROSE_STATIC_APPEARANCE_RE.sub("", cleaned)
         cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
@@ -1425,9 +1452,12 @@ async def run_scene_image(
                 # Filter weapon/holster items from the persistent list — a gun
                 # should not appear in shower, nude, or intimate scenes even if
                 # it was previously extracted as a "persistent accessory".
+                # Uses _WEAPON_PERSISTENT_RE (narrower than _OUTFIT_SENTENCE_RE)
+                # so that non-weapon accessories (collar, cuffs, straps) are NOT
+                # filtered — only actual firearms, blades, and holsters are removed.
                 _weapon_items = [
                     item for item in _persistent_items
-                    if _OUTFIT_SENTENCE_RE.search(item)
+                    if _WEAPON_PERSISTENT_RE.search(item)
                 ]
                 if _weapon_items:
                     print(
@@ -1436,7 +1466,7 @@ async def run_scene_image(
                     )
                     _safe_persistent = [
                         item for item in _persistent_items
-                        if not _OUTFIT_SENTENCE_RE.search(item)
+                        if not _WEAPON_PERSISTENT_RE.search(item)
                     ]
                     _persistent_str = (
                         "PERSISTENT STATE (always visible, even in this scene): "
@@ -1474,7 +1504,7 @@ async def run_scene_image(
                     f"[SceneImage] Scene-state override active ({_state_label!r}): "
                     f"outfit stripped. "
                     f"{'Identity anchor included' if _identity_only else 'No identity anchor — photos only'}. "
-                    f"Persistent items: {[i for i in _persistent_items if not _OUTFIT_SENTENCE_RE.search(i)] or 'none'}."
+                    f"Persistent items: {[i for i in _persistent_items if not _WEAPON_PERSISTENT_RE.search(i)] or 'none'}."
                 )
 
             elif _char_state_obj.outfit:
