@@ -1579,17 +1579,131 @@ def get_recent_conversation(channel_id: str, limit: int = 10) -> List[Dict[str, 
 
 
 def delete_last_n_turns(channel_id: str, n: int) -> None:
-    """Delete the last n turn-pairs (user + assistant = 2 rows each) for a channel."""
+    """Delete the last n turn-pairs (user + assistant = 2 rows each) for a channel.
+
+    Rows are paired by role rather than blindly deleting n*2 rows, so orphaned
+    rows (a user message with no assistant reply, or vice versa) do not cause
+    the wrong rows to be removed.  Warnings are printed whenever orphaned rows
+    are encountered or fewer than n complete pairs are found.
+
+    Edge-case behaviour:
+    - Orphaned rows (unpaired assistant or user messages) are skipped and left
+      in the DB; only complete user+assistant pairs are deleted.
+    - The entire channel history is scanned (paginated) until n pairs are found
+      or all rows are exhausted, so no valid pair is missed regardless of how
+      many orphans are interspersed.
+    - If the channel has fewer than n complete pairs, all available complete
+      pairs are deleted and a warning is logged.
+    - If n <= 0 the function is a no-op.
+    """
+    if n <= 0:
+        return
+
     conn = _get_history_conn()
-    conn.execute("""
-        DELETE FROM conversation_history
-        WHERE id IN (
-            SELECT id FROM conversation_history
+
+    # Paginate through the channel's rows (most-recent first) collecting IDs
+    # for complete turn-pairs.  We stop as soon as n pairs are accumulated or
+    # the history is exhausted.  Pagination avoids loading the entire history
+    # into memory while ensuring no valid pair is missed due to a fixed window.
+    _PAGE = 100
+    offset = 0
+    ids_to_delete: List[int] = []
+    pairs_found = 0
+    orphan_count = 0
+    # A single row may be "pending" when the last row of a page could form a
+    # pair with the first row of the next page.
+    pending_row = None
+
+    while pairs_found < n:
+        page = conn.execute("""
+            SELECT id, role FROM conversation_history
             WHERE channel_id = ?
             ORDER BY id DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
+        """, (channel_id, _PAGE, offset)).fetchall()
+
+        last_page = len(page) < _PAGE
+        offset += len(page)
+
+        # Stitch the carried-forward row onto the front of this page's data.
+        rows = ([pending_row] + list(page)) if pending_row is not None else list(page)
+        pending_row = None
+
+        if not rows:
+            break
+
+        i = 0
+        while i < len(rows) and pairs_found < n:
+            role = rows[i]["role"]
+            if role == "assistant":
+                if i + 1 < len(rows):
+                    if rows[i + 1]["role"] == "user":
+                        ids_to_delete.append(rows[i]["id"])
+                        ids_to_delete.append(rows[i + 1]["id"])
+                        pairs_found += 1
+                        i += 2
+                    else:
+                        # Next row exists but is not "user" — orphaned assistant.
+                        orphan_count += 1
+                        print(
+                            f"[DB] Warning: delete_last_n_turns found an orphaned "
+                            f"'assistant' row (id={rows[i]['id']}) for channel "
+                            f"'{channel_id}' with no preceding user message; skipping."
+                        )
+                        i += 1
+                elif not last_page:
+                    # Last row in this page; carry it forward to check against
+                    # the first row of the next page before deciding it is orphaned.
+                    pending_row = rows[i]
+                    i += 1
+                else:
+                    # No more rows — this assistant has no matching user message.
+                    orphan_count += 1
+                    print(
+                        f"[DB] Warning: delete_last_n_turns found an orphaned "
+                        f"'assistant' row (id={rows[i]['id']}) for channel "
+                        f"'{channel_id}' with no preceding user message; skipping."
+                    )
+                    i += 1
+            elif role == "user":
+                # A user row that appears before we matched an assistant is orphaned.
+                orphan_count += 1
+                print(
+                    f"[DB] Warning: delete_last_n_turns found an orphaned "
+                    f"'user' row (id={rows[i]['id']}) for channel "
+                    f"'{channel_id}' with no following assistant message; skipping."
+                )
+                i += 1
+            else:
+                # Unknown role — skip defensively.
+                i += 1
+
+        if last_page:
+            break
+
+    if pairs_found < n:
+        print(
+            f"[DB] Warning: delete_last_n_turns requested {n} turn-pair(s) "
+            f"for channel '{channel_id}' but only found {pairs_found} complete "
+            f"pair(s) to delete (channel may have fewer messages than expected, "
+            f"orphaned rows skipped: {orphan_count})."
         )
-    """, (channel_id, n * 2))
+    elif orphan_count:
+        print(
+            f"[DB] Warning: delete_last_n_turns deleted {pairs_found} pair(s) "
+            f"({pairs_found * 2} rows) for channel '{channel_id}' but skipped "
+            f"{orphan_count} orphaned row(s)."
+        )
+
+    if not ids_to_delete:
+        conn.close()
+        return
+
+    placeholders = ",".join("?" * len(ids_to_delete))
+    conn.execute(
+        f"DELETE FROM conversation_history WHERE id IN ({placeholders})",
+        ids_to_delete,
+    )
     conn.commit()
     conn.close()
 
