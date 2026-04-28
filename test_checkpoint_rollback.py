@@ -21,6 +21,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(__file__))
 
 import database
+import bot
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -53,20 +54,17 @@ def _row_count(path: str, channel_id: str) -> int:
     return n
 
 
-# In-memory context helpers (copied verbatim from bot.py so the test is
-# self-contained and does not trigger a full Discord bot import)
-
-def _pop_last_turn(ctx: list) -> None:
-    for role in ("assistant", "user"):
-        for i in range(len(ctx) - 1, -1, -1):
-            if ctx[i]["role"] == role:
-                ctx.pop(i)
-                break
+def _seed_memory(channel_id: str, n_turns: int) -> None:
+    """Populate bot.conversation_contexts[channel_id] with *n_turns* turn-pairs."""
+    ctx = []
+    for i in range(1, n_turns + 1):
+        ctx.append({"role": "user",      "content": f"user msg {i}"})
+        ctx.append({"role": "assistant",  "content": f"bot msg {i}"})
+    bot.conversation_contexts[channel_id] = ctx
 
 
-def _pop_n_turns(ctx: list, n: int) -> None:
-    for _ in range(n):
-        _pop_last_turn(ctx)
+def _clear_memory(channel_id: str) -> None:
+    bot.conversation_contexts.pop(channel_id, None)
 
 
 # ── test cases ────────────────────────────────────────────────────────────────
@@ -185,43 +183,55 @@ class TestGetRecentConversationAfterRollback(unittest.TestCase):
 
 
 class TestInMemoryPopNTurns(unittest.TestCase):
-    """Unit tests for the in-memory rollback helpers (pop_last_turn / pop_n_turns).
-    The logic is self-contained; this validates the algorithm independently of
-    the Discord bot import."""
+    """Unit tests for bot.pop_last_turn / bot.pop_n_turns.
 
-    def _make_ctx(self, n_turns: int) -> list:
-        ctx = []
-        for i in range(1, n_turns + 1):
-            ctx.append({"role": "user",      "content": f"user {i}"})
-            ctx.append({"role": "assistant",  "content": f"bot  {i}"})
-        return ctx
+    Each test uses a unique channel id and tears down via _clear_memory so
+    the shared conversation_contexts dict stays clean between tests.
+    """
+
+    CH = "ch-mem-"
+
+    def _ch(self, suffix: str) -> str:
+        return f"{self.CH}{suffix}"
+
+    def tearDown(self):
+        for suffix in ("a", "b", "c", "d", "e"):
+            _clear_memory(self._ch(suffix))
 
     def test_pop_last_turn_removes_one_pair(self):
-        ctx = self._make_ctx(3)
-        _pop_last_turn(ctx)
+        ch = self._ch("a")
+        _seed_memory(ch, 3)
+        bot.pop_last_turn(ch)
+        ctx = bot.conversation_contexts[ch]
         self.assertEqual(len(ctx), 4)
-        self.assertEqual(ctx[-1]["content"], "bot  2")
+        self.assertEqual(ctx[-1]["content"], "bot msg 2")
 
     def test_pop_n_turns_removes_n_pairs(self):
-        ctx = self._make_ctx(5)
-        _pop_n_turns(ctx, 3)
+        ch = self._ch("b")
+        _seed_memory(ch, 5)
+        bot.pop_n_turns(ch, 3)
+        ctx = bot.conversation_contexts[ch]
         self.assertEqual(len(ctx), 4)
-        self.assertEqual(ctx[-1]["content"], "bot  2")
+        self.assertEqual(ctx[-1]["content"], "bot msg 2")
 
     def test_pop_n_turns_zero_is_noop(self):
-        ctx = self._make_ctx(3)
-        _pop_n_turns(ctx, 0)
+        ch = self._ch("c")
+        _seed_memory(ch, 3)
+        bot.pop_n_turns(ch, 0)
+        ctx = bot.conversation_contexts[ch]
         self.assertEqual(len(ctx), 6)
 
     def test_pop_n_turns_more_than_exist_empties_context(self):
-        ctx = self._make_ctx(2)
-        _pop_n_turns(ctx, 10)
+        ch = self._ch("d")
+        _seed_memory(ch, 2)
+        bot.pop_n_turns(ch, 10)
+        ctx = bot.conversation_contexts.get(ch, [])
         self.assertEqual(ctx, [])
 
-    def test_pop_last_turn_on_empty_context_is_safe(self):
-        ctx = []
-        _pop_last_turn(ctx)
-        self.assertEqual(ctx, [])
+    def test_pop_last_turn_on_missing_channel_is_safe(self):
+        ch = self._ch("e")
+        _clear_memory(ch)
+        bot.pop_last_turn(ch)  # must not raise
 
 
 class TestCombinedRollback(unittest.TestCase):
@@ -235,28 +245,23 @@ class TestCombinedRollback(unittest.TestCase):
         self._orig_path = database.HISTORY_DB
         database.HISTORY_DB = self._db_path
 
-    def tearDown(self):
-        database.HISTORY_DB = self._orig_path
-        os.unlink(self._db_path)
-
     def test_memory_and_db_agree_after_rollback(self):
         ch = "ch-combined"
         n_total = 5
         n_rollback = 2
 
-        # Build initial in-memory context
-        ctx = []
+        # Seed bot.conversation_contexts and DB together
+        _seed_memory(ch, n_total)
         for i in range(1, n_total + 1):
             database.save_conversation(ch, "u1", "User", f"user msg {i}", "user")
             database.save_conversation(ch, "u1", "Bot",  f"bot msg {i}",  "assistant")
-            ctx.append({"role": "user",     "content": f"user msg {i}"})
-            ctx.append({"role": "assistant", "content": f"bot msg {i}"})
 
-        # Perform rollback (mirrors ConfirmCheckpointView.confirm)
-        _pop_n_turns(ctx, n_rollback)
+        # Perform rollback via the real bot functions (mirrors ConfirmCheckpointView.confirm)
+        bot.pop_n_turns(ch, n_rollback)
         database.delete_last_n_turns(ch, n_rollback)
 
         expected_turns = n_total - n_rollback
+        ctx = bot.conversation_contexts.get(ch, [])
 
         # In-memory check
         self.assertEqual(len(ctx), expected_turns * 2)
@@ -269,6 +274,11 @@ class TestCombinedRollback(unittest.TestCase):
         mem_contents = [m["content"] for m in ctx]
         db_contents  = [row["content"] for row in history]
         self.assertEqual(mem_contents, db_contents)
+
+    def tearDown(self):
+        _clear_memory("ch-combined")
+        database.HISTORY_DB = self._orig_path
+        os.unlink(self._db_path)
 
 
 if __name__ == "__main__":
