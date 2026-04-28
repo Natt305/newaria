@@ -1248,9 +1248,7 @@ async def process_chat(
         prose = response_text or "…"
         # Always attach Regenerate (🔄) + Continue (▶️) on row 1.
         # Suggestion buttons (row 0) are added dynamically when enabled.
-        scene_view: discord.ui.View = ui.RegenerateContinueView(
-            channel_id, timeout=300
-        )
+        scene_view: discord.ui.View = ui.RegenerateContinueView(channel_id)
         if _suggestions_enabled:
             _s_topic = await get_suggestion_topic(channel_id)
             _s_list = await groq_ai.generate_suggestions(

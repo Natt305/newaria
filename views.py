@@ -52,16 +52,13 @@ class RegenerateContinueView(discord.ui.View):
     callbacks even after a bot restart (registered once via bot.add_view()).
 
     When scene mode is active, SuggestionButton items are added dynamically on
-    row 0 before the message is sent; they don't survive restarts, which is fine.
+    row 0 before the message is sent; they don't survive restarts, which is fine
+    because the 🔄 / ▶️ buttons on row 1 always work.
     """
 
-    def __init__(self, channel_id: str = "", timeout: Optional[float] = None) -> None:
-        super().__init__(timeout=timeout)
+    def __init__(self, channel_id: str = "") -> None:
+        super().__init__(timeout=None)
         self._channel_id = channel_id
-
-    async def on_timeout(self) -> None:
-        for item in self.children:
-            item.disabled = True  # type: ignore[attr-defined]
 
     @discord.ui.button(
         emoji="🔄",
@@ -75,7 +72,12 @@ class RegenerateContinueView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        """Discard the current bot reply and generate a fresh one."""
+        """Discard the current bot reply and generate a fresh one.
+
+        If the user edited their original message after the bot replied, the
+        edited text is used as the new input; otherwise the original text is
+        replayed, producing a different response via LLM temperature variation.
+        """
         await interaction.response.defer(ephemeral=True, thinking=False)
 
         channel_id = str(interaction.channel_id)
@@ -97,10 +99,20 @@ class RegenerateContinueView(discord.ui.View):
             )
             return
 
-        # Current message content — if the user edited after the bot replied,
-        # user_msg.content already reflects the edited version; otherwise it's
-        # the original.  Either way we just use it as-is.
-        import bot as _bot_mod  # lazy import avoids circular dependency
+        # ── Determine user text: edited version or original ──────────────────
+        # If the user edited their message after the bot replied, use the new
+        # text; otherwise use the original content (LLM randomness gives a
+        # different reply even with the same prompt).
+        using_edited = False
+        if (
+            user_msg.edited_at is not None
+            and bot_msg is not None
+            and bot_msg.created_at is not None
+            and user_msg.edited_at > bot_msg.created_at
+        ):
+            using_edited = True
+
+        import bot as _bot_mod  # lazy import — avoids circular dependency
 
         user_text = user_msg.content.strip()
         if _bot_mod.bot.user:
@@ -117,6 +129,9 @@ class RegenerateContinueView(discord.ui.View):
             )
             return
 
+        if using_edited:
+            print(f"[Regen] Using edited user text for channel {channel_id}")
+
         # ── Strip last turn from in-memory context then regenerate ───────────
         _bot_mod.pop_last_turn(channel_id)
 
@@ -125,13 +140,22 @@ class RegenerateContinueView(discord.ui.View):
         except discord.HTTPException:
             pass
 
-        await _bot_mod.process_chat(
-            channel=interaction.channel,
-            author=user_msg.author,
-            user_text=user_text,
-            reply_target=user_msg,
-            channel_id=channel_id,
-        )
+        try:
+            await _bot_mod.process_chat(
+                channel=interaction.channel,
+                author=user_msg.author,
+                user_text=user_text,
+                reply_target=user_msg,
+                channel_id=channel_id,
+            )
+        except Exception as exc:
+            print(f"[Regen] process_chat failed: {exc}")
+            try:
+                await interaction.followup.send(
+                    "❌ 重新生成時發生錯誤，請稍後再試。", ephemeral=True
+                )
+            except Exception:
+                pass
 
     @discord.ui.button(
         emoji="▶️",
@@ -147,15 +171,24 @@ class RegenerateContinueView(discord.ui.View):
     ) -> None:
         """Prompt the bot to continue where it left off."""
         await interaction.response.defer(ephemeral=True, thinking=False)
-        import bot as _bot_mod  # lazy import avoids circular dependency
+        import bot as _bot_mod  # lazy import — avoids circular dependency
 
-        await _bot_mod.process_chat(
-            channel=interaction.channel,
-            author=interaction.user,
-            user_text="繼續",
-            reply_target=interaction.message,
-            channel_id=str(interaction.channel_id),
-        )
+        try:
+            await _bot_mod.process_chat(
+                channel=interaction.channel,
+                author=interaction.user,
+                user_text="繼續",
+                reply_target=interaction.message,
+                channel_id=str(interaction.channel_id),
+            )
+        except Exception as exc:
+            print(f"[Continue] process_chat failed: {exc}")
+            try:
+                await interaction.followup.send(
+                    "❌ 繼續生成時發生錯誤，請稍後再試。", ephemeral=True
+                )
+            except Exception:
+                pass
 
 
 def _has_saveimage_permission(interaction: discord.Interaction) -> bool:
