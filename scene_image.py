@@ -983,8 +983,8 @@ def _assemble_scene_prompt(
       b. Strip role labels, quoted dialogue, static appearance terms.
       c. Build a character roster from roster_names/roster_appearances; infer
          each character's gender from their appearance text.
-      d. Resolve unambiguous subject pronouns (she/he → name) only when exactly
-         one character of that gender appears.
+      d. Resolve unambiguous subject and object pronouns (she/her, he/him → name)
+         only when exactly one character of that gender appears.
       e. Append a full-body framing cue when two or more named characters are
          present in the assembled text.
     """
@@ -1029,7 +1029,7 @@ def _assemble_scene_prompt(
         if pname and pname.lower() not in seen_lower:
             roster.append((pname, ""))
 
-    # Resolve unambiguous subject pronouns.
+    # Resolve unambiguous subject and object pronouns.
     female_chars = [n for n, g in roster if g == "f"]
     male_chars = [n for n, g in roster if g == "m"]
 
@@ -1044,8 +1044,10 @@ def _assemble_scene_prompt(
 
     if len(female_chars) == 1:
         assembled = _sub_pronoun(assembled, "she", female_chars[0])
+        assembled = _sub_pronoun(assembled, "her", female_chars[0])
     if len(male_chars) == 1:
         assembled = _sub_pronoun(assembled, "he", male_chars[0])
+        assembled = _sub_pronoun(assembled, "him", male_chars[0])
 
     # Framing: append full-body cue when two or more characters appear.
     assembled_lower = assembled.lower()

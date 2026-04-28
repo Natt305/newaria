@@ -2,10 +2,11 @@
 Unit tests for pronoun resolution in _assemble_scene_prompt / _infer_gender.
 
 Edge cases covered:
-  1. Two female characters  → substitution suppressed (ambiguous)
+  1. Two female characters  → substitution suppressed (ambiguous) for both "she" and "her"
   2. Zero female characters → "she/her" left unchanged
   3. Player with unknown gender → added to roster without causing substitution
   4. Bot referenced by "self" label → resolved to bot_name, not misattributed
+  5. One female character   → "her" (object pronoun) substituted alongside "she"
 
 Run: python test_scene_prompt.py
 """
@@ -191,8 +192,50 @@ def test_female_bot_male_player_only_she_substituted():
     )
 
 
+def test_one_female_her_substitution():
+    """With exactly one female, 'her' (object pronoun) should also be replaced by her name."""
+    result = _assemble_scene_prompt(
+        seed="She handed it to her.",
+        prose_context=None,
+        roster_names=["Luna"],
+        roster_appearances={"Luna": FEMALE_APP},
+        bot_name="Luna",
+        player_display_name=None,
+    )
+    check(
+        "One female: 'her' replaced with character name",
+        result.count("Luna") == 2,
+        f"result={result!r}",
+    )
+    check(
+        "One female: bare 'her' not present after substitution",
+        "her" not in result.lower().replace("luna", ""),
+        f"result={result!r}",
+    )
+
+
+def test_two_females_her_not_substituted():
+    """When two female characters are present, 'her' must NOT be replaced (ambiguous)."""
+    result = _assemble_scene_prompt(
+        seed="She handed it to her.",
+        prose_context=None,
+        roster_names=["Alice", "Beth"],
+        roster_appearances={
+            "Alice": FEMALE_APP,
+            "Beth":  FEMALE_APP,
+        },
+        bot_name="Alice",
+        player_display_name=None,
+    )
+    check(
+        "Two females: 'her' not replaced (ambiguous)",
+        "her" in result.lower(),
+        f"result={result!r}",
+    )
+
+
 def test_male_and_female_both_unique():
-    """One male + one female: both pronouns resolved without cross-contamination."""
+    """One male + one female: both subject and object pronouns resolved without cross-contamination."""
     result = _assemble_scene_prompt(
         seed="She smiled at him warmly.",
         prose_context=None,
@@ -210,13 +253,10 @@ def test_male_and_female_both_unique():
         f"result={result!r}",
     )
     check(
-        "Mixed genders: 'him' left or 'Ethan' inserted (male pronoun resolution)",
-        "Ethan" in result or "him" in result.lower(),
+        "Mixed genders: 'him' replaced with male name",
+        "Ethan" in result,
         f"result={result!r}",
     )
-    # The code substitutes "he" but not "him"; "him" is an object pronoun and
-    # remains in the text.  The key correctness property is that Zara (female)
-    # is NOT substituted in place of the male pronoun.
     check(
         "Mixed genders: Zara not inserted as replacement for 'him'",
         result.count("Zara") == 1,  # appears once (from 'she' substitution only)
@@ -243,6 +283,8 @@ def run_all():
     test_player_unknown_gender_does_not_trigger_substitution()
     test_bot_self_label_resolved_to_bot_name()
     test_female_bot_male_player_only_she_substituted()
+    test_one_female_her_substitution()
+    test_two_females_her_not_substituted()
     test_male_and_female_both_unique()
 
     print()
