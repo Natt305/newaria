@@ -1076,6 +1076,7 @@ def _assemble_scene_prompt(
     if len(male_chars) == 1:
         assembled = _sub_pronoun(assembled, "he", male_chars[0])
         assembled = _sub_pronoun(assembled, "him", male_chars[0])
+        assembled = _sub_pronoun(assembled, "his", male_chars[0], skip_possessive=True)
 
     # Framing: append full-body cue when two or more characters appear.
     assembled_lower = assembled.lower()

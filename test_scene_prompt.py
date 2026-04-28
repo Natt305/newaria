@@ -341,6 +341,33 @@ def test_possessive_her_before_numeral_noun():
         )
 
 
+def test_possessive_his_not_substituted():
+    """Possessive 'his' (followed by a noun) must NOT be replaced with the character name."""
+    result = _assemble_scene_prompt(
+        seed="He grabbed his coat from the chair.",
+        prose_context=None,
+        roster_names=["Ethan"],
+        roster_appearances={"Ethan": MALE_APP},
+        bot_name="Ethan",
+        player_display_name=None,
+    )
+    check(
+        "Possessive 'his': 'his coat' not mangled to 'Ethan coat'",
+        "Ethan coat" not in result,
+        f"result={result!r}",
+    )
+    check(
+        "Possessive 'his': possessive 'his' preserved before noun",
+        "his coat" in result.lower(),
+        f"result={result!r}",
+    )
+    check(
+        "Possessive 'his': subject 'he' still replaced with name",
+        "Ethan" in result,
+        f"result={result!r}",
+    )
+
+
 def test_two_females_her_not_substituted():
     """When two female characters are present, 'her' must NOT be replaced (ambiguous)."""
     result = _assemble_scene_prompt(
@@ -415,6 +442,7 @@ def run_all():
     test_object_her_followed_by_adverb_is_substituted()
     test_possessive_her_multiword_adjective_noun()
     test_possessive_her_before_numeral_noun()
+    test_possessive_his_not_substituted()
     test_two_females_her_not_substituted()
     test_male_and_female_both_unique()
 
