@@ -951,10 +951,17 @@ _MALE_GENDER_WORDS: frozenset = frozenset({
 })
 
 
-def _infer_gender(text: str) -> str:
-    """Return 'f', 'm', or '' by scanning the first 300 chars of a description."""
+def _infer_gender(text: str, *, name: str = "") -> str:
+    """Return 'f', 'm', or '' by scanning the first 300 chars of a description.
+
+    ``name`` – the character's own name.  Its component words are excluded from
+    scoring so that a character named "Lady", "Miss", or "He" is not
+    misclassified purely because their name appears in their appearance text.
+    """
     sample = text[:300].lower()
     tokens = set(re.findall(r"[a-z]+", sample))
+    if name:
+        tokens -= set(re.findall(r"[a-z]+", name.lower()))
     f_hits = len(tokens & _FEMALE_GENDER_WORDS)
     m_hits = len(tokens & _MALE_GENDER_WORDS)
     if f_hits > m_hits:
@@ -1022,13 +1029,13 @@ def _assemble_scene_prompt(
             continue
         seen_lower.add(name.lower())
         appearance = roster_appearances.get(name, "")
-        roster.append((name, _infer_gender(appearance)))
+        roster.append((name, _infer_gender(appearance, name=name)))
 
     if player_display_name:
         pname = player_display_name.strip()
         if pname and pname.lower() not in seen_lower:
             player_appearance = roster_appearances.get(pname, "")
-            roster.append((pname, _infer_gender(player_appearance)))
+            roster.append((pname, _infer_gender(player_appearance, name=pname)))
 
     # Resolve unambiguous subject and object pronouns.
     female_chars = [n for n, g in roster if g == "f"]

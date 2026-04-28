@@ -53,6 +53,38 @@ def test_infer_gender_ambiguous():
     check("_infer_gender: no gender words → ''", result == "", f"got {result!r}")
 
 
+def test_infer_gender_name_excluded_female_word():
+    """A character named 'Lady' with neutral appearance must not score as female
+    just because 'lady' appears in the appearance text as part of their name.
+    """
+    result = _infer_gender("Lady has a neutral, androgynous appearance.", name="Lady")
+    check(
+        "_infer_gender: name token 'lady' excluded → ''",
+        result == "",
+        f"got {result!r}",
+    )
+
+
+def test_infer_gender_name_excluded_male_word():
+    """A character named 'He' with neutral appearance must not score as male."""
+    result = _infer_gender("He is an indistinct figure of average build.", name="He")
+    check(
+        "_infer_gender: name token 'he' excluded → ''",
+        result == "",
+        f"got {result!r}",
+    )
+
+
+def test_infer_gender_name_excluded_multiword():
+    """A character named 'Miss Chen' must not have 'miss' counted as a gender hit."""
+    result = _infer_gender("Miss Chen has a neutral style and short dark hair.", name="Miss Chen")
+    check(
+        "_infer_gender: multi-word name tokens excluded → ''",
+        result == "",
+        f"got {result!r}",
+    )
+
+
 # ── _assemble_scene_prompt edge-case tests ────────────────────────────────────
 
 FEMALE_APP = "a young woman with long hair, she is graceful"
@@ -497,6 +529,65 @@ def test_male_and_female_both_unique():
     )
 
 
+# ── Character name contains gender word (task #7 regression) ─────────────────
+
+def test_character_named_lady_not_misclassified():
+    """A character whose name is 'Lady' must not be inferred as female solely
+    because their name token appears in their appearance description.
+
+    Without the name-exclusion fix, 'lady' in the appearance text would match
+    _FEMALE_GENDER_WORDS and force gender 'f', potentially making pronoun
+    substitution ambiguous when it should not be.
+    """
+    result = _assemble_scene_prompt(
+        seed="He stood next to the figure.",
+        prose_context=None,
+        roster_names=["Lady", "Carlos"],
+        roster_appearances={
+            "Lady":   "Lady has a neutral, androgynous appearance with short dark hair.",
+            "Carlos": MALE_APP,
+        },
+        bot_name="Lady",
+        player_display_name=None,
+    )
+    check(
+        "Character named 'Lady' (neutral appearance): 'he' still replaced with male name",
+        "Carlos" in result,
+        f"result={result!r}",
+    )
+    check(
+        "Character named 'Lady' (neutral appearance): 'Lady' not inserted via pronoun",
+        result.count("Lady") == 0,
+        f"result={result!r}",
+    )
+
+
+def test_character_named_miss_not_misclassified():
+    """A character named 'Miss Chen' with neutral appearance must not be inferred
+    as female just because 'miss' appears in their appearance text.
+    """
+    result = _assemble_scene_prompt(
+        seed="She walked into the room.",
+        prose_context=None,
+        roster_names=["Miss Chen"],
+        roster_appearances={
+            "Miss Chen": "Miss Chen has a neutral style and short dark hair.",
+        },
+        bot_name="Miss Chen",
+        player_display_name=None,
+    )
+    check(
+        "Character named 'Miss Chen' (neutral appearance): 'she' not replaced (gender unknown)",
+        "she" in result.lower(),
+        f"result={result!r}",
+    )
+    check(
+        "Character named 'Miss Chen': name not spuriously inserted via pronoun",
+        "Miss Chen" not in result,
+        f"result={result!r}",
+    )
+
+
 # ── Looks-only player gender inference (task #18 regression) ─────────────────
 
 def test_looks_only_female_player_she_not_substituted():
@@ -597,6 +688,9 @@ def run_all():
     test_infer_gender_male()
     test_infer_gender_empty()
     test_infer_gender_ambiguous()
+    test_infer_gender_name_excluded_female_word()
+    test_infer_gender_name_excluded_male_word()
+    test_infer_gender_name_excluded_multiword()
 
     print()
     test_two_females_no_substitution()
@@ -615,6 +709,10 @@ def run_all():
     test_possessive_his_not_substituted()
     test_two_females_her_not_substituted()
     test_male_and_female_both_unique()
+
+    print()
+    test_character_named_lady_not_misclassified()
+    test_character_named_miss_not_misclassified()
 
     print()
     test_looks_only_female_player_she_not_substituted()
