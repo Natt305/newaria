@@ -125,9 +125,25 @@ class ConfirmCheckpointView(discord.ui.View):
 
         # ── Bulk-delete after_messages in batches of ≤100 ───────────────────
         # Discord only allows bulk-delete for messages < 14 days old.
+        # bulk-delete requires MANAGE_MESSAGES to remove other users' messages.
+        # Strategy: attempt bulk delete first; on failure, split by author so
+        # bot-owned messages are always removed and user messages are attempted
+        # individually (requires MANAGE_MESSAGES — report if any are skipped).
         cutoff = discord.utils.utcnow() - _dt.timedelta(days=14)
         recent = [m for m in self.after_messages if m.created_at > cutoff]
         old = [m for m in self.after_messages if m.created_at <= cutoff]
+
+        skipped_user_msgs: list = []
+
+        async def _delete_one(m: discord.Message) -> bool:
+            try:
+                await m.delete()
+                return True
+            except discord.Forbidden:
+                skipped_user_msgs.append(m)
+                return False
+            except discord.HTTPException:
+                return False
 
         if recent:
             for i in range(0, len(recent), 100):
@@ -136,16 +152,10 @@ class ConfirmCheckpointView(discord.ui.View):
                     await channel.delete_messages(batch)  # type: ignore[union-attr]
                 except discord.HTTPException:
                     for m in batch:
-                        try:
-                            await m.delete()
-                        except discord.HTTPException:
-                            pass
+                        await _delete_one(m)
 
         for m in old:
-            try:
-                await m.delete()
-            except discord.HTTPException:
-                pass
+            await _delete_one(m)
 
         # ── Delete the clicked bot message itself ────────────────────────────
         try:
@@ -155,6 +165,18 @@ class ConfirmCheckpointView(discord.ui.View):
 
         # ── Delete the confirmation warning message ──────────────────────────
         await self._delete_warn()
+
+        # ── Warn if any user messages couldn't be deleted ────────────────────
+        if skipped_user_msgs:
+            try:
+                await interaction.followup.send(
+                    f"⚠️ **{len(skipped_user_msgs)}** 條使用者訊息無法刪除。\n"
+                    "請在 Discord 伺服器設定中授予機器人 **管理訊息 (Manage Messages)** 權限，"
+                    "即可自動刪除所有訊息。",
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                pass
 
         # ── Roll back in-memory context ──────────────────────────────────────
         import bot as _bot
@@ -169,6 +191,12 @@ class ConfirmCheckpointView(discord.ui.View):
             reply_target=self.user_msg,
             channel_id=self.channel_id,
         )
+
+        # ── Dismiss the deferred "thinking" indicator ────────────────────────
+        try:
+            await interaction.delete_original_response()
+        except discord.HTTPException:
+            pass
 
     @discord.ui.button(label="取消", style=discord.ButtonStyle.secondary, emoji="❌", row=0)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:

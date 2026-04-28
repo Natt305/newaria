@@ -3873,6 +3873,11 @@ async def initiate_cmd(ctx):
     except Exception:
         pass
 
+    try:
+        await ctx.interaction.delete_original_response()
+    except Exception:
+        pass
+
 
 @bot.hybrid_command(
     name="sceneimage",
