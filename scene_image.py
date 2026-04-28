@@ -1116,7 +1116,14 @@ def _assemble_scene_prompt(
         return result
     assembled = re.sub(r"\byour\b", _repl_your, assembled, flags=re.I)
     # "you" → player name (object / subject form).
-    assembled = _sub_pronoun(assembled, "you", _player_ref)
+    # Negative lookahead skips contractions (you're, you've, you'll, etc.)
+    # so they don't become awkward forms like "player're".
+    def _repl_you(m: re.Match) -> str:
+        result = _player_ref
+        if m.group(0)[0].isupper():
+            result = result[0].upper() + result[1:]
+        return result
+    assembled = re.sub(r"\byou\b(?!'[a-z])", _repl_you, assembled, flags=re.I)
 
     # Framing: append full-body cue when two or more characters appear.
     assembled_lower = assembled.lower()
