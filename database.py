@@ -1578,6 +1578,22 @@ def get_recent_conversation(channel_id: str, limit: int = 10) -> List[Dict[str, 
     return list(reversed([dict(r) for r in rows]))
 
 
+def delete_last_n_turns(channel_id: str, n: int) -> None:
+    """Delete the last n turn-pairs (user + assistant = 2 rows each) for a channel."""
+    conn = _get_history_conn()
+    conn.execute("""
+        DELETE FROM conversation_history
+        WHERE id IN (
+            SELECT id FROM conversation_history
+            WHERE channel_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+        )
+    """, (channel_id, n * 2))
+    conn.commit()
+    conn.close()
+
+
 # ── Memories (plain JSON file) ────────────────────────────────────────────────
 
 def _load_memories_list() -> List[Dict[str, Any]]:

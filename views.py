@@ -159,6 +159,7 @@ class ConfirmCheckpointView(discord.ui.View):
         # ── Roll back in-memory context ──────────────────────────────────────
         import bot as _bot
         _bot.pop_n_turns(self.channel_id, self.n_future_turns + 1)
+        database.delete_last_n_turns(self.channel_id, self.n_future_turns + 1)
 
         # ── Regenerate from the checkpoint ──────────────────────────────────
         await _bot.process_chat(
