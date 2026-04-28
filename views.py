@@ -119,7 +119,7 @@ class ConfirmCheckpointView(discord.ui.View):
             await interaction.response.defer()
             return
         self._acted = True
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
 
         channel = interaction.channel
 
