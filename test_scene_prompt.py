@@ -8,6 +8,8 @@ Edge cases covered:
   4. Bot referenced by "self" label → resolved to bot_name, not misattributed
   5. One female character   → "her" (object pronoun) substituted alongside "she"
   6. 'her' before numeral+noun phrase (e.g. 'her two sisters') → possessive, preserved
+  7. Player with looks-only profile (appearance in roster_appearances, keyed by display
+     name) → correctly inferred as female, making pronouns ambiguous (task #18 regression)
 
 Run: python test_scene_prompt.py
 """
@@ -418,6 +420,95 @@ def test_male_and_female_both_unique():
     )
 
 
+# ── Looks-only player gender inference (task #18 regression) ─────────────────
+
+def test_looks_only_female_player_she_not_substituted():
+    """Regression test for task #18 bug.
+
+    Before the fix, player_display_name was added to the roster with an empty
+    gender string ('') regardless of roster_appearances — so a female-looking
+    player was mis-identified as gender-unknown.  With only the bot counted as
+    female, 'she' was (incorrectly) unambiguous and resolved to the bot name.
+
+    After the fix, roster_appearances is consulted using player_display_name as
+    the key, so Yuki is inferred as female.  Two females → 'she' is ambiguous
+    and must be left unchanged.
+    """
+    result = _assemble_scene_prompt(
+        seed="She walked to the window.",
+        prose_context=None,
+        roster_names=["Aria"],
+        roster_appearances={
+            "Aria": FEMALE_APP,
+            "Yuki": FEMALE_APP,   # player appearance, keyed by display name
+        },
+        bot_name="Aria",
+        player_display_name="Yuki",
+    )
+    check(
+        "Looks-only female player + female bot: 'she' preserved (two females → ambiguous)",
+        "she" in result.lower(),
+        f"result={result!r}",
+    )
+    check(
+        "Looks-only female player: 'Aria' not injected via pronoun (would signal pre-fix bug)",
+        "Aria" not in result,
+        f"result={result!r}",
+    )
+
+
+def test_looks_only_female_player_her_not_substituted():
+    """Same regression as above but for the object/possessive pronoun 'her'."""
+    result = _assemble_scene_prompt(
+        seed="The camera focused on her.",
+        prose_context=None,
+        roster_names=["Aria"],
+        roster_appearances={
+            "Aria": FEMALE_APP,
+            "Yuki": FEMALE_APP,
+        },
+        bot_name="Aria",
+        player_display_name="Yuki",
+    )
+    check(
+        "Looks-only female player + female bot: 'her' preserved (two females → ambiguous)",
+        "her" in result.lower(),
+        f"result={result!r}",
+    )
+    check(
+        "Looks-only female player 'her': 'Aria' not injected via pronoun",
+        "Aria" not in result,
+        f"result={result!r}",
+    )
+
+
+def test_looks_only_male_player_she_substituted_to_bot():
+    """Player with male appearance in roster_appearances → only bot is female
+    → 'she' unambiguously resolves to the bot name, 'him' to the player name.
+    """
+    result = _assemble_scene_prompt(
+        seed="She sat across from him.",
+        prose_context=None,
+        roster_names=["Aria"],
+        roster_appearances={
+            "Aria":  FEMALE_APP,
+            "Kenji": MALE_APP,    # player's appearance, keyed by display name
+        },
+        bot_name="Aria",
+        player_display_name="Kenji",
+    )
+    check(
+        "Looks-only male player + female bot: 'she' substituted to bot name",
+        "Aria" in result,
+        f"result={result!r}",
+    )
+    check(
+        "Looks-only male player + female bot: 'him' substituted to player name",
+        "Kenji" in result,
+        f"result={result!r}",
+    )
+
+
 # ── runner ─────────────────────────────────────────────────────────────────────
 
 def run_all():
@@ -445,6 +536,11 @@ def run_all():
     test_possessive_his_not_substituted()
     test_two_females_her_not_substituted()
     test_male_and_female_both_unique()
+
+    print()
+    test_looks_only_female_player_she_not_substituted()
+    test_looks_only_female_player_her_not_substituted()
+    test_looks_only_male_player_she_substituted_to_bot()
 
     print()
     total  = len(_results)
