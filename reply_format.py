@@ -153,6 +153,19 @@ _BOT_PRONOUN_ACTION_RE = re.compile(
     re.I,
 )
 
+# Observer-interrogative: questions that are clearly asked BY the bot about the user,
+# not said BY the user.  Patterns like "What's a master-tier X doing in the bottom 5%?"
+# or "Why would someone like you hide your abilities?" belong to the bot's voice — the
+# user already knows the answer from the inside; only an observer asks these.
+_OBSERVER_INTERROGATIVE_RE = re.compile(
+    r"(?:"
+    r"What'?s? (?:a |an |someone|a person).{0,60}\bdoing\b"  # "What's a X doing in Y"
+    r"|Why (?:would|did|is|are) (?:someone|a person) (?:like (?:you|me))"  # "Why would someone like you"
+    r"|(?:What|Why|How) (?:would|did|does|is|are) (?:someone|a person) (?:like (?:you|me))"
+    r")",
+    re.I,
+)
+
 
 def _is_bot_voiced(text: str, bot_name: str) -> bool:
     """Return True when a suggestion sounds like the bot speaking, not the player.
@@ -167,6 +180,10 @@ def _is_bot_voiced(text: str, bot_name: str) -> bool:
     e. References ``bot_name`` in a third-person narration pattern
        ("Kelly smiled…", "Kelly's voice…") rather than as a direct address
        ("Hey Kelly, …" is fine and returns False).
+    f. Observer-interrogative construction — questions that only an outside
+       observer would ask about the user, e.g. "What's a master-tier skill
+       set doing in the bottom 5%?" The user already knows their own
+       situation; only the bot would phrase it this way.
     """
     if len(text) > 90:
         return True
@@ -175,6 +192,8 @@ def _is_bot_voiced(text: str, bot_name: str) -> bool:
     if _ASTERISK_ACTION_RE.search(text):
         return True
     if _BOT_PRONOUN_ACTION_RE.search(text):
+        return True
+    if _OBSERVER_INTERROGATIVE_RE.search(text):
         return True
     if bot_name:
         first_name = bot_name.split()[0]
@@ -628,17 +647,26 @@ async def generate_suggestions(
 
     base = (
         f"{lang_instruction}"
-        f"You are writing short follow-up messages FROM the user's side, directed at "
+        f"You are writing short reply messages FROM the user's perspective, directed at "
         f"{bot_name} during roleplay. Do NOT write as {bot_name} — write as the USER.\n"
+        f"CRITICAL — PERSPECTIVE: {bot_name} has just spoken to the user. "
+        f"The suggestions are the USER's verbal REACTION to what {bot_name} said. "
+        f"The user is NOT an outside observer — the user is the subject being addressed. "
+        f"NEVER write a question or statement that {bot_name} would be the one to ask "
+        f"(e.g. interrogating the user about their own situation, "
+        f"e.g. 'What's someone like you doing here?', 'Why did you hide your abilities?'). "
+        f"The user already knows their own situation from the inside — they react, deflect, "
+        f"push back, agree, or ask {bot_name} something about {bot_name}. "
         f"NEVER write dialogue that {bot_name} would say. "
         f"NEVER continue from {bot_name}'s voice. "
         f"NEVER use asterisks (*) for actions or narration — those belong to {bot_name}'s replies. "
-        f"Each suggestion MUST be a message typed by the human player. "
+        f"Each suggestion MUST be a message typed by the human player IN REPLY to {bot_name}. "
         f"If a line sounds like something {bot_name} would say — formal, authoritative, "
-        f"in-character narration — discard it and write a casual human reply instead.\n"
+        f"an observer's question, or in-character narration — discard it and write "
+        f"a genuine user reaction instead.\n"
         f"{bot_name}'s personality and appearance for context: {character_background}\n"
-        f"Generate exactly {count} follow-up messages a user might naturally send next in the conversation.\n"
-        f"Write them as the USER speaking to {bot_name} — casual, warm, and conversational.\n"
+        f"Generate exactly {count} follow-up messages a user might naturally REPLY with next.\n"
+        f"Write them as the USER responding to {bot_name} — casual, warm, and conversational.\n"
         f"Each should be 10–75 characters. No punctuation at the end. No quotes.\n"
         f"{return_line}"
     )
