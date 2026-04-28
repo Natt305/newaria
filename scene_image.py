@@ -943,11 +943,18 @@ _PROSE_STATIC_APPEARANCE_RE = re.compile(
 )
 
 # Gender indicator word sets for pronoun resolution.
+# Only unambiguous indicators are included.  Removed entries that double as
+# common English words:
+#   "her"  – possessive pronoun as often as object pronoun (false positives
+#             in neutral text like "the teacher gave her the book")
+#   "miss" – also a verb ("don't miss the show") and a verb-noun
+#   "he"   – subject pronoun that routinely opens sentences in neutral prose
+#   "him"  – object pronoun; same issue as "he"
 _FEMALE_GENDER_WORDS: frozenset = frozenset({
-    "woman", "girl", "female", "lady", "ladies", "she", "her", "miss", "mrs", "ms",
+    "woman", "girl", "female", "lady", "ladies", "she", "mrs", "ms",
 })
 _MALE_GENDER_WORDS: frozenset = frozenset({
-    "man", "boy", "male", "gentleman", "he", "him", "mister", "mr",
+    "man", "boy", "male", "gentleman", "mister", "mr",
 })
 
 

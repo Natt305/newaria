@@ -125,6 +125,50 @@ def test_infer_gender_name_woman_not_classified_female():
     )
 
 
+def test_infer_gender_her_alone_not_female():
+    """'her' alone (possessive) must NOT infer female after tightening.
+
+    Before the word-set tightening, 'her' was in _FEMALE_GENDER_WORDS and this
+    description would have returned 'f'.  A neutral scene description that
+    happens to use the possessive 'her' must now return '' so that pronoun
+    resolution is not triggered incorrectly.
+    """
+    result = _infer_gender("The teacher passed her the assignment on Monday.")
+    check(
+        "_infer_gender: possessive 'her' alone → '' (not 'f')",
+        result == "",
+        f"got {result!r}",
+    )
+
+
+def test_infer_gender_miss_alone_not_female():
+    """'miss' as a verb must NOT infer female after tightening.
+
+    Before the tightening, 'miss' was in _FEMALE_GENDER_WORDS and a sentence
+    like "don't miss the opportunity" would have incorrectly returned 'f'.
+    """
+    result = _infer_gender("Don't miss the opportunity to attend the event.")
+    check(
+        "_infer_gender: verbal 'miss' alone → '' (not 'f')",
+        result == "",
+        f"got {result!r}",
+    )
+
+
+def test_infer_gender_him_alone_not_male():
+    """'him' as object pronoun must NOT infer male after tightening.
+
+    Before the tightening, 'him' was in _MALE_GENDER_WORDS and a neutral
+    sentence like "the crowd cheered for him" would have returned 'm'.
+    """
+    result = _infer_gender("The crowd cheered for him loudly.")
+    check(
+        "_infer_gender: object 'him' alone → '' (not 'm')",
+        result == "",
+        f"got {result!r}",
+    )
+
+
 # ── _assemble_scene_prompt edge-case tests ────────────────────────────────────
 
 FEMALE_APP = "a young woman with long hair, she is graceful"
@@ -735,6 +779,9 @@ def run_all():
     test_infer_gender_name_male_not_classified_male()
     test_infer_gender_name_gentleman_not_classified_male()
     test_infer_gender_name_woman_not_classified_female()
+    test_infer_gender_her_alone_not_female()
+    test_infer_gender_miss_alone_not_female()
+    test_infer_gender_him_alone_not_male()
 
     print()
     test_two_females_no_substitution()
