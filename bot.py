@@ -2134,6 +2134,7 @@ COMMAND_USAGE = {
     "setstatus":           "用法: `!setstatus <文字> [activity_type] [status]`\n例如: `!setstatus 少女樂團 listening online`",
     "memorylength":        "用法: `!memorylength <數字>`\n例如: `!memorylength 50`\n預設: 50",
     "passivememorylength": "用法: `!passivememorylength <數字>`\n例如: `!passivememorylength 200`\n預設: 200",
+    "setinitiate":         "用法: `/setinitiate [text:開場白] [image:圖片] [clear_image:true]`\n不帶參數時顯示目前設定",
 }
 
 
@@ -3561,6 +3562,151 @@ async def scenedebug_cmd(ctx):
             await ctx.reply(payload, mention_author=False)
     except Exception as exc:
         print(f"[/scenedebug] reply failed: {type(exc).__name__}: {exc}")
+
+
+@bot.hybrid_command(
+    name="setinitiate",
+    description="設定或查看 /initiate 開場白的文字與圖片",
+)
+@app_commands.describe(
+    text="開場白文字（留空則保持現有設定）",
+    image="開場圖片附件（留空則保持現有設定）",
+    clear_image="設為 true 以清除已存的開場圖片",
+)
+async def setinitiate_cmd(
+    ctx,
+    text: str = "",
+    image: Optional[discord.Attachment] = None,
+    clear_image: bool = False,
+):
+    """Set or view the /initiate opener: text, image, or both."""
+    if not await check_command_role(ctx):
+        return
+
+    changed: list[str] = []
+
+    if text:
+        database.set_initiate_text(text)
+        changed.append("文字")
+
+    if clear_image:
+        database.clear_initiate_image()
+        changed.append("圖片（已清除）")
+    elif image is not None:
+        async with aiohttp.ClientSession() as _sess:
+            async with _sess.get(image.url) as _resp:
+                img_bytes = await _resp.read()
+        fname = image.filename.lower()
+        if fname.endswith(".jpg") or fname.endswith(".jpeg"):
+            mime = "image/jpeg"
+        elif fname.endswith(".gif"):
+            mime = "image/gif"
+        elif fname.endswith(".webp"):
+            mime = "image/webp"
+        else:
+            mime = "image/png"
+        if database.set_initiate_image(img_bytes, mime):
+            changed.append("圖片")
+        else:
+            await ctx.reply("❌ 儲存圖片時發生錯誤，請重試。", mention_author=False)
+            return
+
+    current_text = database.get_initiate_text()
+    has_image = database.get_initiate_image() is not None
+
+    desc_parts: list[str] = []
+    if current_text:
+        preview = current_text[:500] + ("…" if len(current_text) > 500 else "")
+        desc_parts.append(f"**開場白文字:**\n{preview}")
+    else:
+        desc_parts.append("**開場白文字:** （未設定）")
+    desc_parts.append(f"**開場圖片:** {'✅ 已設定' if has_image else '❌ 未設定'}")
+    desc_parts.append(
+        "_使用 `/initiate` 可發送開場白並開啟場景圖片模式。_"
+    )
+
+    embed = discord.Embed(
+        title="✅ 開場設定已更新" if changed else "🎬 開場設定",
+        description="\n\n".join(desc_parts),
+        color=discord.Color.green() if changed else discord.Color.blurple(),
+    )
+    if changed:
+        embed.set_footer(text=f"已更新: {', '.join(changed)}")
+
+    img_result = database.get_initiate_image()
+    if img_result:
+        img_bytes_preview, mime_preview = img_result
+        ext = mime_preview.split("/")[-1] if "/" in mime_preview else "png"
+        file = discord.File(
+            io.BytesIO(img_bytes_preview), filename=f"opener_preview.{ext}"
+        )
+        embed.set_image(url=f"attachment://opener_preview.{ext}")
+        await ctx.reply(embed=embed, file=file, mention_author=False)
+    else:
+        await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.hybrid_command(
+    name="initiate",
+    description="發送已儲存的開場白並開啟場景圖片模式",
+)
+async def initiate_cmd(ctx):
+    """Post the saved RP opener and enable scene image mode for this channel."""
+    if not await check_command_role(ctx):
+        return
+
+    channel_id = str(ctx.channel.id)
+    opener_text = database.get_initiate_text()
+    img_result = database.get_initiate_image()
+
+    if not opener_text and img_result is None:
+        await ctx.reply(
+            "⚠️ 尚未設定開場白。請先使用 `/setinitiate text:\"開場白文字\" image:圖片` 設定。",
+            mention_author=False,
+        )
+        return
+
+    scene_image.set_scene_mode(channel_id, True)
+
+    # Defer the slash interaction ephemerally so we can send a channel message
+    # separately and confirm with a followup.
+    try:
+        await ctx.defer(ephemeral=True)
+    except Exception:
+        pass
+
+    file: Optional[discord.File] = None
+    if img_result is not None:
+        img_bytes, mime = img_result
+        ext = mime.split("/")[-1] if "/" in mime else "png"
+        if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+            ext = "png"
+        file = discord.File(io.BytesIO(img_bytes), filename=f"opener.{ext}")
+
+    try:
+        if opener_text and file is not None:
+            opener_msg = await ctx.channel.send(opener_text, file=file)
+        elif opener_text:
+            opener_msg = await ctx.channel.send(opener_text)
+        else:
+            opener_msg = await ctx.channel.send(file=file)
+    except discord.HTTPException as exc:
+        print(f"[Bot] /initiate send failed: {exc}")
+        try:
+            await ctx.followup.send("❌ 發送開場白時發生錯誤。", ephemeral=True)
+        except Exception:
+            pass
+        return
+
+    try:
+        await opener_msg.add_reaction("🎬")
+    except discord.HTTPException as _re:
+        print(f"[Bot] /initiate add_reaction 🎬 failed: {_re}")
+
+    try:
+        await ctx.followup.send("✅ 場景模式已開啟，開場白已發送。", ephemeral=True)
+    except Exception:
+        pass
 
 
 @bot.hybrid_command(

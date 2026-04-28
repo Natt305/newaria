@@ -1,0 +1,34 @@
+How state flows through the enhancerless pipeline
+
+The enhancerless path (scene_only=True) runs when Qwen has at least one reference photo. The pipeline has two distinct stages, and state enters at different points in each:
+Stage 1 — _assemble_scene_prompt (the prose-to-prompt builder)
+
+This runs inside _derive_prompt before any state is loaded. It receives:
+
+    roster_names = deduplicated photo-subject labels (from llm_ref_labels)
+    roster_appearances = static DB looks text per subject (from _early_appearances)
+
+It uses appearances only for _infer_gender() — to figure out whether to resolve "she" or "he" pronouns. Runtime state (outfit change, undressed, persistent items) is irrelevant here because gender doesn't change with state. ✓
+Stage 2 — post-assembly state injection (lines 1485–1713)
+
+After _derive_prompt returns the assembled prose prompt, both state objects are loaded:
+Lookup	Line	What it provides
+character_state.get_state(channel_id)	1485	Undressed flag, runtime outfit, persistent items
+player_state.get_state(channel_id, player_discord_id)	1655	Same for the player
+
+Both correctly modify enriched with scene-state overrides, outfit stripping, and persistent-item anchors. This is on the same code path for both the LLM-enhancer and the enhancerless routes — nothing differs. ✓
+One gap I found
+
+When the player has a looks description but no photos, _inject_player_refs adds their looks text to _early_appearances but doesn't add them to _early_subjects (since there's nothing to slot into Qwen). That means they're absent from llm_ref_labels → absent from roster_names.
+
+In _assemble_scene_prompt, they get added to the roster via the player_display_name fallback (line 1027), but with empty gender — the code never checks roster_appearances for their looks:
+
+# current code
+roster.append((pname, ""))   # gender always unknown for player
+# what it should be
+_player_app = roster_appearances.get(pname, "")
+roster.append((pname, _infer_gender(_player_app)))
+
+The practical consequence: if the bot and the player are both female, and the player has only a looks profile (no uploaded photo), the player is counted as gender-unknown → only the bot registers as female → len(female_chars) == 1 → "she" in the prose gets resolved to the bot's name, even when it clearly referred to the player. This would produce wrong subject attribution in the assembled scene prompt.
+
+Would you like me to create a task for this one-line fix (look up the player's appearance from roster_appearances when adding them to the roster via player_display_name)?

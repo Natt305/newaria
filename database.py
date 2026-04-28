@@ -236,6 +236,78 @@ def get_character_image_thumb(index: int) -> Optional[tuple]:
         return f.read(), "image/jpeg"
 
 
+# ── Initiate opener ───────────────────────────────────────────────────────────
+
+_INITIATE_IMAGE_PATH_BASE = os.path.join(CHARACTER_IMAGES_DIR, "initiate_opener")
+
+
+def get_initiate_text() -> str:
+    """Return the saved RP opener text (empty string if not set)."""
+    return str(get_setting("initiate_text") or "")
+
+
+def set_initiate_text(text: str) -> bool:
+    """Persist the opener text."""
+    return set_setting("initiate_text", text.strip())
+
+
+def clear_initiate_text() -> bool:
+    """Remove the opener text."""
+    return set_setting("initiate_text", "")
+
+
+def _clear_initiate_image_files() -> None:
+    """Delete all initiate_opener.* files from the images directory."""
+    for ext in ("png", "jpg", "jpeg", "gif", "webp"):
+        path = f"{_INITIATE_IMAGE_PATH_BASE}.{ext}"
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
+
+def get_initiate_image() -> Optional[tuple]:
+    """Return (bytes, mime) for the saved opener image, or None if not set."""
+    mime = str(get_setting("initiate_image_mime") or "")
+    if not mime:
+        return None
+    ext = mime.split("/")[-1] if "/" in mime else "png"
+    if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+        ext = "png"
+    path = f"{_INITIATE_IMAGE_PATH_BASE}.{ext}"
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read(), mime
+    return None
+
+
+def set_initiate_image(img_bytes: bytes, mime: str) -> bool:
+    """Save the opener image, replacing any previous one."""
+    _clear_initiate_image_files()
+    ext = mime.split("/")[-1] if "/" in mime else "png"
+    if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
+        ext = "png"
+        mime = "image/png"
+    path = f"{_INITIATE_IMAGE_PATH_BASE}.{ext}"
+    try:
+        with open(path, "wb") as f:
+            f.write(img_bytes)
+        set_setting("initiate_image_mime", mime)
+        print(f"[DB] Initiate opener image saved → {path}")
+        return True
+    except Exception as e:
+        print(f"[DB] Error saving initiate image: {e}")
+        return False
+
+
+def clear_initiate_image() -> bool:
+    """Remove the saved opener image."""
+    _clear_initiate_image_files()
+    set_setting("initiate_image_mime", "")
+    return True
+
+
 # ── Status ────────────────────────────────────────────────────────────────────
 
 def get_status() -> dict:
