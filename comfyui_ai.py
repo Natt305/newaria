@@ -987,6 +987,8 @@ def _build_multi_edit_workflow_qwen(
     sampler_name: str,
     scheduler_name: str,
     uploaded_image_names: List[str],
+    uploaded_subjects: Optional[List[str]] = None,
+    subject_appearances: Optional[Dict[str, str]] = None,
 ) -> dict:
     """Qwen-Image-Edit-Rapid GGUF multi-reference edit-mode graph (2–4 refs).
 
@@ -997,6 +999,14 @@ def _build_multi_edit_workflow_qwen(
     img2img. Inputs beyond 4 are silently dropped (encoder only has 4 slots).
     Negative conditioning is a plain empty `CLIPTextEncode`; with CFG=1.0
     the negative branch is multiplied by zero.
+
+    `uploaded_subjects` (aligned to `uploaded_image_names`) and
+    `subject_appearances` (name → appearance text) are used to inject a
+    per-slot identity prefix into the prompt so the Qwen 2.5 VL multimodal
+    encoder knows which reference image belongs to which character. Without
+    this prefix the encoder treats all slots as equal style references,
+    causing the most visually dominant photo to bleed its appearance across
+    every character in the output.
 
     Used by `_run_generate_qwen` whenever there are 2 or more refs. For the
     single-ref case prefer `_build_edit_workflow_qwen`, which is a thin
@@ -1027,7 +1037,30 @@ def _build_multi_edit_workflow_qwen(
     _feminine_on = _feminine_build_enabled()
     _feminine_pos = _FEMININE_BUILD_SUFFIX if _feminine_on else ""
 
-    enhanced_prompt = _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
+    # ── Per-slot identity prefix ───────────────────────────────────────────
+    # Tell the Qwen 2.5 VL encoder which image slot belongs to which
+    # character. Without this the encoder sees all reference images as
+    # equivalent style guides for the whole output; the most visually
+    # dominant photo (often the player's portrait) overrides everyone else.
+    # Format: "[Reference image 1 is Kelly Gray (dark hair, blue eyes).
+    #          Reference image 2 is Natt (black hair, glasses).] "
+    _subjects = uploaded_subjects or []
+    _appearances = subject_appearances or {}
+    _slot_labels: List[str] = []
+    for _si in range(n):
+        _name = (_subjects[_si].strip() if _si < len(_subjects) else "").strip()
+        if not _name or _name.lower() in ("self", "player"):
+            continue
+        _app = _appearances.get(_name, "").strip()
+        if _app:
+            _slot_labels.append(f"Reference image {_si + 1} is {_name} ({_app})")
+        else:
+            _slot_labels.append(f"Reference image {_si + 1} is {_name}")
+    _slot_prefix = ("[" + ". ".join(_slot_labels) + ".] ") if _slot_labels else ""
+    if _slot_prefix:
+        print(f"[ComfyUI] Qwen: per-slot identity prefix — {_slot_prefix!r}")
+
+    enhanced_prompt = _appearance_lock + _slot_prefix + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
     # Build the negative prompt — anatomy + (optionally) feminine-build
     # negatives. With CFG=1.0 (the Qwen Rapid AIO default) the negative
@@ -1154,6 +1187,8 @@ def _build_edit_workflow_qwen(
     sampler_name: str,
     scheduler_name: str,
     uploaded_image_name: str,
+    uploaded_subjects: Optional[List[str]] = None,
+    subject_appearances: Optional[Dict[str, str]] = None,
 ) -> dict:
     """Qwen-Image-Edit-Rapid GGUF single-reference edit-mode graph.
 
@@ -1163,11 +1198,17 @@ def _build_edit_workflow_qwen(
     the model sees the single reference pixel-perfect. Used by
     `_run_generate_qwen` whenever exactly one reference image is supplied
     (typically: only the bot's own portrait, no KB matches).
+
+    `uploaded_subjects` and `subject_appearances` are forwarded to the multi-
+    edit builder so that even single-ref generations emit the per-slot
+    identity prefix into the prompt.
     """
     return _build_multi_edit_workflow_qwen(
         prompt, gguf_path, vae_name, clip_gguf_name,
         steps, width, height, seed, sampler_name, scheduler_name,
         [uploaded_image_name],
+        uploaded_subjects=uploaded_subjects,
+        subject_appearances=subject_appearances,
     )
 
 
@@ -1311,6 +1352,7 @@ def _run_generate_qwen(
     base_url: str,
     requests_mod,
     reference_subjects: Optional[list] = None,
+    subject_appearances: Optional[Dict[str, str]] = None,
 ) -> Optional[Tuple[bytes, str]]:
     """Engine-specific runner for the Qwen-Image-Edit-Rapid GGUF stack.
 
@@ -1541,6 +1583,8 @@ def _run_generate_qwen(
             prompt, qwen_gguf, qwen_vae, qwen_clip,
             qwen_steps, qwen_width, qwen_height, seed,
             qwen_sampler, qwen_scheduler, uploaded[0],
+            uploaded_subjects=uploaded_subjects,
+            subject_appearances=subject_appearances,
         )
         print(f"[ComfyUI] Qwen edit-mode workflow with 1 reference image "
               f"(latent_image: {_latent_tag}).")
@@ -1549,6 +1593,8 @@ def _run_generate_qwen(
             prompt, qwen_gguf, qwen_vae, qwen_clip,
             qwen_steps, qwen_width, qwen_height, seed,
             qwen_sampler, qwen_scheduler, uploaded,
+            uploaded_subjects=uploaded_subjects,
+            subject_appearances=subject_appearances,
         )
         print(f"[ComfyUI] Qwen multi-edit workflow with {len(uploaded)} "
               f"reference image(s) (latent_image: {_latent_tag}).")
@@ -1645,6 +1691,7 @@ def _run_generate(
             steps_override, width_override, height_override,
             timeout, base_url, _requests,
             reference_subjects=reference_subjects,
+            subject_appearances=subject_appearances,
         )
 
     # === FLUX engine (existing behaviour, untouched) ==========================
