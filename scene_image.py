@@ -167,8 +167,13 @@ _ACCESSORY_PHRASE_RE: re.Pattern = re.compile(
     r"(?:a|an|the|her|his|their|your|my|some|its)\s+"
     r"(?:(?:[a-z][a-z'\-]*)\s+){0,3}"
     r"|"
-    # Alternative B: 1–2 bare adjective words (no article), e.g. "leather cuffs"
-    r"(?:[a-z][a-z'\-]*\s+){1,2}"
+    # Alternative B: 1–2 bare adjective words (no article), e.g. "leather cuffs".
+    # Three guards prevent sub-word or pronoun/conjunction fragments:
+    #   (?<!\w)   — must start at a real word boundary (not mid-word like "nd")
+    #   (?!...)   — block subject pronouns/conjunctions (she/he/and/or/…)
+    #   [a-z]{3,} — each modifier word must be ≥3 chars (rules out "e", "nd")
+    r"(?<!\w)(?!she\b|he\b|they\b|it\b|and\b|or\b|but\b)"
+    r"(?:[a-z]{3,}[a-z'\-]*\s+){1,2}"
     r")"
     r"(?:" + _ACCESSORY_TERMS_STR + r")\b",
     re.I,
