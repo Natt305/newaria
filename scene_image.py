@@ -999,7 +999,10 @@ def _assemble_scene_prompt(
          each character's gender from their appearance text.
       d. Resolve unambiguous subject and object pronouns (she/her, he/him → name)
          only when exactly one character of that gender appears.
-      e. Append a full-body framing cue when two or more named characters are
+      e. Resolve second-person pronouns (you/your/yourself → player name) so that
+         action direction is preserved, e.g. "grabbed your collar" →
+         "grabbed [player]'s collar" rather than leaving the image model to guess.
+      f. Append a full-body framing cue when two or more named characters are
          present in the assembled text.
     """
 
@@ -1092,6 +1095,28 @@ def _assemble_scene_prompt(
         assembled = _sub_pronoun(assembled, "he", male_chars[0])
         assembled = _sub_pronoun(assembled, "him", male_chars[0])
         assembled = _sub_pronoun(assembled, "his", male_chars[0], skip_possessive=True)
+
+    # Resolve second-person pronouns so the image model knows who "you" refers to.
+    # Without this, "grabbed your collar" is ambiguous — the image model often
+    # flips the action direction (showing the player grabbing the bot instead).
+    # "your" requires a possessive transformation ("your" → "player's"), so it
+    # gets its own substitution; "you" and "yourself" use the shared helper.
+    _player_ref = (
+        player_display_name.strip()
+        if player_display_name and player_display_name.strip()
+        else "the other person"
+    )
+    # "yourself" first so "your" replacement below doesn't partially clobber it.
+    assembled = _sub_pronoun(assembled, "yourself", _player_ref)
+    # "your" → "player's" (possessive form).
+    def _repl_your(m: re.Match) -> str:
+        result = _player_ref + "'s"
+        if m.group(0)[0].isupper():
+            result = result[0].upper() + result[1:]
+        return result
+    assembled = re.sub(r"\byour\b", _repl_your, assembled, flags=re.I)
+    # "you" → player name (object / subject form).
+    assembled = _sub_pronoun(assembled, "you", _player_ref)
 
     # Framing: append full-body cue when two or more characters appear.
     assembled_lower = assembled.lower()
