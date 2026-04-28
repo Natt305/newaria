@@ -136,6 +136,54 @@ _WEAPON_PERSISTENT_RE: re.Pattern = re.compile(
 )
 
 
+# Persistent accessories that must survive outfit-stripping.
+# Used in _strip_outfit_from_looks to rescue sub-phrases from sentences that
+# _OUTFIT_SENTENCE_RE would otherwise drop entirely.  A sentence like
+# "She wears a leather collar and a red dress" should lose the dress but
+# keep the collar detail so it appears in the identity anchor.
+_ACCESSORY_TERMS_STR = (
+    # Plurals before their singulars so the alternation matches the longer form first.
+    r"collar|choker|cuffs|cuff|restraints|restraint|"
+    r"shackles|shackle|chains|chain|leash|"
+    r"ropes|rope|bandages|bandage|ribbon|"
+    r"bracelet|anklets|anklet|piercings|piercing|tags|tag"
+)
+
+# Keyword detector — tells us whether a sentence is worth scanning for phrases.
+_ACCESSORY_KEYWORD_RE: re.Pattern = re.compile(
+    r"\b(?:" + _ACCESSORY_TERMS_STR + r")\b",
+    re.I,
+)
+
+# Noun-phrase extractor — finds "a leather collar", "leather cuffs", "her choker",
+# etc. inside a sentence.  Two alternatives:
+#   A — article/possessive + 0–3 adjective words + accessory keyword
+#   B — 1–2 bare adjective words + accessory keyword  (no article)
+# No location suffix is included (e.g. "around her neck") — keeping the match
+# to the NP itself avoids greedy over-capture across "and"/"or" conjunctions.
+_ACCESSORY_PHRASE_RE: re.Pattern = re.compile(
+    r"(?:"
+    # Alternative A: explicit article/possessive + 0–3 adjective words
+    r"(?:a|an|the|her|his|their|your|my|some|its)\s+"
+    r"(?:(?:[a-z][a-z'\-]*)\s+){0,3}"
+    r"|"
+    # Alternative B: 1–2 bare adjective words (no article), e.g. "leather cuffs"
+    r"(?:[a-z][a-z'\-]*\s+){1,2}"
+    r")"
+    r"(?:" + _ACCESSORY_TERMS_STR + r")\b",
+    re.I,
+)
+
+# Strip leading outfit verbs that can appear at the start of a rescued phrase
+# when it begins with a modifier word rather than an article/possessive
+# (e.g. "wears leather cuffs" → "leather cuffs").
+_RESCUE_LEADING_VERB_RE: re.Pattern = re.compile(
+    r"^(?:wears?|wore|worn|wearing|has|have|had|sports?|"
+    r"carries?|holds?|owns?|sporting)\s+",
+    re.I,
+)
+
+
 def _detect_scene_clothing_override(text: str) -> tuple[bool, str]:
     """Return (triggered, state_label) when *text* implies the character is not
     wearing their default outfit (shower, bath, nude, sleeping, etc.).
@@ -156,6 +204,16 @@ def _strip_outfit_from_looks(looks_text: str, *, fallback_to_empty: bool = False
     contains an outfit-related keyword, keeping only base identity traits
     (hair colour, eye colour, skin tone, facial features, build/height).
 
+    **Accessory rescue:** before discarding a matched sentence, the function
+    checks whether it also contains a persistent-accessory keyword (collar,
+    cuff, chain, etc.).  If so, the minimal noun phrase(s) are extracted and
+    appended to the kept list so that e.g.::
+
+        "She wears a leather collar and a red dress."
+        → kept as: "a leather collar."
+
+    Pure outfit sentences with no accessory terms are dropped unchanged.
+
     Args:
         looks_text: The full character looks description.
         fallback_to_empty: When True, returns '' if all sentences are filtered
@@ -167,6 +225,17 @@ def _strip_outfit_from_looks(looks_text: str, *, fallback_to_empty: bool = False
     kept: list[str] = []
     for sentence in sentences:
         if _OUTFIT_SENTENCE_RE.search(sentence):
+            # Rescue accessory sub-phrases before discarding the sentence.
+            if _ACCESSORY_KEYWORD_RE.search(sentence):
+                rescued: list[str] = []
+                seen_rescue: set[str] = set()
+                for phrase in _ACCESSORY_PHRASE_RE.findall(sentence):
+                    cleaned = _RESCUE_LEADING_VERB_RE.sub("", phrase).strip().rstrip(".,;")
+                    if cleaned and cleaned.lower() not in seen_rescue:
+                        seen_rescue.add(cleaned.lower())
+                        rescued.append(cleaned)
+                if rescued:
+                    kept.append(", ".join(rescued) + ".")
             continue
         kept.append(sentence)
     result = " ".join(kept).strip()
