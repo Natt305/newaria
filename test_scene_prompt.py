@@ -343,6 +343,83 @@ def test_possessive_her_before_numeral_noun():
         )
 
 
+def test_possessive_her_before_digit_numeral():
+    """Possessive 'her' followed by a digit numeral + noun must NOT be replaced.
+
+    Digit strings (e.g. "2", "10") are not in _FUNC_WORDS and don't end in
+    '-ly', so the possessive guard already fires and preserves 'her'.
+    """
+    cases = [
+        ("She clutched her 2 sisters close.", "her 2 sisters"),
+        ("She wore her 3 rings proudly.", "her 3 rings"),
+        ("She counted her 10 steps to the door.", "her 10 steps"),
+        ("She carried her 5 bags inside.", "her 5 bags"),
+    ]
+    for seed, expected_phrase in cases:
+        result = _assemble_scene_prompt(
+            seed=seed,
+            prose_context=None,
+            roster_names=["Mira"],
+            roster_appearances={"Mira": FEMALE_APP},
+            bot_name="Mira",
+            player_display_name=None,
+        )
+        check(
+            f"Digit numeral phrase: 'she' replaced in {seed!r}",
+            "Mira" in result,
+            f"result={result!r}",
+        )
+        check(
+            f"Digit numeral phrase: {expected_phrase!r} preserved in {seed!r}",
+            expected_phrase in result.lower(),
+            f"result={result!r}",
+        )
+        check(
+            f"Digit numeral phrase: no name inserted before digit in {seed!r}",
+            "Mira " + expected_phrase.split()[1] not in result,
+            f"result={result!r}",
+        )
+
+
+def test_possessive_her_before_ordinal():
+    """Possessive 'her' followed by an ordinal word + noun must NOT be replaced.
+
+    Ordinal words (first, second, third …) are not in _FUNC_WORDS and don't
+    end in '-ly', so the possessive guard already fires and preserves 'her'.
+    """
+    cases = [
+        ("She seized her first chance.", "her first chance"),
+        ("She remembered her second attempt.", "her second attempt"),
+        ("She slipped on her third ring.", "her third ring"),
+        ("She felt her fourth heartbeat skip.", "her fourth heartbeat"),
+        ("She treasured her fifth gift.", "her fifth gift"),
+    ]
+    for seed, expected_phrase in cases:
+        result = _assemble_scene_prompt(
+            seed=seed,
+            prose_context=None,
+            roster_names=["Mira"],
+            roster_appearances={"Mira": FEMALE_APP},
+            bot_name="Mira",
+            player_display_name=None,
+        )
+        check(
+            f"Ordinal phrase: 'she' replaced in {seed!r}",
+            "Mira" in result,
+            f"result={result!r}",
+        )
+        check(
+            f"Ordinal phrase: {expected_phrase!r} preserved in {seed!r}",
+            expected_phrase in result.lower(),
+            f"result={result!r}",
+        )
+        check(
+            f"Ordinal phrase: no name inserted before ordinal in {seed!r}",
+            "Mira " + expected_phrase.split()[1] not in result,
+            f"result={result!r}",
+        )
+
+
 def test_possessive_his_not_substituted():
     """Possessive 'his' (followed by a noun) must NOT be replaced with the character name."""
     result = _assemble_scene_prompt(
@@ -533,6 +610,8 @@ def run_all():
     test_object_her_followed_by_adverb_is_substituted()
     test_possessive_her_multiword_adjective_noun()
     test_possessive_her_before_numeral_noun()
+    test_possessive_her_before_digit_numeral()
+    test_possessive_her_before_ordinal()
     test_possessive_his_not_substituted()
     test_two_females_her_not_substituted()
     test_male_and_female_both_unique()
