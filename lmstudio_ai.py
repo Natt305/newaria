@@ -1317,8 +1317,8 @@ def _paragraph_array_schema(min_items: int, max_items: int) -> dict:
 # Per-target (min_items, max_items) for the paragraph-array schema.
 _SCHEMA_PARA_RANGES: dict[str, tuple[int, int]] = {
     "standard": (2, 3),
-    "rich": (4, 5),
-    "cinematic": (6, 10),
+    "rich": (7, 9),
+    "cinematic": (10, 15),
 }
 
 
@@ -1390,7 +1390,7 @@ def _paragraph_array_schema_directive(target: str, character_name: str = "") -> 
             "Interleave narration with spoken lines; put at most ONE quoted line per paragraph. "
         )
         example = (
-            "\n\nExample JSON shape — 4 paragraphs (write your own content; do not copy wording):\n"
+            "\n\nExample JSON shape — 7 paragraphs (write your own content; do not copy wording):\n"
             "{\n"
             "  \"reply\": [\n"
             "    \"*Her eyebrow twitches at the interruption, a flicker of surprise crossing her*\"\n"
@@ -1418,7 +1418,7 @@ def _paragraph_array_schema_directive(target: str, character_name: str = "") -> 
             "full arc of sensation and interiority. "
         )
         example = (
-            "\n\nExample JSON shape — 5 paragraphs (write your own content; do not copy wording):\n"
+            "\n\nExample JSON shape — 10 paragraphs (write your own content; do not copy wording):\n"
             "{\n"
             "  \"reply\": [\n"
             "    \"*The practice room still smelled of rosin and stale coffee. Afternoon light lay*\"\n"
@@ -1488,7 +1488,7 @@ def _reconstruct_from_paragraph_array(raw_json: str) -> tuple[str, bool]:
 _CINEMATIC_TOKEN_FLOOR_LOGGED: bool = False
 
 # Paragraph floors for the post-generation length check.
-_PARA_FLOORS: dict[str, int] = {"rich": 4, "cinematic": 6}
+_PARA_FLOORS: dict[str, int] = {"rich": 7, "cinematic": 10}
 
 
 def _count_meaningful_paragraphs(text: str) -> int:
