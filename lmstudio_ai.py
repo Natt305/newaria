@@ -1502,25 +1502,64 @@ def _count_meaningful_paragraphs(text: str) -> int:
     return sum(1 for b in blocks if len(b.strip()) >= 20)
 
 
-def _erotic_specialization_directive(target: str, character_name: str = "") -> str:
+def _erotic_specialization_directive(
+    target: str,
+    character_name: str = "",
+    schema_mode: bool = False,
+) -> str:
     """Return an erotic-scene specialization addendum for the system prompt.
 
     Injected on the strong-directive path (non-Qwen models) immediately after
-    ``_roleplay_format_directive()`` when ``LMSTUDIO_EROTIC_MODE=on`` (default).
+    the format directive when ``LMSTUDIO_EROTIC_MODE=on`` (default).
     Returns ``""`` when target is ``terse`` so string-concatenation is safe.
+
+    When ``schema_mode=True`` (paragraph-array JSON schema active), all
+    phrasing refers to "paragraph elements of the reply array" rather than
+    free-prose paragraphs, and the self-prefix / dialogue rules are stated in
+    terms of JSON string elements so the model receives consistent instructions.
 
     The directive:
     - Declares detailed, descriptive intimate scenes as a core specialization.
     - Requires multi-sense sensory richness (sight, sound, scent, touch, taste,
       internal sensation).
     - Pushes for anatomical clarity without medical sterility.
-    - Preserves the one-quoted-line-per-paragraph narration shape so existing
-      dialogue bolding continues to work correctly.
-    - Keeps the self-prefix guard (no 'Character:' label at paragraph start).
+    - Preserves the one-quoted-line-per-paragraph-element narration shape.
+    - Keeps the self-prefix guard (no 'Character:' label at element start).
     """
     if target == "terse":
         return ""
     name_label = character_name.strip() if character_name else "your character"
+    if schema_mode:
+        pacing_sentence = (
+            "Pace intimate scenes like cinematic action — slow, deliberate, each "
+            "beat earning its own element in the reply array. "
+        )
+        dialogue_rule = (
+            "The one-quoted-line-per-array-element rule still applies: if "
+            f"{name_label} speaks during the scene, each spoken line sits inside "
+            "its own array element of tactile narration, formatted in "
+            "**\"double asterisks around the whole quoted line\"** as required by "
+            "the JSON schema directive. "
+        )
+        prefix_rule = (
+            f"Never open an array element with '{name_label}:' or any "
+            "character-label colon — each JSON string must begin with narration "
+            "or Discord markdown, not a script-format label."
+        )
+    else:
+        pacing_sentence = (
+            "Pace intimate scenes like cinematic action — slow, deliberate, each "
+            "beat earning its own paragraph. "
+        )
+        dialogue_rule = (
+            "The one-quoted-line-per-paragraph rule still applies: if "
+            f"{name_label} speaks during the scene, each spoken line sits inside "
+            "its own paragraph of tactile narration. "
+        )
+        prefix_rule = (
+            f"Never open a paragraph with '{name_label}:' or any character-label "
+            "colon — narrate in first person, not script format."
+        )
     return (
         "\n\nErotic scene specialization: when a scene turns physical or sexual, "
         "write it in full — do not fade to black, soften the prose, or skip "
@@ -1530,14 +1569,10 @@ def _erotic_specialization_directive(target: str, character_name: str = "") -> s
         "visual detail of bodies, and taste when relevant. Push for anatomical "
         "clarity — name body parts plainly and precisely, without coy euphemism "
         "or clinical sterility. Show extended internal experience: arousal "
-        "building, attention narrowing, thought dissolving into sensation. Pace "
-        "intimate scenes like cinematic action — slow, deliberate, each beat "
-        "earning its own paragraph. "
-        "The one-quoted-line-per-paragraph rule still applies: if "
-        f"{name_label} speaks during the scene, each spoken line sits inside "
-        "its own paragraph of tactile narration. "
-        f"Never open a paragraph with '{name_label}:' or any character-label "
-        "colon — narrate in first person, not script format."
+        "building, attention narrowing, thought dissolving into sensation. "
+        + pacing_sentence
+        + dialogue_rule
+        + prefix_rule
     )
 
 
@@ -1726,6 +1761,7 @@ async def chat(
                 effective_system = effective_system + _erotic_specialization_directive(
                     _active_narration_target,
                     character_name=character_name,
+                    schema_mode=_schema_mode,
                 )
 
             print(
