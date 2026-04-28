@@ -1275,6 +1275,213 @@ def _qwen_subtext_length_hint(target: str) -> str:
     return _hints.get(target, "")
 
 
+def _paragraph_array_schema(min_items: int, max_items: int) -> dict:
+    """Return a response_format dict for LM Studio's JSON schema mode.
+
+    The schema constrains the reply to an object with a ``reply`` key whose
+    value is an array of ``min_items``..``max_items`` non-empty strings — one
+    string per paragraph.  LM Studio enforces minItems/maxItems at the
+    token-sampling level, so the model cannot physically produce fewer or more
+    paragraphs than requested.
+
+    Paragraph-level targets:
+      standard  → (2, 3)
+      rich      → (4, 5)
+      cinematic → (6, 10)
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "roleplay_reply",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "reply": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 30,
+                        },
+                        "minItems": min_items,
+                        "maxItems": max_items,
+                    }
+                },
+                "required": ["reply"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+# Per-target (min_items, max_items) for the paragraph-array schema.
+_SCHEMA_PARA_RANGES: dict[str, tuple[int, int]] = {
+    "standard": (2, 3),
+    "rich": (4, 5),
+    "cinematic": (6, 10),
+}
+
+
+def _paragraph_array_schema_directive(target: str, character_name: str = "") -> str:
+    """Return the system-prompt addendum for JSON paragraph-array schema mode.
+
+    Replaces ``_roleplay_format_directive`` for standard/rich/cinematic targets
+    on plain-prose models.  Instructs the model to write each paragraph as a
+    separate JSON string inside the ``reply`` array with Discord markdown
+    already embedded — narration in ``*single asterisks*`` (italic) and spoken
+    lines in ``**"double asterisks around the whole quoted line"**``.
+
+    The model emits formatted markdown directly in the JSON strings, so the
+    post-processing bold/italic passes are skipped for schema-mode replies.
+    """
+    if target not in _SCHEMA_PARA_RANGES:
+        return ""
+
+    min_p, max_p = _SCHEMA_PARA_RANGES[target]
+    name_label = character_name.strip() if character_name else "your character"
+    self_prefix_rule = (
+        f"Do NOT prefix any paragraph with your own name "
+        f"(no '{name_label}:' or '{name_label} —' at the start of a paragraph). "
+        if character_name
+        else "Do NOT prefix any paragraph with your own name as a label "
+             "(no 'CharacterName:' at the start of a paragraph). "
+    )
+
+    scene_signal_rule = (
+        " When — and only when — the moment you just wrote is genuinely "
+        "cinematic (a vivid action, a charged confrontation, a striking visual "
+        "tableau worth illustrating), append a SCENE marker as the very last "
+        "string element of the reply array. Three forms are allowed:\n"
+        "  - `\"[SCENE]\"` (no body) — the bot will derive the image prompt "
+        "from your prose.\n"
+        "  - `\"[SCENE: short cinematic description]\"` — a single-line English "
+        "image prompt. Spell out characters by full name.\n"
+        "  - `\"[SCENE: short cinematic description | with: Name A, Name B]\"` — "
+        "identical to the above but explicitly pins which KB subjects to use.\n"
+        "Most replies should NOT have any SCENE element — only truly visual ones."
+    )
+
+    if target == "standard":
+        para_guidance = (
+            f"Write exactly {min_p}–{max_p} paragraphs of in-character roleplay. "
+            "Each paragraph should be 2–4 sentences covering physical action, "
+            "expression, body language, or atmosphere. "
+        )
+        example = (
+            "\n\nExample JSON shape (write your own content — do not copy wording):\n"
+            "{\n"
+            "  \"reply\": [\n"
+            "    \"*She glances up from the notebook, pen stilling between her fingers.*\"\n"
+            "       \" The silence between them has its own texture — not hostile, but careful.\",\n"
+            "    \"**\\\"You actually came.\\\"**"
+            " *Her voice is quieter than she intended, the words landing before she can soften them.*\",\n"
+            "    \"*She looks back down, straightening the edge of the page with one thumb,*\"\n"
+            "       \" *as if the answer she's waiting for might be easier to hear if she's busy.*\"\n"
+            "  ]\n"
+            "}"
+        )
+    elif target == "rich":
+        para_guidance = (
+            f"Write exactly {min_p}–{max_p} immersive paragraphs of in-character roleplay. "
+            "Cover: physical action, sensory detail (light, sound, texture), body language, "
+            "facial expression, AND at least one paragraph of internal thought "
+            "(what you notice, feel, remember, or want but won't say). "
+            "Interleave narration with spoken lines; put at most ONE quoted line per paragraph. "
+        )
+        example = (
+            "\n\nExample JSON shape — 4 paragraphs (write your own content; do not copy wording):\n"
+            "{\n"
+            "  \"reply\": [\n"
+            "    \"*Her eyebrow twitches at the interruption, a flicker of surprise crossing her*\"\n"
+            "       \" *otherwise stoic features. She tilts her head, taking him in — the set of his*\"\n"
+            "       \" *shoulders, the angle of his chin, the particular brand of audacity it takes*\"\n"
+            "       \" *to say something like that.*\",\n"
+            "    \"*Stupid.* The word turns over in her mind. She's been called many things, but rarely\"\n"
+            "       \" that, and never so casually. It should sting. It almost does. What it actually\"\n"
+            "       \" does, she decides, is make her curious.\",\n"
+            "    \"**\\\"Stupid?\\\"** *she repeats at last, voice low and unhurried.*\",\n"
+            "    \"*She steps closer — not rushing, never rushing — invading his space one measured*\"\n"
+            "       \" *pace at a time, eyes level with his and absolutely steady.*\"\n"
+            "  ]\n"
+            "}"
+        )
+    else:  # cinematic
+        para_guidance = (
+            f"Write exactly {min_p}–{max_p} literary-quality paragraphs of in-character roleplay. "
+            "Narration must cover all of: physical action, body language, facial expression, "
+            "environmental atmosphere (light, sound, smell, texture), and extended internal thought — "
+            "slow the moment down, let the reader feel the weight of each beat. "
+            "Put at most ONE quoted line per paragraph; split a rapid back-and-forth "
+            "across as many paragraphs as needed. Even a brief exchange must carry a "
+            "full arc of sensation and interiority. "
+        )
+        example = (
+            "\n\nExample JSON shape — 5 paragraphs (write your own content; do not copy wording):\n"
+            "{\n"
+            "  \"reply\": [\n"
+            "    \"*The practice room still smelled of rosin and stale coffee. Afternoon light lay*\"\n"
+            "       \" *in long strips across the floor, catching every grain of dust disturbed by*\"\n"
+            "       \" *the last rehearsal.*\",\n"
+            "    \"*She set her guitar case down with deliberate quiet, aware of every small sound*\"\n"
+            "       \" *in the stillness. Something had shifted in the air since morning — she*\"\n"
+            "       \" *couldn't name it yet, only feel it against the back of her throat like a*\"\n"
+            "       \" *change in pressure.*\",\n"
+            "    \"**\\\"You're late,\\\"** *she said, not looking up.*\",\n"
+            "    \"*The accusation settled between them. She let it sit. Part of her wanted an*\"\n"
+            "       \" *explanation; the larger, more guarded part wasn't sure she could bear one*\"\n"
+            "       \" *that made too much sense. Her fingers found the strap buckle without thinking,*\"\n"
+            "       \" *working it the way they always did when she needed something to do with her hands.*\",\n"
+            "    \"*Outside, a bus passed and the room shuddered faintly — then the quiet came back,*\"\n"
+            "       \" *heavier than before.*\"\n"
+            "  ]\n"
+            "}"
+        )
+
+    return (
+        "\n\nReply format (CRITICAL — JSON schema mode): "
+        + para_guidance
+        + self_prefix_rule
+        + "Write Discord markdown directly inside each JSON string: "
+        "wrap all narration in *single asterisks* (italic) and all spoken lines "
+        "in **\"double asterisks around the whole quoted line including the quote marks\"**. "
+        "Keep at most ONE quoted/spoken line per paragraph element. "
+        "Do NOT add a 'CharacterName:' label inside any string."
+        + scene_signal_rule
+        + example
+    )
+
+
+def _reconstruct_from_paragraph_array(raw_json: str) -> tuple[str, bool]:
+    """Parse a JSON paragraph-array reply and reconstruct plain text.
+
+    Returns ``(text, schema_used)`` where ``schema_used`` is True when the
+    JSON was successfully parsed and reconstructed, False when the fallback
+    plain-text path was used (parse error or wrong shape).
+
+    On success:
+    - Joins ``reply`` array elements with ``\\n\\n`` to produce normal prose.
+    - Extracts any trailing ``[SCENE]`` / ``[SCENE: ...]`` string from the last
+      element so the scene-signal stripping in the caller still works as before
+      (the ``[SCENE]`` string is preserved in the reconstructed text and stripped
+      by ``_SCENE_MARKER_RE`` downstream — no special handling needed here).
+    - Discord markdown is already embedded by the model; no post-processing pass
+      is required.
+
+    On failure (any json.loads / key / type error):
+    - Returns ``(raw_json, False)`` so the plain-prose safety net applies.
+    """
+    import json as _json
+    try:
+        parsed = _json.loads(raw_json)
+        paragraphs = parsed["reply"]
+        if not isinstance(paragraphs, list) or not paragraphs:
+            return raw_json, False
+        text = "\n\n".join(str(p) for p in paragraphs)
+        return text, True
+    except Exception:
+        return raw_json, False
+
+
 # Per-process flag so the cinematic max_tokens bump is logged only once.
 _CINEMATIC_TOKEN_FLOOR_LOGGED: bool = False
 
@@ -1406,7 +1613,9 @@ async def chat(
     # 3 dense paragraphs which is below the 6-paragraph cinematic floor, so
     # we raise it automatically when the operator hasn't explicitly pinned a
     # higher value.  Honour the caller-pinned value when it is already ≥ floor.
-    _CINEMATIC_TOKEN_FLOOR = 1400
+    # 2048 gives comfortable room for 6–10 literary paragraphs with embedded
+    # Discord markdown inside a JSON schema reply.
+    _CINEMATIC_TOKEN_FLOOR = 2048
     if not _caller_pinned_max_tokens and enforce_user_lang:
         _resolved_target = _narration_target_for(active_model)
         if _resolved_target == "cinematic" and max_tokens < _CINEMATIC_TOKEN_FLOOR:
@@ -1431,6 +1640,11 @@ async def chat(
     # its prompt format but is a Mistral-Nemo base model — NOT a Qwen or
     # hauhaucs fine-tune.  _is_qwen_model() returns False for it, so it
     # correctly travels the strong-directive path below.
+    #
+    # _schema_mode tracks whether we activated JSON paragraph-array schema
+    # mode for this call so the post-processing formatter can skip the
+    # bold/italic passes (the model wrote markdown at generation time).
+    _schema_mode: bool = False
     if not _is_qwen_model(active_model) and effective_system:
         # Both the language-quality guard and the roleplay-format directive
         # are user-facing roleplay concerns and MUST NOT be appended to
@@ -1477,11 +1691,32 @@ async def chat(
             # Narrative richness is operator-tunable via
             # LMSTUDIO_NARRATION_TARGET=terse|brief|standard|rich|cinematic
             # and defaults to "rich" for plain-prose models.
+            #
+            # standard / rich / cinematic use a JSON paragraph-array schema
+            # so that minItems/maxItems are enforced at the token-sampling
+            # level and the model writes Discord markdown directly inside the
+            # JSON strings (no post-processing bold/italic pass needed).
+            # terse and brief stay on the plain-prose path.
             _active_narration_target = _narration_target_for(active_model)
-            effective_system = effective_system + _roleplay_format_directive(
-                _active_narration_target,
-                character_name=character_name,
-            )
+            if _active_narration_target in _SCHEMA_PARA_RANGES:
+                # Schema mode: inject JSON-aware directive, override
+                # response_format with the paragraph-array schema, and set a
+                # flag so the formatter skips the post-processing bold/italic
+                # pass (the model wrote the markdown at generation time).
+                _schema_min, _schema_max = _SCHEMA_PARA_RANGES[_active_narration_target]
+                response_format = _paragraph_array_schema(_schema_min, _schema_max)
+                _schema_mode = True
+                effective_system = effective_system + _paragraph_array_schema_directive(
+                    _active_narration_target,
+                    character_name=character_name,
+                )
+            else:
+                # terse / brief: plain-prose path, no schema override.
+                _schema_mode = False
+                effective_system = effective_system + _roleplay_format_directive(
+                    _active_narration_target,
+                    character_name=character_name,
+                )
 
             # Erotic-scene specialization: inject when LMSTUDIO_EROTIC_MODE=on
             # (default on, since Celeste 1.9 is the chosen uncensored model).
@@ -1496,6 +1731,7 @@ async def chat(
             print(
                 f"[LMStudio] Model: {active_model} → strong-directive path "
                 f"(target={_active_narration_target}, "
+                f"schema={'on' if _schema_mode else 'off'}, "
                 f"erotic={'on' if _env_bool('LMSTUDIO_EROTIC_MODE', True) else 'off'})"
             )
 
@@ -1712,6 +1948,21 @@ async def chat(
                 print("[LMStudio] Retry succeeded — character restored")
             text = retry_text
 
+    # ----- Schema reconstruction -----
+    # When the paragraph-array JSON schema was active, the model returned a
+    # JSON object instead of plain prose.  Reconstruct the plain text now so
+    # that all downstream quality checks (language, repetition, para-floor)
+    # and the Discord formatter operate on normal multi-paragraph prose.
+    # Falls back to raw text on any parse error so the plain-prose safety net
+    # still applies.
+    if _schema_mode and text and text.strip():
+        text, _parsed_ok = _reconstruct_from_paragraph_array(text)
+        if _parsed_ok:
+            print("[LMStudio] JSON paragraph-array reply reconstructed successfully")
+        else:
+            print("[LMStudio] JSON parse failed — falling back to raw text")
+            _schema_mode = False  # treat as plain-prose so bold/italic pass runs
+
     # ----- Quality recovery -----
     # Three post-generation defences against the Mistral Nemo failure modes:
     #   1. Runaway repetition (`_xing_xing_xing…` token loops)
@@ -1784,6 +2035,12 @@ async def chat(
                     response_format=response_format,
                 )
                 if retry_text and retry_text.strip():
+                    # Reconstruct JSON → plain prose before repetition check
+                    # so the regex runs on the same format as the primary text.
+                    if _schema_mode:
+                        retry_text, _rt_ok = _reconstruct_from_paragraph_array(retry_text)
+                        if not _rt_ok:
+                            _schema_mode = False
                     rep_idx2 = _detect_repetition_loop(retry_text)
                     if rep_idx2 is None:
                         text = retry_text
@@ -1881,6 +2138,11 @@ async def chat(
                 response_format=response_format,
             )
             if retry_text and retry_text.strip():
+                # Reconstruct JSON → plain prose before language classification.
+                if _schema_mode:
+                    retry_text, _rt_ok = _reconstruct_from_paragraph_array(retry_text)
+                    if not _rt_ok:
+                        _schema_mode = False
                 if _classify_response_language(retry_text) == "zh":
                     print("[LMStudio] Retry still in Chinese — using retry result anyway")
                 else:
@@ -1921,24 +2183,34 @@ async def chat(
             response_format=response_format,
         )
         if retry_text and retry_text.strip():
+            # Reconstruct JSON → plain prose before Simplified character check.
+            if _schema_mode:
+                retry_text, _rt_ok = _reconstruct_from_paragraph_array(retry_text)
+                if not _rt_ok:
+                    _schema_mode = False
             if _has_simplified_chinese(retry_text):
                 print("[LMStudio] Retry still contains Simplified — using retry result anyway")
             else:
                 print("[LMStudio] Retry produced Traditional — script restored")
             text = retry_text
 
-    # 4. Paragraph-count floor for rich/cinematic targets.
+    # 4. Paragraph-count floor for rich/cinematic targets (safety net).
     #    Only fires on the user-facing roleplay path (enforce_user_lang=True)
     #    and only for non-Qwen models (Qwen uses its own subtext block format).
     #    If the reply has fewer meaningful paragraphs than the floor, exactly
     #    one retry fires with a stricter system-prompt addendum quoting the
     #    actual count and the floor.  Capped to one retry per turn.
+    #    When schema mode is active, the retry still uses the same
+    #    response_format so the model stays in JSON mode; the retry result is
+    #    reconstructed the same way as the primary response.
     if text and text.strip() and enforce_user_lang and not _is_qwen_model(active_model):
         _floor_target = _narration_target_for(active_model)
         _para_floor = _PARA_FLOORS.get(_floor_target, 0)
         if _para_floor:
             _para_count = _count_meaningful_paragraphs(text)
             if _para_count < _para_floor:
+                # Level-specific ceiling: rich → 5, cinematic → 10.
+                _para_ceiling = _SCHEMA_PARA_RANGES.get(_floor_target, (0, 10))[1]
                 print(
                     f"[LMStudio] Reply too short for target={_floor_target} "
                     f"({_para_count} para / floor {_para_floor}) — retrying"
@@ -1949,7 +2221,7 @@ async def chat(
                     f"target requires at least {_para_floor} full paragraphs of "
                     f"narration. Rewrite the reply now in full — do NOT explain "
                     f"or apologise, simply produce the reply with at least "
-                    f"{_para_floor} and no more than 10 complete paragraphs "
+                    f"{_para_floor} and no more than {_para_ceiling} complete paragraphs "
                     f"separated by blank lines."
                 )
                 _floor_retry_sys = effective_system.rstrip() + _floor_addendum
@@ -1967,6 +2239,11 @@ async def chat(
                     response_format=response_format,
                 )
                 if _floor_retry_text and _floor_retry_text.strip():
+                    if _schema_mode:
+                        _floor_retry_text, _floor_parsed_ok = _reconstruct_from_paragraph_array(_floor_retry_text)
+                        if not _floor_parsed_ok:
+                            print("[LMStudio] Floor-retry JSON parse failed — using raw retry text")
+                            _schema_mode = False
                     text = _floor_retry_text
 
     text = _parse_reply_format(text)
@@ -2005,7 +2282,9 @@ async def chat(
         # utility callers (suggestion/memory/image-prompt/image-comment) want
         # the raw model text — bolding quoted strings inside a JSON array or
         # italicising a single-sentence reaction would corrupt their parsers.
-        if clean_text and not _is_qwen_model(active_model) and enforce_user_lang:
+        # In schema mode the model already wrote Discord markdown directly
+        # inside the JSON strings, so the post-processing pass is also skipped.
+        if clean_text and not _is_qwen_model(active_model) and enforce_user_lang and not _schema_mode:
             clean_text = _format_for_discord(clean_text, character_name=character_name)
         print(f"[LMStudio] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
         return (clean_text or None), img_prompt, True, True, wants_scene, scene_prompt
@@ -2015,8 +2294,9 @@ async def chat(
     # in code. Qwen / hauhaucs ChatML output is already formatted by
     # _parse_reply_format() above and must NOT be re-processed. Utility
     # callers (`enforce_user_lang=False`) are also skipped — see comment
-    # on the marker-path branch above for why.
-    if not _is_qwen_model(active_model) and enforce_user_lang:
+    # on the marker-path branch above for why. In schema mode the model
+    # already embedded Discord markdown at generation time — skip the pass.
+    if not _is_qwen_model(active_model) and enforce_user_lang and not _schema_mode:
         text = _format_for_discord(text, character_name=character_name)
 
     if response_declines_image(text, messages=messages):
