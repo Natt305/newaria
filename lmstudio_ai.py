@@ -1364,7 +1364,7 @@ def _paragraph_array_schema_directive(target: str, character_name: str = "") -> 
     if target == "standard":
         para_guidance = (
             f"Write exactly {min_p}–{max_p} paragraphs of in-character roleplay. "
-            "Each paragraph should be 2–4 sentences covering physical action, "
+            "Each paragraph element must be 2–3 sentences covering physical action, "
             "expression, body language, or atmosphere. "
         )
         example = (
@@ -1383,6 +1383,7 @@ def _paragraph_array_schema_directive(target: str, character_name: str = "") -> 
     elif target == "rich":
         para_guidance = (
             f"Write exactly {min_p}–{max_p} immersive paragraphs of in-character roleplay. "
+            "Each element must be a full paragraph of 2–4 sentences — NEVER a single sentence. "
             "Cover: physical action, sensory detail (light, sound, texture), body language, "
             "facial expression, AND at least one paragraph of internal thought "
             "(what you notice, feel, remember, or want but won't say). "
@@ -1408,6 +1409,7 @@ def _paragraph_array_schema_directive(target: str, character_name: str = "") -> 
     else:  # cinematic
         para_guidance = (
             f"Write exactly {min_p}–{max_p} literary-quality paragraphs of in-character roleplay. "
+            "Each element must be a full paragraph of 3–5 sentences — NEVER a single sentence. "
             "Narration must cover all of: physical action, body language, facial expression, "
             "environmental atmosphere (light, sound, smell, texture), and extended internal thought — "
             "slow the moment down, let the reader feel the weight of each beat. "
@@ -2251,6 +2253,12 @@ async def chat(
                     f"[LMStudio] Reply too short for target={_floor_target} "
                     f"({_para_count} para / floor {_para_floor}) — retrying"
                 )
+                _SCHEMA_SENTENCES_HINT: dict[str, str] = {
+                    "standard": "2–3 sentences",
+                    "rich": "2–4 sentences",
+                    "cinematic": "3–5 sentences",
+                }
+                _sent_hint = _SCHEMA_SENTENCES_HINT.get(_floor_target, "2–4 sentences")
                 if _schema_mode:
                     _floor_addendum = (
                         f"\n\nURGENT CORRECTION: your previous reply contained only "
@@ -2259,8 +2267,9 @@ async def chat(
                         f"elements. Rewrite the reply now — do NOT explain or "
                         f"apologise, simply produce a valid JSON reply array with "
                         f"at least {_para_floor} and no more than {_para_ceiling} "
-                        f"string elements, each a full paragraph of narration with "
-                        f"Discord markdown already embedded."
+                        f"string elements. Each element MUST be a full paragraph of "
+                        f"{_sent_hint} — NEVER a single sentence. Write Discord "
+                        f"markdown already embedded inside each string."
                     )
                 else:
                     _floor_addendum = (
