@@ -50,6 +50,17 @@ OLLAMA_MODEL=gemma3:12b
 # 視覺模型，用於圖片理解（預設 gemma3:12b，支援多模態）
 OLLAMA_VISION_MODEL=gemma3:12b
 
+# ================================================================
+#  對話歷史長度 / Conversation History Length
+# ================================================================
+# 機器人在每個頻道保留的最大對話輪數（每輪 = 一則使用者訊息 + 一則機器人回覆）。
+# 預設 50；設低一點可降低 token 用量，設高一點可保留更長的上下文記憶。
+#
+# Maximum number of conversation turns (1 turn = 1 user message + 1 bot reply)
+# kept in memory per channel. Default 50. Lower to reduce token usage,
+# higher to retain longer context.
+MAX_HISTORY=50
+
 # --- LM Studio 設定（AI_BACKEND=lmstudio 時使用）---
 # ================================================================
 #  ⚠ 注意：若使用 ngrok 將本機 LM Studio 暴露到網路，每次重新啟動 ngrok 隧道後

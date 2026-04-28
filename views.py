@@ -2,6 +2,7 @@
 Interactive Discord UI components for bot commands.
 Views and Modals used by command responses — NOT used for regular chat.
 """
+import datetime as _dt
 import io
 from typing import Optional
 import discord
@@ -59,6 +60,126 @@ class RegenerateContinueView(discord.ui.View):
     def __init__(self, channel_id: str = "") -> None:
         super().__init__(timeout=None)
         self._channel_id = channel_id
+
+
+class ConfirmCheckpointView(discord.ui.View):
+    """Confirmation dialog shown when 🔄 is reacted on a non-latest bot message.
+
+    Warns the user that confirming will delete all Discord messages after the
+    clicked one and roll back the in-memory conversation context to that point,
+    then regenerates the bot's reply fresh from the checkpoint.
+
+    ``warn_msg`` must be set by the caller (the reaction handler) immediately
+    after sending this view to the channel, so the buttons can delete it.
+    """
+
+    def __init__(
+        self,
+        bot_msg: discord.Message,
+        after_messages: list,
+        user_msg: discord.Message,
+        user_text: str,
+        channel_id: str,
+        n_future_turns: int,
+    ) -> None:
+        super().__init__(timeout=30)
+        self.bot_msg = bot_msg
+        self.after_messages = after_messages
+        self.user_msg = user_msg
+        self.user_text = user_text
+        self.channel_id = channel_id
+        self.n_future_turns = n_future_turns
+        self.warn_msg: Optional[discord.Message] = None
+        self._acted = False
+
+    def build_embed(self) -> discord.Embed:
+        n = len(self.after_messages)
+        embed = discord.Embed(
+            title="⚠️ 時光倒流確認",
+            description=(
+                f"你正在對一條**較舊**的訊息使用 🔄，這將會：\n"
+                f"• 刪除此訊息之後的 **{n}** 條訊息\n"
+                f"• 從這個時間點重新生成\n\n"
+                f"**此操作無法復原。**"
+            ),
+            color=discord.Color.orange(),
+        )
+        return embed
+
+    async def _delete_warn(self) -> None:
+        if self.warn_msg is not None:
+            try:
+                await self.warn_msg.delete()
+            except discord.HTTPException:
+                pass
+
+    @discord.ui.button(label="確認", style=discord.ButtonStyle.danger, emoji="✅", row=0)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if self._acted:
+            await interaction.response.defer()
+            return
+        self._acted = True
+        await interaction.response.defer()
+
+        channel = interaction.channel
+
+        # ── Bulk-delete after_messages in batches of ≤100 ───────────────────
+        # Discord only allows bulk-delete for messages < 14 days old.
+        cutoff = discord.utils.utcnow() - _dt.timedelta(days=14)
+        recent = [m for m in self.after_messages if m.created_at > cutoff]
+        old = [m for m in self.after_messages if m.created_at <= cutoff]
+
+        if recent:
+            for i in range(0, len(recent), 100):
+                batch = recent[i : i + 100]
+                try:
+                    await channel.delete_messages(batch)  # type: ignore[union-attr]
+                except discord.HTTPException:
+                    for m in batch:
+                        try:
+                            await m.delete()
+                        except discord.HTTPException:
+                            pass
+
+        for m in old:
+            try:
+                await m.delete()
+            except discord.HTTPException:
+                pass
+
+        # ── Delete the clicked bot message itself ────────────────────────────
+        try:
+            await self.bot_msg.delete()
+        except discord.HTTPException:
+            pass
+
+        # ── Delete the confirmation warning message ──────────────────────────
+        await self._delete_warn()
+
+        # ── Roll back in-memory context ──────────────────────────────────────
+        import bot as _bot
+        _bot.pop_n_turns(self.channel_id, self.n_future_turns + 1)
+
+        # ── Regenerate from the checkpoint ──────────────────────────────────
+        await _bot.process_chat(
+            channel=channel,
+            author=self.user_msg.author,
+            user_text=self.user_text,
+            reply_target=self.user_msg,
+            channel_id=self.channel_id,
+        )
+
+    @discord.ui.button(label="取消", style=discord.ButtonStyle.secondary, emoji="❌", row=0)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if self._acted:
+            await interaction.response.defer()
+            return
+        self._acted = True
+        await interaction.response.defer()
+        await self._delete_warn()
+
+    async def on_timeout(self) -> None:
+        await self._delete_warn()
 
 
 def _has_saveimage_permission(interaction: discord.Interaction) -> bool:

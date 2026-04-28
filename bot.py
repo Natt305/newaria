@@ -375,7 +375,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 conversation_contexts: dict = {}
-MAX_HISTORY = 10
+MAX_HISTORY = int(os.environ.get("MAX_HISTORY", "50"))
 
 # ── Bot-to-bot chat session state ────────────────────────────────────────────
 _bot_chat_targets: dict[str, int] = {}       # channel_id → target bot user ID
@@ -539,6 +539,15 @@ def pop_last_turn(channel_id: str) -> None:
             if ctx[i]["role"] == role:
                 ctx.pop(i)
                 break
+
+
+def pop_n_turns(channel_id: str, n: int) -> None:
+    """Roll back *n* full conversation turns (user + assistant each) from the
+    in-memory context for *channel_id*.  Used by checkpoint-restore regenerate
+    to unwind multiple turns at once before re-generating from a past point.
+    """
+    for _ in range(n):
+        pop_last_turn(channel_id)
 
 
 # ── System-marker sanitizer ───────────────────────────────────────────────────
@@ -2466,6 +2475,35 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
         if not user_text:
             return
 
+        # ── Checkpoint detection ─────────────────────────────────────────
+        # Collect all messages posted AFTER the clicked bot message.
+        # If any of them are from the bot, this is not the latest turn and
+        # we need confirmation before deleting forward history.
+        after_messages: list[discord.Message] = [
+            m async for m in channel.history(  # type: ignore[union-attr]
+                after=message, oldest_first=True, limit=200
+            )
+        ]
+        n_future_turns = sum(
+            1 for m in after_messages
+            if bot.user and m.author.id == bot.user.id
+        )
+
+        if n_future_turns > 0:
+            # Non-latest message — ask for confirmation before wiping forward.
+            view = ui.ConfirmCheckpointView(
+                bot_msg=message,
+                after_messages=after_messages,
+                user_msg=user_msg,
+                user_text=user_text,
+                channel_id=channel_id,
+                n_future_turns=n_future_turns,
+            )
+            warn_msg = await channel.send(embed=view.build_embed(), view=view)  # type: ignore[union-attr]
+            view.warn_msg = warn_msg
+            return
+
+        # Latest message — normal regenerate (no confirmation needed).
         pop_last_turn(channel_id)
         try:
             await message.delete()
