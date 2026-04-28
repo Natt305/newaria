@@ -3845,6 +3845,9 @@ async def initiate_cmd(ctx):
         try:
             _s_topic = await get_suggestion_topic(channel_id)
             _s_bot_name, _s_background, *_ = load_character()
+            _s_history = list(get_channel_context(channel_id))
+            if opener_text:
+                _s_history.append({"role": "assistant", "content": opener_text})
             _s_list = await groq_ai.generate_suggestions(
                 topic=_s_topic,
                 bot_name=_s_bot_name,
@@ -3852,7 +3855,7 @@ async def initiate_cmd(ctx):
                 count=3,
                 guiding_prompt=_suggestion_prompt,
                 language_sample=(opener_text or "")[:200],
-                recent_history=get_channel_context(channel_id),
+                recent_history=_s_history,
             )
             if _s_list:
                 _sugg_view = SuggestionView(_s_list, channel_id)
