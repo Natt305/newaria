@@ -268,6 +268,39 @@ def test_object_her_followed_by_adverb_is_substituted():
     )
 
 
+def test_possessive_her_multiword_adjective_noun():
+    """Possessive 'her' followed by an adjective+noun phrase must NOT be replaced."""
+    cases = [
+        ("She tossed her long hair over one shoulder.", "her long hair"),
+        ("She narrowed her bright eyes at the horizon.", "her bright eyes"),
+        ("She adjusted her silver bracelet carefully.", "her silver bracelet"),
+    ]
+    for seed, expected_phrase in cases:
+        result = _assemble_scene_prompt(
+            seed=seed,
+            prose_context=None,
+            roster_names=["Mira"],
+            roster_appearances={"Mira": FEMALE_APP},
+            bot_name="Mira",
+            player_display_name=None,
+        )
+        check(
+            f"Possessive 'her' + adj+noun: 'she' replaced with name in {seed!r}",
+            "Mira" in result,
+            f"result={result!r}",
+        )
+        check(
+            f"Possessive 'her' + adj+noun: phrase {expected_phrase!r} preserved",
+            expected_phrase in result.lower(),
+            f"result={result!r}",
+        )
+        check(
+            f"Possessive 'her' + adj+noun: no 'Mira' inserted before adjective in {seed!r}",
+            "Mira " + expected_phrase.split()[1] not in result,
+            f"result={result!r}",
+        )
+
+
 def test_two_females_her_not_substituted():
     """When two female characters are present, 'her' must NOT be replaced (ambiguous)."""
     result = _assemble_scene_prompt(
@@ -340,6 +373,7 @@ def run_all():
     test_one_female_her_substitution()
     test_possessive_her_not_substituted()
     test_object_her_followed_by_adverb_is_substituted()
+    test_possessive_her_multiword_adjective_noun()
     test_two_females_her_not_substituted()
     test_male_and_female_both_unique()
 
