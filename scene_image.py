@@ -1033,18 +1033,46 @@ def _assemble_scene_prompt(
     female_chars = [n for n, g in roster if g == "f"]
     male_chars = [n for n, g in roster if g == "m"]
 
-    def _sub_pronoun(text: str, pronoun: str, name: str) -> str:
+    # Words that can follow object 'her' (adverbs, prepositions, conjunctions).
+    # When 'her' is followed by one of these, it is an object pronoun, not possessive.
+    _FUNC_WORDS: frozenset[str] = frozenset({
+        "yesterday", "today", "tomorrow", "now", "then", "there", "here",
+        "again", "still", "already", "always", "never", "soon", "often",
+        "just", "also", "too", "away", "back", "down", "up", "out",
+        "over", "around", "together", "before", "after",
+        "and", "but", "or", "nor", "so", "yet",
+        "as", "if", "when", "while", "though", "although", "because",
+        "at", "to", "in", "on", "by", "of", "with", "from", "into",
+        "onto", "upon", "through", "across", "along", "among", "between",
+        "during", "until", "since", "toward", "towards", "beside", "despite",
+    })
+
+    def _sub_pronoun(text: str, pronoun: str, name: str, *, skip_possessive: bool = False) -> str:
+        _word_after = re.compile(r"\s+(\w+)")
+
         def _repl(m: re.Match) -> str:
             orig = m.group(0)
+            if skip_possessive:
+                # Examine the word immediately after this match.
+                # If it is a content word (not a known function word and not an
+                # adverb ending in -ly), treat 'her' as a possessive determiner
+                # and leave it unchanged.
+                tail = text[m.end():]
+                word_m = _word_after.match(tail)
+                if word_m:
+                    next_word = word_m.group(1).lower()
+                    if next_word not in _FUNC_WORDS and not next_word.endswith("ly"):
+                        return orig  # preserve possessive 'her'
             result = name
             if orig[0].isupper():
                 result = result[0].upper() + result[1:]
             return result
+
         return re.sub(r"\b" + re.escape(pronoun) + r"\b", _repl, text, flags=re.I)
 
     if len(female_chars) == 1:
         assembled = _sub_pronoun(assembled, "she", female_chars[0])
-        assembled = _sub_pronoun(assembled, "her", female_chars[0])
+        assembled = _sub_pronoun(assembled, "her", female_chars[0], skip_possessive=True)
     if len(male_chars) == 1:
         assembled = _sub_pronoun(assembled, "he", male_chars[0])
         assembled = _sub_pronoun(assembled, "him", male_chars[0])

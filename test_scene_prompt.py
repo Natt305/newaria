@@ -214,6 +214,60 @@ def test_one_female_her_substitution():
     )
 
 
+def test_possessive_her_not_substituted():
+    """Possessive 'her' (followed by a noun) must NOT be replaced with the character name."""
+    result = _assemble_scene_prompt(
+        seed="She looked at her reflection in the mirror.",
+        prose_context=None,
+        roster_names=["Mira"],
+        roster_appearances={"Mira": FEMALE_APP},
+        bot_name="Mira",
+        player_display_name=None,
+    )
+    check(
+        "Possessive 'her': subject 'she' replaced with name",
+        "Mira" in result,
+        f"result={result!r}",
+    )
+    check(
+        "Possessive 'her': 'her reflection' not mangled to 'Mira reflection'",
+        "Mira reflection" not in result,
+        f"result={result!r}",
+    )
+    check(
+        "Possessive 'her': possessive 'her' preserved before noun",
+        "her reflection" in result.lower(),
+        f"result={result!r}",
+    )
+
+
+def test_object_her_followed_by_adverb_is_substituted():
+    """Object 'her' followed by an adverb (e.g. 'to her yesterday') must still be replaced."""
+    result = _assemble_scene_prompt(
+        seed="She gave the key to her yesterday.",
+        prose_context=None,
+        roster_names=["Mira"],
+        roster_appearances={"Mira": FEMALE_APP},
+        bot_name="Mira",
+        player_display_name=None,
+    )
+    check(
+        "Object 'her' + adverb: 'she' replaced with name",
+        "Mira" in result,
+        f"result={result!r}",
+    )
+    check(
+        "Object 'her' + adverb: 'to her yesterday' replaced with 'to Mira yesterday'",
+        "to Mira yesterday" in result,
+        f"result={result!r}",
+    )
+    check(
+        "Object 'her' + adverb: bare 'her' not present after substitution",
+        " her " not in result and not result.endswith(" her"),
+        f"result={result!r}",
+    )
+
+
 def test_two_females_her_not_substituted():
     """When two female characters are present, 'her' must NOT be replaced (ambiguous)."""
     result = _assemble_scene_prompt(
@@ -284,6 +338,8 @@ def run_all():
     test_bot_self_label_resolved_to_bot_name()
     test_female_bot_male_player_only_she_substituted()
     test_one_female_her_substitution()
+    test_possessive_her_not_substituted()
+    test_object_her_followed_by_adverb_is_substituted()
     test_two_females_her_not_substituted()
     test_male_and_female_both_unique()
 
