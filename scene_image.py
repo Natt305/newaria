@@ -126,6 +126,9 @@ _OUTFIT_SENTENCE_RE: re.Pattern = re.compile(
 # strap, boots, etc.) that _OUTFIT_SENTENCE_RE catches — accessories like a
 # leather collar or ankle cuff with a strap should survive scene overrides; only
 # actual weapons and their holsters should be suppressed in shower/nude scenes.
+# Named _WEAPON_PERSISTENT_RE (rather than _WEAPON_ITEM_RE) to emphasise that it
+# operates exclusively on the persistent-item list, making its call-sites
+# self-documenting and distinct from any future item-level helpers.
 _WEAPON_PERSISTENT_RE: re.Pattern = re.compile(
     r"\b(?:holster|gun|pistol|revolver|rifle|shotgun|firearm|weapon|"
     r"sword|blade|knife|dagger|saber|sabre|axe|bow|crossbow|baton|taser)\b",
