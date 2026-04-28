@@ -811,6 +811,153 @@ def _gather_refs(
     return refs, subjects, appearances
 
 
+# ── Prose-assembly helpers (scene_only / Qwen path) ───────────────────────────
+
+# Strip role-label prefixes that _build_prose_context prepends to each line.
+_PROSE_ROLE_LABEL_RE = re.compile(r"^(?:User|Aria)\s*:\s*", re.MULTILINE)
+
+# Strip quoted dialogue from prose before using it as an image prompt.
+# Covers the four dialogue quote pairs used elsewhere in the codebase.
+_PROSE_DIALOGUE_STRIP_RE = re.compile(
+    r'"[^"\n]{0,300}"'
+    r'|\u201c[^\u201d\n]{0,300}\u201d'
+    r'|\u300c[^\u300d\n]{0,300}\u300d'
+    r'|\u300e[^\u300f\n]{0,300}\u300f',
+)
+
+# Remove STATIC appearance colour/style descriptors only — e.g. "blonde hair",
+# "blue eyes", "pale skin", "freckles".  Scene-caused dynamic states such as
+# "wet hair", "glistening skin", "steam" are intentionally NOT matched so they
+# survive into the Qwen prompt and influence the render.
+_PROSE_STATIC_APPEARANCE_RE = re.compile(
+    r"\b(?:"
+    r"(?:blonde?|brunette|auburn|chestnut|golden|silver|grey|gray|"
+    r"white|black|brown|red|dark|light)\s+(?:hair|locks|curls|waves|strands|tresses|mane)"
+    r"|(?:blue|green|brown|hazel|grey|gray|black|amber|violet|dark|light)\s+eyes?"
+    r"|(?:pale|tanned|olive|fair|dark|light)\s+(?:skin|complexion)"
+    r"|freckles?|dimples?"
+    r")\b",
+    re.I,
+)
+
+# Gender indicator word sets for pronoun resolution.
+_FEMALE_GENDER_WORDS: frozenset = frozenset({
+    "woman", "girl", "female", "lady", "ladies", "she", "her", "miss", "mrs", "ms",
+})
+_MALE_GENDER_WORDS: frozenset = frozenset({
+    "man", "boy", "male", "gentleman", "he", "him", "mister", "mr",
+})
+
+
+def _infer_gender(text: str) -> str:
+    """Return 'f', 'm', or '' by scanning the first 300 chars of a description."""
+    sample = text[:300].lower()
+    tokens = set(re.findall(r"[a-z]+", sample))
+    f_hits = len(tokens & _FEMALE_GENDER_WORDS)
+    m_hits = len(tokens & _MALE_GENDER_WORDS)
+    if f_hits > m_hits:
+        return "f"
+    if m_hits > f_hits:
+        return "m"
+    return ""
+
+
+def _assemble_scene_prompt(
+    seed: str,
+    prose_context: Optional[str],
+    roster_names: list,
+    roster_appearances: dict,
+    bot_name: str,
+    player_display_name: Optional[str],
+) -> str:
+    """Assemble a Qwen image prompt directly from raw RP prose — no LLM call.
+
+    Used when ``scene_only=True`` (Qwen + reference photos).  The text prompt
+    only needs scene, action, and dynamic states; character appearance is
+    handled by the reference photos.
+
+    Steps:
+      a. Combine prose_context (recent exchanges) + seed (current reply).
+      b. Strip role labels, quoted dialogue, static appearance terms.
+      c. Build a character roster from roster_names/roster_appearances; infer
+         each character's gender from their appearance text.
+      d. Resolve unambiguous subject pronouns (she/he → name) only when exactly
+         one character of that gender appears.
+      e. Append a full-body framing cue when two or more named characters are
+         present in the assembled text.
+    """
+
+    def _clean(raw: str) -> str:
+        cleaned = _PROSE_ROLE_LABEL_RE.sub("", raw)
+        cleaned = _PROSE_DIALOGUE_STRIP_RE.sub("", cleaned)
+        cleaned = _PROSE_STATIC_APPEARANCE_RE.sub("", cleaned)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+        return cleaned.strip()
+
+    parts = []
+    if prose_context and prose_context.strip():
+        cleaned_ctx = _clean(prose_context)
+        if cleaned_ctx:
+            parts.append(cleaned_ctx)
+    if seed and seed.strip():
+        cleaned_seed = _clean(seed)
+        if cleaned_seed:
+            parts.append(cleaned_seed)
+
+    assembled = "\n".join(parts)
+
+    # Build gender roster from all unique characters.
+    roster: list = []
+    seen_lower: set = set()
+    for name in roster_names:
+        if not name or name.lower() == "self":
+            name = bot_name or ""
+        if not name:
+            continue
+        if name.lower() in seen_lower:
+            continue
+        seen_lower.add(name.lower())
+        appearance = roster_appearances.get(name, "")
+        roster.append((name, _infer_gender(appearance)))
+
+    if player_display_name:
+        pname = player_display_name.strip()
+        if pname and pname.lower() not in seen_lower:
+            roster.append((pname, ""))
+
+    # Resolve unambiguous subject pronouns.
+    female_chars = [n for n, g in roster if g == "f"]
+    male_chars = [n for n, g in roster if g == "m"]
+
+    def _sub_pronoun(text: str, pronoun: str, name: str) -> str:
+        def _repl(m: re.Match) -> str:
+            orig = m.group(0)
+            result = name
+            if orig[0].isupper():
+                result = result[0].upper() + result[1:]
+            return result
+        return re.sub(r"\b" + re.escape(pronoun) + r"\b", _repl, text, flags=re.I)
+
+    if len(female_chars) == 1:
+        assembled = _sub_pronoun(assembled, "she", female_chars[0])
+    if len(male_chars) == 1:
+        assembled = _sub_pronoun(assembled, "he", male_chars[0])
+
+    # Framing: append full-body cue when two or more characters appear.
+    assembled_lower = assembled.lower()
+    names_in_text = sum(
+        1 for name, _ in roster
+        if name and name.lower() in assembled_lower
+    )
+    if names_in_text >= 2:
+        assembled = assembled.rstrip() + ", full body, wide shot"
+
+    assembled = assembled.strip()
+    print(f"[SceneImage] _assemble_scene_prompt ({len(roster)} roster, {names_in_text} in text): "
+          f"{assembled[:200]!r}")
+    return assembled
+
+
 # ── Prompt derivation ─────────────────────────────────────────────────────────
 
 async def _derive_prompt(
@@ -821,6 +968,9 @@ async def _derive_prompt(
     llm_ref_labels: Optional[list] = None,
     scene_only: bool = False,
     prose_context: Optional[str] = None,
+    roster_names: Optional[list] = None,
+    roster_appearances: Optional[dict] = None,
+    player_display_name: Optional[str] = None,
 ) -> str:
     """Run prompt enhancement against the active backend's enhancer.
 
@@ -830,38 +980,55 @@ async def _derive_prompt(
     from the photos instead of inventing traits. ``llm_ref_labels`` is the
     matching list of subject names used to build the photo-order map.
 
-    ``scene_only=True`` switches the enhancer into "describe scene only,
-    NO appearance words" mode. We use it on the Qwen-edit pipeline whenever
-    reference photos are headed to Qwen — Qwen reads the character identity
-    from the photos and any appearance words in the text prompt would
-    overpower the photo's visual identity. In that mode the
-    ``character_context`` and ``llm_refs`` are intentionally NOT forwarded
-    to the enhancer (the photos go to Qwen, not here).
+    ``scene_only=True`` means Qwen has reference photos and the text prompt
+    must contain ONLY scene/action descriptors (no appearance words that would
+    override the photos).  In this mode the LLM enhancement call is skipped
+    entirely — the prompt is assembled from raw RP prose via
+    ``_assemble_scene_prompt``, preserving dynamic scene-caused details
+    (wet hair, steam, etc.) that an LLM summariser would lose.
+    ``roster_names`` / ``roster_appearances`` supply the character list for
+    pronoun resolution.
 
     Falls back to the seed itself on any failure — scene-image generation is
     never blocked by enhancement issues.
     """
+    if scene_only:
+        print(
+            "[SceneImage] derive_prompt: scene-only mode — assembling from raw RP "
+            "prose (no LLM call). Reference photos go directly to Qwen."
+        )
+        try:
+            return _assemble_scene_prompt(
+                seed=seed,
+                prose_context=prose_context,
+                roster_names=roster_names or [],
+                roster_appearances=roster_appearances or {},
+                bot_name=bot_name,
+                player_display_name=player_display_name,
+            )
+        except Exception as exc:
+            print(
+                f"[SceneImage] _assemble_scene_prompt failed: "
+                f"{type(exc).__name__}: {exc} — falling back to seed"
+            )
+            return seed.strip()
+
     char_context = ""
-    if looks and not scene_only:
+    if looks:
         char_context = (
             f"[Authoritative written appearance — {bot_name or 'character'}]\n"
             f"{looks}"
         )
     has_llm_refs = bool(llm_refs)
-    if scene_only:
-        print(
-            "[SceneImage] derive_prompt: scene-only mode — appearance text and "
-            "reference photos withheld from the enhancer (photos go to Qwen)."
-        )
-    elif has_llm_refs:
+    if has_llm_refs:
         print(f"[SceneImage] passing {len(llm_refs)} LLM ref image(s) to enhancer: {llm_ref_labels}")
     try:
         enriched = await groq_ai.enhance_image_prompt(
             seed,
             character_context=char_context,
-            reference_images=llm_refs if (has_llm_refs and not scene_only) else None,
-            reference_image_labels=llm_ref_labels if (has_llm_refs and not scene_only) else None,
-            scene_only=scene_only,
+            reference_images=llm_refs if has_llm_refs else None,
+            reference_image_labels=llm_ref_labels if has_llm_refs else None,
+            scene_only=False,
             prose_context=prose_context,
         )
         if enriched and isinstance(enriched, str):
@@ -1128,6 +1295,9 @@ async def run_scene_image(
             llm_ref_labels=llm_ref_labels if llm_ref_labels else None,
             scene_only=_scene_only,
             prose_context=prose_context,
+            roster_names=llm_ref_labels if _qwen_prefetch else None,
+            roster_appearances=_early_appearances if _qwen_prefetch else None,
+            player_display_name=player_display_name,
         )
         enriched_base = enriched_base.rstrip(",. \n")
 
@@ -1251,6 +1421,29 @@ async def run_scene_image(
             if _state_triggered:
                 # SCENE STATE OVERRIDE: strip outfit sentences, keep physical
                 # identity traits only (hair / eyes / skin / build).
+
+                # Filter weapon/holster items from the persistent list — a gun
+                # should not appear in shower, nude, or intimate scenes even if
+                # it was previously extracted as a "persistent accessory".
+                _weapon_items = [
+                    item for item in _persistent_items
+                    if _OUTFIT_SENTENCE_RE.search(item)
+                ]
+                if _weapon_items:
+                    print(
+                        f"[SceneImage] Scene-state override: filtered weapon "
+                        f"persistent items: {_weapon_items}"
+                    )
+                    _safe_persistent = [
+                        item for item in _persistent_items
+                        if not _OUTFIT_SENTENCE_RE.search(item)
+                    ]
+                    _persistent_str = (
+                        "PERSISTENT STATE (always visible, even in this scene): "
+                        + "; ".join(_safe_persistent)
+                        + ". "
+                    ) if _safe_persistent else ""
+
                 _state_prefix = (
                     f"SCENE STATE OVERRIDE — character is {_state_label}: "
                     f"do NOT render coat, holster, weapons, or any default outfit items; "
@@ -1281,7 +1474,7 @@ async def run_scene_image(
                     f"[SceneImage] Scene-state override active ({_state_label!r}): "
                     f"outfit stripped. "
                     f"{'Identity anchor included' if _identity_only else 'No identity anchor — photos only'}. "
-                    f"Persistent items: {_persistent_items or 'none'}."
+                    f"Persistent items: {[i for i in _persistent_items if not _OUTFIT_SENTENCE_RE.search(i)] or 'none'}."
                 )
 
             elif _char_state_obj.outfit:

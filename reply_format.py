@@ -141,20 +141,40 @@ _BOT_THIRD_PERSON_VERB_RE_TEMPLATE = (
     r"whispered|whispers|laughed|laughs|glanced|glances)"
 )
 
+# Pronoun-led bot narration: "She turned…", "He looked…", "Her eyes widened…"
+# Matches when a standalone third-person pronoun at the start of the text is
+# followed within 50 chars by a roleplay action verb.
+_BOT_PRONOUN_ACTION_RE = re.compile(
+    r"^(?:She|He|Her|His)\b.{0,50}"
+    r"\b(said|says|smiled|smiles|nods|nodded|asked|asks|"
+    r"replied|replies|looked|looks|walked|walks|turned|turns|"
+    r"thought|thinks|felt|feels|stood|sat|sits|sighed|sighs|"
+    r"whispered|whispers|laughed|laughs|glanced|glances)\b",
+    re.I,
+)
+
 
 def _is_bot_voiced(text: str, bot_name: str) -> bool:
     """Return True when a suggestion sounds like the bot speaking, not the player.
 
     Criteria (any one sufficient):
     a. Longer than 90 characters — casual player messages are short.
-    b. Uses ``*action*`` or ``*narration*`` asterisk formatting — bot's style.
-    c. References ``bot_name`` in a third-person narration pattern
+    b. Starts with ``*`` — unambiguous roleplay narration opener.
+    c. Uses ``*action*`` or ``*narration*`` asterisk formatting — bot's style.
+    d. Starts with a third-person pronoun (She/He/Her/His) followed within
+       50 chars by a roleplay action verb — e.g. "*She turned around*",
+       "Her eyes widened as she…"
+    e. References ``bot_name`` in a third-person narration pattern
        ("Kelly smiled…", "Kelly's voice…") rather than as a direct address
        ("Hey Kelly, …" is fine and returns False).
     """
     if len(text) > 90:
         return True
+    if text.startswith("*"):
+        return True
     if _ASTERISK_ACTION_RE.search(text):
+        return True
+    if _BOT_PRONOUN_ACTION_RE.search(text):
         return True
     if bot_name:
         first_name = bot_name.split()[0]
@@ -193,6 +213,9 @@ DIALOGUE_QUOTE_PAIRS: tuple[tuple[str, str], ...] = (
 PROTECTED_BOLD_RE = re.compile(r"\*\*[^*\n]+?\*\*")
 PROTECTED_ITALIC_RE = re.compile(r"\*[^*\n]+?\*")
 PLACEHOLDER_RE = re.compile(r"\x00(\d+)\x00")
+
+# Used by _fix_narration_bold to match bold spans with a capture group.
+_BOLD_SPAN_CAPTURE_RE = re.compile(r"\*\*([^*\n]+?)\*\*")
 
 
 # Title-Case "CharacterName: " prefix used by both `_parse_reply_format`
@@ -282,6 +305,53 @@ def bold_quoted_dialogue(text: str) -> str:
         return placeholders[int(m.group(1))]
 
     return PLACEHOLDER_RE.sub(_unstash, masked)
+
+
+def _fix_narration_bold(text: str) -> str:
+    """Post-pass after ``bold_quoted_dialogue``: fix model-emitted bold narration.
+
+    Handles two artefacts that Celeste / mn-12b produces on mixed lines:
+
+    1. **Orphaned ``**`` at line-end** — the model sometimes ends a line with
+       a lone ``**`` that has no matching opener (e.g. ``"Stop..."**``).  After
+       ``bold_quoted_dialogue`` wraps the quote the orphan remains.  Detected
+       by counting ``**`` occurrences on the line: an odd count means the last
+       one is unmatched, so it is stripped.
+
+    2. **Narration wrapped in ``**bold**``** — the model occasionally wraps the
+       prose between two dialogue quotes in bold instead of leaving it plain
+       (e.g. ``**"Mmmm,"** **she moaned...** **"Stop..."**``).  On any line
+       that contains at least one *dialogue* bold span (one whose content
+       includes a quote character), every bold span whose content contains NO
+       quote character is converted to ``*italic*`` so Discord renders the line
+       as ``**"dialogue"** *narration* **"dialogue"**``.
+    """
+    _quote_chars = frozenset(c for pair in DIALOGUE_QUOTE_PAIRS for c in pair)
+
+    result_lines = []
+    for line in text.split("\n"):
+        # Pass 1: strip orphaned ** at line-end (odd count of ** markers)
+        stripped = line.rstrip()
+        if stripped.endswith("**") and not stripped.endswith("***"):
+            marker_count = stripped.count("**")
+            if marker_count % 2 != 0:
+                trailing_ws = line[len(stripped):]
+                stripped = stripped[:-2].rstrip()
+                line = stripped + trailing_ws
+
+        # Pass 2: on mixed lines convert **narration** spans to *italic*
+        # Only fires when the line has at least one dialogue bold span.
+        if any(qc in line for qc in _quote_chars):
+            def _convert(m: re.Match, _qc: frozenset = _quote_chars) -> str:
+                content = m.group(1)
+                if any(qc in content for qc in _qc):
+                    return m.group(0)
+                return f"*{content}*"
+            line = _BOLD_SPAN_CAPTURE_RE.sub(_convert, line)
+
+        result_lines.append(line)
+
+    return "\n".join(result_lines)
 
 
 def italicize_pure_narration(text: str) -> str:
@@ -396,12 +466,14 @@ def strip_self_name_prefix(text: str, character_name: str = "") -> str:
 def format_for_discord(text: str, character_name: str = "") -> str:
     """Convert plain-prose roleplay output into Discord-ready markdown.
 
-    Three passes:
+    Four passes:
       0. Strip a leading self-name label from each paragraph
          (e.g. ``Kelly Gray: ...`` → ``...``) so the bolder/italicizer
          doesn't have to deal with a redundant prefix.
       1. Bold any quoted dialogue segments not already inside **...**.
-      2. Italicise paragraphs that are pure narration with no existing
+      2. Fix model-emitted bold narration spans and orphaned ``**`` markers
+         on mixed dialogue+narration lines (Celeste / mn-12b artefact).
+      3. Italicise paragraphs that are pure narration with no existing
          formatting and no dialogue quotes.
 
     Designed for Mistral-family models (Celeste etc.) that ignore the
@@ -412,6 +484,7 @@ def format_for_discord(text: str, character_name: str = "") -> str:
         return text
     text = strip_self_name_prefix(text, character_name=character_name)
     text = bold_quoted_dialogue(text)
+    text = _fix_narration_bold(text)
     text = italicize_pure_narration(text)
     return text
 
