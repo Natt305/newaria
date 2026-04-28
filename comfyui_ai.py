@@ -1060,7 +1060,7 @@ def _build_multi_edit_workflow_qwen(
     if _slot_prefix:
         print(f"[ComfyUI] Qwen: per-slot identity prefix — {_slot_prefix!r}")
 
-    enhanced_prompt = _appearance_lock + _slot_prefix + prompt + _ANATOMY_SUFFIX + _feminine_pos
+    enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
     # Build the negative prompt — anatomy + (optionally) feminine-build
     # negatives. With CFG=1.0 (the Qwen Rapid AIO default) the negative
