@@ -46,165 +46,19 @@ class SceneImageButtonView(discord.ui.View):
 
 
 class RegenerateContinueView(discord.ui.View):
-    """Persistent 🔄 Regenerate + ▶️ Continue buttons for scene-mode bot replies.
+    """Ephemeral view that holds suggestion buttons (row 0) for scene-mode
+    bot replies.
 
-    timeout=None + fixed custom_ids → Discord routes clicks back to these
-    callbacks even after a bot restart (registered once via bot.add_view()).
+    The 🔄 / ▶️ regenerate/continue actions are now handled as message
+    reactions via on_raw_reaction_add — no persistent buttons needed.
 
     When scene mode is active, SuggestionButton items are added dynamically on
-    row 0 before the message is sent; they don't survive restarts, which is fine
-    because the 🔄 / ▶️ buttons on row 1 always work.
+    row 0 before the message is sent.
     """
 
     def __init__(self, channel_id: str = "") -> None:
         super().__init__(timeout=None)
         self._channel_id = channel_id
-
-    @discord.ui.button(
-        emoji="🔄",
-        label="再試",
-        style=discord.ButtonStyle.secondary,
-        custom_id="regenerate_btn",
-        row=1,
-    )
-    async def regenerate_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
-        """Discard the current bot reply and generate a fresh one.
-
-        If the user edited their original message after the bot replied, the
-        edited text is used as the new input; otherwise the original text is
-        replayed, producing a different response via LLM temperature variation.
-        """
-        await interaction.response.defer(ephemeral=True, thinking=False)
-
-        channel_id = str(interaction.channel_id)
-        bot_msg = interaction.message
-
-        # ── Locate the user's original message ───────────────────────────────
-        user_msg = None
-        if bot_msg and bot_msg.reference and bot_msg.reference.message_id:
-            try:
-                user_msg = await interaction.channel.fetch_message(
-                    bot_msg.reference.message_id
-                )
-            except discord.HTTPException:
-                pass
-
-        if user_msg is None:
-            await interaction.followup.send(
-                "❌ 找不到原始訊息，無法重新生成。", ephemeral=True
-            )
-            return
-
-        # ── Determine user text: edited version or original ──────────────────
-        # If the user edited their message after the bot replied, use the new
-        # text; otherwise use the original content (LLM randomness gives a
-        # different reply even with the same prompt).
-        using_edited = False
-        if (
-            user_msg.edited_at is not None
-            and bot_msg is not None
-            and bot_msg.created_at is not None
-            and user_msg.edited_at > bot_msg.created_at
-        ):
-            using_edited = True
-
-        import bot as _bot_mod  # lazy import — avoids circular dependency
-
-        user_text = user_msg.content.strip()
-        if _bot_mod.bot.user:
-            user_text = (
-                user_text
-                .replace(f"<@{_bot_mod.bot.user.id}>", "")
-                .replace(f"<@!{_bot_mod.bot.user.id}>", "")
-                .strip()
-            )
-
-        if not user_text:
-            await interaction.followup.send(
-                "❌ 原始訊息為空，無法重新生成。", ephemeral=True
-            )
-            return
-
-        if using_edited:
-            print(f"[Regen] Using edited user text for channel {channel_id}")
-
-        # ── Strip last turn from in-memory context then regenerate ───────────
-        _bot_mod.pop_last_turn(channel_id)
-
-        try:
-            await bot_msg.delete()
-        except discord.HTTPException:
-            pass
-
-        try:
-            await _bot_mod.process_chat(
-                channel=interaction.channel,
-                author=user_msg.author,
-                user_text=user_text,
-                reply_target=user_msg,
-                channel_id=channel_id,
-            )
-        except Exception as exc:
-            print(f"[Regen] process_chat failed: {exc}")
-            # Disable buttons on the original message (bot_msg was likely
-            # already deleted; the edit will 404 silently if so).
-            try:
-                for _item in self.children:
-                    _item.disabled = True  # type: ignore[attr-defined]
-                await interaction.message.edit(view=self)
-            except Exception:
-                pass
-            try:
-                await interaction.followup.send(
-                    "❌ 重新生成時發生錯誤，請稍後再試。", ephemeral=True
-                )
-            except Exception:
-                pass
-
-    @discord.ui.button(
-        emoji="▶️",
-        label="繼續",
-        style=discord.ButtonStyle.secondary,
-        custom_id="continue_btn",
-        row=1,
-    )
-    async def continue_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ) -> None:
-        """Prompt the bot to continue where it left off."""
-        await interaction.response.defer(ephemeral=True, thinking=False)
-        import bot as _bot_mod  # lazy import — avoids circular dependency
-
-        try:
-            await _bot_mod.process_chat(
-                channel=interaction.channel,
-                author=interaction.user,
-                user_text="繼續",
-                reply_target=interaction.message,
-                channel_id=str(interaction.channel_id),
-            )
-        except Exception as exc:
-            print(f"[Continue] process_chat failed: {exc}")
-            # Disable buttons on the bot message so the user sees a clear
-            # failure state rather than clickable-but-broken buttons.
-            try:
-                for _item in self.children:
-                    _item.disabled = True  # type: ignore[attr-defined]
-                await interaction.message.edit(view=self)
-            except Exception:
-                pass
-            try:
-                await interaction.followup.send(
-                    "❌ 繼續生成時發生錯誤，請稍後再試。", ephemeral=True
-                )
-            except Exception:
-                pass
 
 
 def _has_saveimage_permission(interaction: discord.Interaction) -> bool:
@@ -2023,3 +1877,78 @@ class UserProfileView(discord.ui.View):
             return
         gallery = UserProfileGalleryView(self.discord_id, self.image_count)
         await gallery.send_first(interaction)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /setinitiate — Edit modal + view
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_initiate_embed(*, changed: bool = False) -> discord.Embed:
+    """Build a fresh embed reflecting the current /setinitiate state."""
+    current_text = database.get_initiate_text()
+    has_image = database.get_initiate_image() is not None
+
+    desc_parts: list[str] = []
+    if current_text:
+        preview = current_text[:500] + ("…" if len(current_text) > 500 else "")
+        desc_parts.append(f"**開場白文字:**\n{preview}")
+    else:
+        desc_parts.append("**開場白文字:** （未設定）")
+    desc_parts.append(f"**開場圖片:** {'✅ 已設定' if has_image else '❌ 未設定'}")
+    desc_parts.append("_使用 `/initiate` 可發送開場白並開啟場景圖片模式。_")
+
+    embed = discord.Embed(
+        title="✅ 開場設定已更新" if changed else "🎬 開場設定",
+        description="\n\n".join(desc_parts),
+        color=discord.Color.green() if changed else discord.Color.blurple(),
+    )
+    return embed
+
+
+class EditInitiateTextModal(discord.ui.Modal, title="編輯開場白文字"):
+    """Modal for editing the /initiate opener text in-place."""
+
+    opener_text = discord.ui.TextInput(
+        label="開場白文字",
+        style=discord.TextStyle.paragraph,
+        placeholder="輸入開場白內容...",
+        max_length=2000,
+        required=False,
+    )
+
+    def __init__(self, current_text: str = "") -> None:
+        super().__init__()
+        self.opener_text.default = current_text[:2000]
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        new_text = str(self.opener_text).strip()
+        database.set_initiate_text(new_text)
+        embed = _build_initiate_embed(changed=True)
+        current_text_now = database.get_initiate_text()
+        new_view = SetInitiateView(current_text_now)
+        await interaction.response.edit_message(embed=embed, view=new_view, attachments=[])
+
+
+class SetInitiateView(discord.ui.View):
+    """Shown by /setinitiate — buttons to edit the opener text or clear the image."""
+
+    def __init__(self, current_text: str = "") -> None:
+        super().__init__(timeout=300)
+        self._current_text = current_text
+
+    @discord.ui.button(label="編輯文字", style=discord.ButtonStyle.primary, emoji="✏️", row=0)
+    async def edit_text_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        modal = EditInitiateTextModal(self._current_text)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="清除圖片", style=discord.ButtonStyle.danger, emoji="🖼️", row=0)
+    async def clear_image_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        database.clear_initiate_image()
+        embed = _build_initiate_embed(changed=True)
+        current_text_now = database.get_initiate_text()
+        new_view = SetInitiateView(current_text_now)
+        await interaction.response.edit_message(embed=embed, view=new_view, attachments=[])

@@ -1027,9 +1027,14 @@ async def send_with_suggestions(response_text: str, channel_id: str, reply_targe
             chunks = [text[i:i+2000] for i in range(0, len(text), 2000)]
             for chunk in chunks[:-1]:
                 await reply_target.reply(chunk, mention_author=False)
-            await reply_target.reply(chunks[-1], mention_author=False)
+            _plain_msg = await reply_target.reply(chunks[-1], mention_author=False)
         else:
-            await reply_target.reply(text, mention_author=False)
+            _plain_msg = await reply_target.reply(text, mention_author=False)
+        for _emoji in ("🔄", "▶️"):
+            try:
+                await _plain_msg.add_reaction(_emoji)
+            except discord.HTTPException as _re:
+                print(f"[Bot] add_reaction {_emoji} failed: {_re}")
         return
 
     topic = await get_suggestion_topic(channel_id)
@@ -1049,9 +1054,15 @@ async def send_with_suggestions(response_text: str, channel_id: str, reply_targe
         chunks = [text[i:i+2000] for i in range(0, len(text), 2000)]
         for chunk in chunks[:-1]:
             await reply_target.reply(chunk, mention_author=False)
-        await reply_target.reply(chunks[-1], view=view, mention_author=False)
+        bot_message = await reply_target.reply(chunks[-1], view=view, mention_author=False)
     else:
-        await reply_target.reply(text, view=view, mention_author=False)
+        bot_message = await reply_target.reply(text, view=view, mention_author=False)
+
+    for _emoji in ("🔄", "▶️"):
+        try:
+            await bot_message.add_reaction(_emoji)
+        except discord.HTTPException as _re:
+            print(f"[Bot] add_reaction {_emoji} failed: {_re}")
 
 
 async def process_chat(
@@ -1284,6 +1295,11 @@ async def process_chat(
             await bot_message.add_reaction("🎬")
         except discord.HTTPException as _re:
             print(f"[Bot] add_reaction 🎬 failed (check Reactions permission): {_re}")
+        for _emoji in ("🔄", "▶️"):
+            try:
+                await bot_message.add_reaction(_emoji)
+            except discord.HTTPException as _re:
+                print(f"[Bot] add_reaction {_emoji} failed: {_re}")
         if _route_to_scene:
             # When the model emitted `[SCENE: ...]` with a body, hand the
             # polished body to the runner as `seed_override` so it's used
@@ -2348,12 +2364,6 @@ async def on_ready():
         print("[SceneImage] Persistent view registered — buttons on bot messages restored across restart.")
     except Exception as _sv_exc:
         print(f"[SceneImage] add_view failed: {type(_sv_exc).__name__}: {_sv_exc}")
-    try:
-        bot.add_view(ui.RegenerateContinueView())
-        print("[Bot] RegenerateContinueView registered (🔄 再試 / ▶️ 繼續).")
-    except Exception as _rcv_exc:
-        print(f"[Bot] RegenerateContinueView add_view failed: {type(_rcv_exc).__name__}: {_rcv_exc}")
-
     await _apply_status()
     try:
         synced = await bot.tree.sync()
@@ -2372,48 +2382,113 @@ async def on_ready():
 
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
-    """Trigger scene image generation when a user reacts with 🎬 on a bot
-    message in a scene-mode channel.
+    """Handle emoji reactions on bot messages.
 
-    Using a reaction keeps every Discord button row free for suggestion
-    buttons (and future feature buttons) while preserving the one-click
-    scene-generation experience.
+    🎬 — triggers scene image generation (scene-mode channels only).
+    🔄 — regenerate: pop last turn, delete bot message, re-run process_chat.
+    ▶️ — continue: call process_chat with "繼續" reply to the bot message.
     """
-    if str(payload.emoji) != "🎬":
+    emoji_str = str(payload.emoji)
+    if emoji_str not in ("🎬", "🔄", "▶️"):
         return
     if bot.user and payload.user_id == bot.user.id:
         return
-    if not scene_image.is_scene_mode_on(str(payload.channel_id)):
-        return
+
     channel = bot.get_channel(payload.channel_id)
     if channel is None:
         try:
             channel = await bot.fetch_channel(payload.channel_id)
         except discord.HTTPException:
             return
+
     try:
         message = await channel.fetch_message(payload.message_id)  # type: ignore[union-attr]
     except discord.HTTPException:
         return
+
     if not bot.user or message.author.id != bot.user.id:
         return
-    _reaction_prose_ctx = _build_prose_context(get_channel_context(str(payload.channel_id)))
-    _reaction_player_name = ""
+
+    channel_id = str(payload.channel_id)
+
+    # ── 🎬 Scene image ──────────────────────────────────────────────────────
+    if emoji_str == "🎬":
+        if not scene_image.is_scene_mode_on(channel_id):
+            return
+        _reaction_prose_ctx = _build_prose_context(get_channel_context(channel_id))
+        _reaction_player_name = ""
+        if hasattr(channel, "guild") and channel.guild:
+            _reaction_member = channel.guild.get_member(payload.user_id)
+            if _reaction_member:
+                _reaction_player_name = _reaction_member.display_name
+        await scene_image.run_scene_image(
+            bot_message=message,
+            channel=channel,
+            channel_id=channel_id,
+            trigger="button",
+            hint_prompt=None,
+            acker=None,
+            prose_context=_reaction_prose_ctx,
+            player_discord_id=str(payload.user_id),
+            player_display_name=_reaction_player_name,
+        )
+        return
+
+    # ── Resolve reactor as a Member/User ────────────────────────────────────
+    reactor: Union[discord.Member, discord.User, None] = None
     if hasattr(channel, "guild") and channel.guild:
-        _reaction_member = channel.guild.get_member(payload.user_id)
-        if _reaction_member:
-            _reaction_player_name = _reaction_member.display_name
-    await scene_image.run_scene_image(
-        bot_message=message,
-        channel=channel,
-        channel_id=str(payload.channel_id),
-        trigger="button",
-        hint_prompt=None,
-        acker=None,
-        prose_context=_reaction_prose_ctx,
-        player_discord_id=str(payload.user_id),
-        player_display_name=_reaction_player_name,
-    )
+        reactor = channel.guild.get_member(payload.user_id)
+    if reactor is None:
+        try:
+            reactor = await bot.fetch_user(payload.user_id)
+        except discord.HTTPException:
+            return
+
+    # ── 🔄 Regenerate ───────────────────────────────────────────────────────
+    if emoji_str == "🔄":
+        user_msg = None
+        if message.reference and message.reference.message_id:
+            try:
+                user_msg = await channel.fetch_message(message.reference.message_id)  # type: ignore[union-attr]
+            except discord.HTTPException:
+                pass
+        if user_msg is None:
+            return
+
+        user_text = user_msg.content.strip()
+        if bot.user:
+            user_text = (
+                user_text
+                .replace(f"<@{bot.user.id}>", "")
+                .replace(f"<@!{bot.user.id}>", "")
+                .strip()
+            )
+        if not user_text:
+            return
+
+        pop_last_turn(channel_id)
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
+        await process_chat(
+            channel=channel,
+            author=user_msg.author,
+            user_text=user_text,
+            reply_target=user_msg,
+            channel_id=channel_id,
+        )
+        return
+
+    # ── ▶️ Continue ─────────────────────────────────────────────────────────
+    if emoji_str == "▶️":
+        await process_chat(
+            channel=channel,
+            author=reactor,
+            user_text="繼續",
+            reply_target=message,
+            channel_id=channel_id,
+        )
 
 
 @bot.event
@@ -3656,6 +3731,7 @@ async def setinitiate_cmd(
     if changed:
         embed.set_footer(text=f"已更新: {', '.join(changed)}")
 
+    initiate_view = ui.SetInitiateView(current_text)
     img_result = database.get_initiate_image()
     if img_result:
         img_bytes_preview, mime_preview = img_result
@@ -3664,9 +3740,9 @@ async def setinitiate_cmd(
             io.BytesIO(img_bytes_preview), filename=f"opener_preview.{ext}"
         )
         embed.set_image(url=f"attachment://opener_preview.{ext}")
-        await ctx.reply(embed=embed, file=file, mention_author=False)
+        await ctx.reply(embed=embed, file=file, view=initiate_view, mention_author=False)
     else:
-        await ctx.reply(embed=embed, mention_author=False)
+        await ctx.reply(embed=embed, view=initiate_view, mention_author=False)
 
 
 @bot.hybrid_command(
@@ -3721,13 +3797,38 @@ async def initiate_cmd(ctx):
             pass
         return
 
-    try:
-        await opener_msg.add_reaction("🎬")
-    except discord.HTTPException as _re:
-        print(f"[Bot] /initiate add_reaction 🎬 failed: {_re}")
+    for _emoji in ("🎬", "🔄", "▶️"):
+        try:
+            await opener_msg.add_reaction(_emoji)
+        except discord.HTTPException as _re:
+            print(f"[Bot] /initiate add_reaction {_emoji} failed: {_re}")
+
+    if _suggestions_enabled:
+        try:
+            _s_topic = await get_suggestion_topic(channel_id)
+            _s_bot_name, _s_background, *_ = load_character()
+            _s_list = await groq_ai.generate_suggestions(
+                topic=_s_topic,
+                bot_name=_s_bot_name,
+                character_background=_s_background,
+                count=3,
+                guiding_prompt=_suggestion_prompt,
+                language_sample=(opener_text or "")[:200],
+                recent_history=get_channel_context(channel_id),
+            )
+            if _s_list:
+                _sugg_view = SuggestionView(_s_list, channel_id)
+                await opener_msg.edit(view=_sugg_view)
+        except Exception as _se:
+            print(f"[Bot] /initiate suggestion generation failed: {_se}")
 
     try:
-        await ctx.followup.send("✅ 場景模式已開啟，開場白已發送。", ephemeral=True)
+        confirm_msg = await ctx.followup.send("✅ 場景模式已開啟，開場白已發送。", ephemeral=True)
+        await asyncio.sleep(4)
+        try:
+            await confirm_msg.delete()
+        except Exception:
+            pass
     except Exception:
         pass
 
