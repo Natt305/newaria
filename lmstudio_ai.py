@@ -1275,19 +1275,21 @@ def _qwen_subtext_length_hint(target: str) -> str:
     return _hints.get(target, "")
 
 
-def _paragraph_array_schema(min_items: int, max_items: int) -> dict:
+def _paragraph_array_schema(
+    min_items: int, max_items: int, min_length: int = 80
+) -> dict:
     """Return a response_format dict for LM Studio's JSON schema mode.
 
     The schema constrains the reply to an object with a ``reply`` key whose
-    value is an array of ``min_items``..``max_items`` non-empty strings — one
-    string per paragraph.  LM Studio enforces minItems/maxItems at the
-    token-sampling level, so the model cannot physically produce fewer or more
-    paragraphs than requested.
+    value is an array of ``min_items``..``max_items`` strings, each at least
+    ``min_length`` characters long.  LM Studio enforces all three constraints
+    at the token-sampling level via JSON grammar, so the model cannot produce
+    fewer/more paragraphs or write a paragraph shorter than ``min_length``.
 
     Paragraph-level targets:
-      standard  → (2, 3)
-      rich      → (4, 5)
-      cinematic → (6, 10)
+      standard  → (2, 3),  min_length=80   (~1 sentence)
+      rich      → (7, 9),  min_length=150  (~2 sentences)
+      cinematic → (10,15), min_length=200  (~3 sentences)
     """
     return {
         "type": "json_schema",
@@ -1301,7 +1303,7 @@ def _paragraph_array_schema(min_items: int, max_items: int) -> dict:
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "minLength": 30,
+                            "minLength": min_length,
                         },
                         "minItems": min_items,
                         "maxItems": max_items,
@@ -1317,8 +1319,20 @@ def _paragraph_array_schema(min_items: int, max_items: int) -> dict:
 # Per-target (min_items, max_items) for the paragraph-array schema.
 _SCHEMA_PARA_RANGES: dict[str, tuple[int, int]] = {
     "standard": (2, 3),
-    "rich": (7, 9),
-    "cinematic": (10, 15),
+    "rich": (4, 5),
+    "cinematic": (6, 8),
+}
+
+# Minimum character length enforced per JSON string element at the token level.
+# LM Studio's JSON grammar honours minLength, so this is a hard floor on element
+# density — not merely a prompt suggestion.
+#   standard  → 80  (~1 sentence; compact is intentional)
+#   rich      → 150 (~2 sentences minimum)
+#   cinematic → 200 (~3 sentences minimum)
+_SCHEMA_ITEM_MIN_LENGTH: dict[str, int] = {
+    "standard": 80,
+    "rich": 150,
+    "cinematic": 200,
 }
 
 
@@ -1390,7 +1404,7 @@ def _paragraph_array_schema_directive(target: str, character_name: str = "") -> 
             "Interleave narration with spoken lines; put at most ONE quoted line per paragraph. "
         )
         example = (
-            "\n\nExample JSON shape — 7 paragraphs (write your own content; do not copy wording):\n"
+            "\n\nExample JSON shape — 4 paragraphs (write your own content; do not copy wording):\n"
             "{\n"
             "  \"reply\": [\n"
             "    \"*Her eyebrow twitches at the interruption, a flicker of surprise crossing her*\"\n"
@@ -1418,7 +1432,7 @@ def _paragraph_array_schema_directive(target: str, character_name: str = "") -> 
             "full arc of sensation and interiority. "
         )
         example = (
-            "\n\nExample JSON shape — 10 paragraphs (write your own content; do not copy wording):\n"
+            "\n\nExample JSON shape — 6 paragraphs (write your own content; do not copy wording):\n"
             "{\n"
             "  \"reply\": [\n"
             "    \"*The practice room still smelled of rosin and stale coffee. Afternoon light lay*\"\n"
@@ -1488,7 +1502,7 @@ def _reconstruct_from_paragraph_array(raw_json: str) -> tuple[str, bool]:
 _CINEMATIC_TOKEN_FLOOR_LOGGED: bool = False
 
 # Paragraph floors for the post-generation length check.
-_PARA_FLOORS: dict[str, int] = {"rich": 7, "cinematic": 10}
+_PARA_FLOORS: dict[str, int] = {"rich": 4, "cinematic": 6}
 
 
 def _count_meaningful_paragraphs(text: str) -> int:
@@ -1741,7 +1755,12 @@ async def chat(
                 # flag so the formatter skips the post-processing bold/italic
                 # pass (the model wrote the markdown at generation time).
                 _schema_min, _schema_max = _SCHEMA_PARA_RANGES[_active_narration_target]
-                response_format = _paragraph_array_schema(_schema_min, _schema_max)
+                _schema_item_min_len = _SCHEMA_ITEM_MIN_LENGTH.get(
+                    _active_narration_target, 80
+                )
+                response_format = _paragraph_array_schema(
+                    _schema_min, _schema_max, _schema_item_min_len
+                )
                 _schema_mode = True
                 effective_system = effective_system + _paragraph_array_schema_directive(
                     _active_narration_target,
