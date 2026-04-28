@@ -7,6 +7,7 @@ Edge cases covered:
   3. Player with unknown gender → added to roster without causing substitution
   4. Bot referenced by "self" label → resolved to bot_name, not misattributed
   5. One female character   → "her" (object pronoun) substituted alongside "she"
+  6. 'her' before numeral+noun phrase (e.g. 'her two sisters') → possessive, preserved
 
 Run: python test_scene_prompt.py
 """
@@ -301,6 +302,45 @@ def test_possessive_her_multiword_adjective_noun():
         )
 
 
+def test_possessive_her_before_numeral_noun():
+    """Possessive 'her' followed by a cardinal number + noun must NOT be replaced.
+
+    Cardinal numbers (two, three, four …) are not in _FUNC_WORDS and don't
+    end in -ly, so the possessive guard treats them as content words and
+    preserves 'her'.
+    """
+    cases = [
+        ("She clutched her two sisters close.", "her two sisters"),
+        ("She wore her three rings proudly.", "her three rings"),
+        ("She could feel her five senses sharpen.", "her five senses"),
+        ("She counted her seven steps to the door.", "her seven steps"),
+    ]
+    for seed, expected_phrase in cases:
+        result = _assemble_scene_prompt(
+            seed=seed,
+            prose_context=None,
+            roster_names=["Mira"],
+            roster_appearances={"Mira": FEMALE_APP},
+            bot_name="Mira",
+            player_display_name=None,
+        )
+        check(
+            f"Numeral phrase: 'she' replaced in {seed!r}",
+            "Mira" in result,
+            f"result={result!r}",
+        )
+        check(
+            f"Numeral phrase: {expected_phrase!r} preserved in {seed!r}",
+            expected_phrase in result.lower(),
+            f"result={result!r}",
+        )
+        check(
+            f"Numeral phrase: no name inserted before number in {seed!r}",
+            "Mira " + expected_phrase.split()[1] not in result,
+            f"result={result!r}",
+        )
+
+
 def test_two_females_her_not_substituted():
     """When two female characters are present, 'her' must NOT be replaced (ambiguous)."""
     result = _assemble_scene_prompt(
@@ -374,6 +414,7 @@ def run_all():
     test_possessive_her_not_substituted()
     test_object_her_followed_by_adverb_is_substituted()
     test_possessive_her_multiword_adjective_noun()
+    test_possessive_her_before_numeral_noun()
     test_two_females_her_not_substituted()
     test_male_and_female_both_unique()
 
