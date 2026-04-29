@@ -251,33 +251,64 @@ def test_negative_encoder_images_match_positive():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: negative encoder node carries an empty prompt (reference workflow)
+# Test 4: negative encoder node carries anatomy/feminine text when CFG > 1.0
+#          and an empty prompt when CFG = 1.0
 # ---------------------------------------------------------------------------
 
-def test_negative_encoder_empty_prompt():
-    """Negative encoder (node '11') must carry an empty string prompt to match
-    the reference Qwen-Rapid-AIO workflow. At the default CFG=1.0 the negative
-    branch is mathematically zeroed; the empty prompt ensures the model's
-    distilled guidance is not corrupted by unexpected text tokens."""
-    wf = _build_multi_edit_workflow_qwen(
-        SCENE_PROMPT,
-        **_BASE_KWARGS,
+def test_negative_encoder_prompt_gated_by_cfg():
+    """Negative encoder (node '11') must carry the anatomy/feminine-build negative
+    text when QWEN_CFG > 1.0 (negative branch active), and an empty prompt when
+    QWEN_CFG = 1.0 (negative branch mathematically zeroed)."""
+    import os as _os
+
+    shared_kwargs = dict(
         uploaded_image_names=["kelly.png", "natt.png"],
         uploaded_subjects=[KELLY_NAME, NATT_NAME],
         subject_appearances={},
     )
 
-    neg_prompt = _negative_node_prompt(wf)
+    # ── sub-test A: CFG > 1.0 → negative carries anatomy text ────────────
+    _os.environ["QWEN_CFG"] = "1.5"
+    try:
+        wf_active = _build_multi_edit_workflow_qwen(
+            SCENE_PROMPT, **_BASE_KWARGS, **shared_kwargs
+        )
+    finally:
+        del _os.environ["QWEN_CFG"]
+
+    neg_active = _negative_node_prompt(wf_active)
 
     check(
-        "negative encoder (node '11') has an empty prompt",
-        neg_prompt == "",
-        f"neg prompt: {neg_prompt[:200]!r}",
+        "CFG=1.5: negative encoder (node '11') has a non-empty prompt",
+        bool(neg_active),
+        f"neg prompt: {neg_active[:200]!r}",
+    )
+    check(
+        "CFG=1.5: negative prompt contains anatomy correction text",
+        any(kw in neg_active.lower() for kw in ("anatomy", "limb", "hand", "finger", "deform")),
+        f"neg prompt: {neg_active[:200]!r}",
+    )
+
+    # ── sub-test B: CFG = 1.0 → negative is empty ─────────────────────────
+    _os.environ["QWEN_CFG"] = "1.0"
+    try:
+        wf_zero = _build_multi_edit_workflow_qwen(
+            SCENE_PROMPT, **_BASE_KWARGS, **shared_kwargs
+        )
+    finally:
+        del _os.environ["QWEN_CFG"]
+
+    neg_zero = _negative_node_prompt(wf_zero)
+
+    check(
+        "CFG=1.0: negative encoder (node '11') has an empty prompt",
+        neg_zero == "",
+        f"neg prompt: {neg_zero[:200]!r}",
     )
     check(
         "positive encoder (node '10') has a non-empty prompt",
-        bool(_positive_node_prompt(wf)),
-        f"pos prompt: {_positive_node_prompt(wf)[:80]!r}",
+        bool(_positive_node_prompt(wf_active)),
+        f"pos prompt: {_positive_node_prompt(wf_active)[:80]!r}",
     )
 
 
@@ -708,8 +739,8 @@ if __name__ == "__main__":
     print("\n── Test 3: negative encoder receives same image slots as positive ─────")
     test_negative_encoder_images_match_positive()
 
-    print("\n── Test 4: negative encoder carries empty prompt (reference workflow) ──")
-    test_negative_encoder_empty_prompt()
+    print("\n── Test 4: negative encoder CFG-gated prompt (anatomy text when CFG > 1.0) ──")
+    test_negative_encoder_prompt_gated_by_cfg()
 
     print("\n── Test 5: 'self'/'player' labels skipped by real builder ────────────")
     test_self_label_skipped_by_real_builder()

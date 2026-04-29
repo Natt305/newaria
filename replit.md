@@ -99,9 +99,9 @@ Selected via `COMFYUI_ENGINE=qwen` (the new default).
 1. `UnetLoaderGGUF` (city96) → MODEL
 2. `CLIPLoaderGGUF` (city96, `type=qwen_image`) → CLIP — `mmproj-f16.gguf` must sit alongside the encoder GGUF in `models/clip/`, otherwise the encoder runs in text-only mode and the reference photos are silently dropped.
 3. `VAELoader` → VAE (any Qwen-Image VAE; `pig_qwen_image_vae_fp32-f16.gguf` works through the stock loader).
-4. Up to 4 `LoadImage` nodes (one per uploaded reference) wired into `image1..image4` slots of `TextEncodeQwenImageEditPlus` (positive). Negative is a plain empty `CLIPTextEncode`.
+4. Up to 4 `LoadImage` nodes (one per uploaded reference) wired into `image1..image4` slots of `TextEncodeQwenImageEditPlus` (positive) and the matching `TextEncodeQwenImageEditPlus` (negative, node "11"). At the default CFG=1.5 the negative carries anatomy/feminine-build correction text; at CFG=1.0 its prompt is empty.
 5. `EmptySD3LatentImage` (16-channel — Qwen-Image is a 16-channel MMDiT model). When Phr00t's **v2** `nodes_qwen.py` is detected (see below), this latent is *also* wired into the encoder's `latent_image` input — the v2 fork uses it to size the reference embeddings against the target canvas, which kills the scaling/cropping/zoom artifacts that plagued v1 multi-ref edits.
-6. `KSampler` — `cfg=1.0`, default `steps=4`, sampler `euler_ancestral`, scheduler `beta` (matches Phr00t's reference `Qwen-Rapid-AIO.json`; all overridable via env vars).
+6. `KSampler` — `cfg=1.5` (default; raises to activate negative guidance), default `steps=4`, sampler `euler_ancestral`, scheduler `beta` (all overridable via env vars).
 7. `VAEDecode` → `SaveImage`.
 
 **Required ComfyUI custom node packs (manual install):**
@@ -245,7 +245,7 @@ when running a non-feminine character or a different art-style reference.
 | `QWEN_FEMININE_BUILD` | `on` | Append a slim/feminine build positive suffix to every prompt and a matching negative suffix to the negative CLIPTextEncode. The negative branch is multiplied by zero at CFG=1.0, so the negative only "bites" once `QWEN_CFG > 1.0`. |
 | `QWEN_REF_PREPROCESS` | `letterbox` | How v1-encoder installs resize portrait references onto the landscape canvas before upload. `letterbox` (new default) preserves the entire reference; `crop` is the legacy smart-crop that can lop off the bottom of a portrait body. v2 encoders ignore this — they handle sizing internally. |
 | `QWEN_APPEND_LOOKS` | `on` | After the LLM rewrites the scene prompt, append `data/character/profile.json`'s `looks` field verbatim as a non-LLM identity anchor. Only fires when there is at least one reference photo and the engine is `qwen`. |
-| `QWEN_CFG` | `1.0` | KSampler CFG. The Qwen Rapid AIO is distilled for CFG=1.0; raising it activates the negative branch (and slows generation). |
+| `QWEN_CFG` | `1.5` | KSampler CFG. Default 1.5 activates the negative branch (anatomy/feminine-build text in node "11"), reducing broken anatomy and masculine proportions. Set to `1.0` to restore the original distilled Rapid AIO behaviour where the negative branch is mathematically zeroed. |
 | `SCENE_CINEMATIC_SUFFIX` | `on` | Append the medium-close cinematic framing tail. Disable for less directed scene composition. |
 
 Run `/scenedebug` after the next 🎬 reaction to see exactly which policy,

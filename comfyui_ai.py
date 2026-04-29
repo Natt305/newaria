@@ -1000,9 +1000,9 @@ def _build_multi_edit_workflow_qwen(
 
     Two `TextEncodeQwenImageEditPlus` nodes are used — one positive (node "10")
     and one negative (node "11") — both wired with the identical reference images.
-    The negative carries an empty prompt to match the reference Qwen-Rapid-AIO
-    workflow exactly. CFG defaults to 1.0 so the negative branch is zeroed;
-    set QWEN_CFG > 1.0 to activate negative steering.
+    The negative carries the anatomy/feminine-build negative text when QWEN_CFG > 1.0
+    (the default is 1.5, activating the negative branch). At CFG=1.0 the negative
+    branch is mathematically zeroed and node "11" receives an empty prompt.
 
     `uploaded_subjects` (aligned to `uploaded_image_names`) is used to inject a
     brief per-slot identity prefix (`"image 1 is Kelly Gray. image 2 is Natt. "`)
@@ -1033,9 +1033,9 @@ def _build_multi_edit_workflow_qwen(
 
     # Optional global feminine-build bias — appended to the positive prompt
     # to steer the model away from generic male proportions when the bot
-    # hosts a slim/feminine character. The matching negative is computed in
-    # _negative_text and available for node "11" if QWEN_CFG > 1.0 is used;
-    # at the default CFG=1.0 the negative branch is zeroed.
+    # hosts a slim/feminine character. The matching negative is wired into
+    # node "11" when QWEN_CFG > 1.0 (default 1.5); at CFG=1.0 the negative
+    # branch is mathematically zeroed and node "11" receives an empty prompt.
     _feminine_on = _feminine_build_enabled()
     _feminine_pos = _FEMININE_BUILD_SUFFIX if _feminine_on else ""
 
@@ -1089,23 +1089,19 @@ def _build_multi_edit_workflow_qwen(
     enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
     # Build the negative text — anatomy + (optionally) feminine-build negatives.
-    # Currently _negative_text is computed but NOT passed to node "11"; node "11"
-    # carries an empty prompt matching the reference Qwen-Rapid-AIO workflow.
-    # A follow-up task will wire _negative_text into neg_encoder_inputs["prompt"]
-    # and raise QWEN_CFG above 1.0 to activate the negative branch.
     _negative_parts: List[str] = [_ANATOMY_NEGATIVE]
     if _feminine_on:
         _negative_parts.append(_FEMININE_BUILD_NEGATIVE)
     _negative_text = ", ".join(p for p in _negative_parts if p)
 
-    # KSampler CFG — default 1.0 keeps the distilled Rapid AIO at its intended
-    # config. The negative branch (node "11") is mathematically zeroed at 1.0;
-    # set QWEN_CFG > 1.0 to activate it.
+    # KSampler CFG — default 1.5 activates negative guidance. At CFG=1.0 the
+    # negative branch is mathematically zeroed; set QWEN_CFG=1.0 to restore
+    # the original distilled Rapid AIO behaviour.
     try:
-        _cfg = float(os.environ.get("QWEN_CFG", "1.0"))
+        _cfg = float(os.environ.get("QWEN_CFG", "1.5"))
     except ValueError:
-        print("[ComfyUI] Invalid QWEN_CFG — using default 1.0.")
-        _cfg = 1.0
+        print("[ComfyUI] Invalid QWEN_CFG — using default 1.5.")
+        _cfg = 1.5
 
     workflow: dict = {
         "1": {
@@ -1129,8 +1125,9 @@ def _build_multi_edit_workflow_qwen(
     # LoadImage nodes per reference (IDs 200..203) wired into image1..image4.
     # Both the positive encoder (node "10") and the negative encoder (node "11")
     # receive the exact same image slots — this is the architecture used by the
-    # reference Qwen-Rapid-AIO workflow. Node "11" uses an empty prompt; the
-    # pre-computed _negative_text is available for future QWEN_CFG > 1.0 use.
+    # reference Qwen-Rapid-AIO workflow. Node "11" carries _negative_text when
+    # CFG > 1.0 (so the negative branch is active); at CFG=1.0 the branch is
+    # mathematically zeroed and the prompt is kept empty.
     encoder_inputs: dict = {
         "clip": ["2", 0],
         "vae": ["3", 0],
@@ -1139,7 +1136,7 @@ def _build_multi_edit_workflow_qwen(
     neg_encoder_inputs: dict = {
         "clip": ["2", 0],
         "vae": ["3", 0],
-        "prompt": "",
+        "prompt": _negative_text if _cfg > 1.0 else "",
     }
     for i in range(n):
         load_id = f"20{i}"
@@ -1197,12 +1194,12 @@ def _build_multi_edit_workflow_qwen(
     }
 
     # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
-    # negative_prompt is "" because node "11" uses an empty prompt to match the
-    # reference workflow; _negative_text is computed but not wired into the graph
-    # until a future task activates CFG > 1.0 negative steering.
+    # negative_prompt reflects the actual text sent to node "11": non-empty when
+    # CFG > 1.0 (negative branch active), empty string when CFG = 1.0.
+    _active_negative = _negative_text if _cfg > 1.0 else ""
     _record_last_qwen_generation(
         prompt_full=enhanced_prompt,
-        negative_prompt="",
+        negative_prompt=_active_negative,
         style_policy=_style_policy_name,
         appearance_lock=_appearance_lock,
         feminine_build=_feminine_on,
