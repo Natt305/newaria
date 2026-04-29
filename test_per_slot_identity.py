@@ -470,6 +470,154 @@ def test_inject_handoff_into_real_builder():
 
 
 # ---------------------------------------------------------------------------
+# Test 8: player NOT in seed → refs/subjects unchanged (no bleed-in)
+# ---------------------------------------------------------------------------
+
+def test_no_injection_when_player_not_in_seed():
+    """When the player's name does not appear in the scene seed and no
+    second-person pronouns are present, _inject_player_refs must leave
+    refs, subjects, and appearances completely unchanged — no style bleed."""
+    import scene_image
+
+    fake_profile = {"discord_name": NATT_NAME, "looks": NATT_APP}
+    fake_photo   = b"\x89PNG\r\n\x1a\n"
+
+    seed_without_player = "Kelly Gray walks alone through a rain-soaked alley"
+
+    with (
+        patch.object(scene_image.database, "get_user_profile", return_value=fake_profile),
+        patch.object(scene_image.database, "get_user_profile_image_count", return_value=1),
+        patch.object(scene_image.database, "get_user_profile_image", return_value=fake_photo),
+    ):
+        refs_in        = [b"kelly_photo_bytes"]
+        subjects_in    = [KELLY_NAME]
+        appearances_in = {KELLY_NAME: KELLY_APP}
+
+        refs_out, subjects_out, appearances_out = scene_image._inject_player_refs(
+            refs_in,
+            subjects_in,
+            appearances_in,
+            player_discord_id="12345",
+            player_display_name=NATT_NAME,
+            seed=seed_without_player,
+        )
+
+    check(
+        "no player photo injected when player absent from seed",
+        len(refs_out) == 1,
+        f"refs_out length: {len(refs_out)}",
+    )
+    check(
+        "subjects unchanged when player absent from seed",
+        subjects_out == [KELLY_NAME],
+        f"subjects_out: {subjects_out}",
+    )
+    check(
+        "appearances unchanged when player absent from seed",
+        list(appearances_out.keys()) == [KELLY_NAME],
+        f"appearances keys: {list(appearances_out.keys())}",
+    )
+    check(
+        "Kelly Gray is still sole subject (no style bleed)",
+        subjects_out[0] == KELLY_NAME,
+        f"subjects_out: {subjects_out}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 9: player in seed but zero photos → no ref injection, looks only
+# ---------------------------------------------------------------------------
+
+def test_no_photo_injection_when_photo_count_zero():
+    """When a player IS named in the seed but has uploaded zero photos,
+    no image should be appended to refs — only the looks text may be
+    added to appearances so the model renders them neutrally."""
+    import scene_image
+
+    fake_profile = {"discord_name": NATT_NAME, "looks": NATT_APP}
+
+    seed_with_player = f"Kelly Gray and {NATT_NAME} investigate the old mansion"
+
+    with (
+        patch.object(scene_image.database, "get_user_profile", return_value=fake_profile),
+        patch.object(scene_image.database, "get_user_profile_image_count", return_value=0),
+        patch.object(scene_image.database, "get_user_profile_image", return_value=None),
+    ):
+        refs_in        = [b"kelly_photo_bytes"]
+        subjects_in    = [KELLY_NAME]
+        appearances_in = {KELLY_NAME: KELLY_APP}
+
+        refs_out, subjects_out, appearances_out = scene_image._inject_player_refs(
+            refs_in,
+            subjects_in,
+            appearances_in,
+            player_discord_id="12345",
+            player_display_name=NATT_NAME,
+            seed=seed_with_player,
+        )
+
+    check(
+        "no extra ref appended when player has 0 photos",
+        len(refs_out) == 1,
+        f"refs_out length: {len(refs_out)}",
+    )
+    check(
+        "subjects list unchanged when player has 0 photos",
+        subjects_out == [KELLY_NAME],
+        f"subjects_out: {subjects_out}",
+    )
+    check(
+        "player looks text injected into appearances (text-only fallback)",
+        appearances_out.get(NATT_NAME) == NATT_APP,
+        f"appearances_out[{NATT_NAME!r}]: {appearances_out.get(NATT_NAME)!r}",
+    )
+    check(
+        "Kelly Gray appearance preserved alongside player looks",
+        appearances_out.get(KELLY_NAME) == KELLY_APP,
+        f"appearances_out[{KELLY_NAME!r}]: {appearances_out.get(KELLY_NAME)!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 10: no discord_id → function is a pure pass-through
+# ---------------------------------------------------------------------------
+
+def test_no_discord_id_is_passthrough():
+    """When player_discord_id is None or empty, _inject_player_refs must
+    return the exact same objects unchanged — sentinel for anonymous users."""
+    import scene_image
+
+    refs_in        = [b"kelly_photo_bytes"]
+    subjects_in    = [KELLY_NAME]
+    appearances_in = {KELLY_NAME: KELLY_APP}
+
+    refs_out, subjects_out, appearances_out = scene_image._inject_player_refs(
+        refs_in,
+        subjects_in,
+        appearances_in,
+        player_discord_id=None,
+        player_display_name=NATT_NAME,
+        seed=f"Kelly Gray and {NATT_NAME} share an umbrella",
+    )
+
+    check(
+        "refs list unchanged when no discord_id",
+        refs_out is refs_in,
+        f"refs identity: same={refs_out is refs_in}",
+    )
+    check(
+        "subjects list unchanged when no discord_id",
+        subjects_out is subjects_in,
+        f"subjects identity: same={subjects_out is subjects_in}",
+    )
+    check(
+        "appearances dict unchanged when no discord_id",
+        appearances_out is appearances_in,
+        f"appearances identity: same={appearances_out is appearances_in}",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -495,6 +643,15 @@ if __name__ == "__main__":
     print("\n── Test 7: end-to-end — inject_player_refs → real builder ───────────")
     test_inject_handoff_into_real_builder()
 
+    print("\n── Test 8: player NOT in seed → refs/subjects unchanged (no bleed) ──")
+    test_no_injection_when_player_not_in_seed()
+
+    print("\n── Test 9: player in seed, 0 photos → looks text only, no ref ────────")
+    test_no_photo_injection_when_photo_count_zero()
+
+    print("\n── Test 10: no discord_id → pure pass-through ───────────────────────")
+    test_no_discord_id_is_passthrough()
+
     total  = len(_results)
     passed = sum(1 for _, ok, _ in _results if ok)
     failed = total - passed
@@ -507,5 +664,8 @@ if __name__ == "__main__":
         print("  — all good!")
         print()
         print("Qwen dual-encoder architecture and per-slot prefix verified end-to-end.")
+        print("All no-photo / no-player paths confirmed: zero style bleed when")
+        print("no profile photo is uploaded or the player is not in the scene seed.")
+        print()
         print("Live visual confirmation still needed: run a Discord scene")
         print("generation with /addprofilephoto set and inspect the output.")
