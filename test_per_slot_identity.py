@@ -1,10 +1,10 @@
 """
-Verification tests for the per-slot identity prefix (Task #3 fix).
+Verification tests for per-slot identity prefix + dual-encoder architecture (Task #8 fix).
 
 These tests call the *real* production functions — no logic is duplicated here.
-The prefix is built inside _build_multi_edit_workflow_qwen (comfyui_ai.py:1047-1061)
-and the handoff from _inject_player_refs (scene_image.py:1254-1307) is exercised
-by patching database calls with controlled data.
+The prefix and workflow graph are built inside _build_multi_edit_workflow_qwen
+(comfyui_ai.py); _inject_player_refs (scene_image.py) handoff is exercised by
+patching database calls with controlled data.
 
 Run: python test_per_slot_identity.py
 """
@@ -36,16 +36,29 @@ def check(label: str, condition: bool, detail: str = "") -> None:
 from comfyui_ai import _build_multi_edit_workflow_qwen  # noqa: E402
 
 
-def _qwen_node_prompt(workflow: dict) -> str:
-    """Extract the prompt text from the TextEncodeQwenImageEditPlus node."""
-    for node in workflow.values():
-        if node.get("class_type") == "TextEncodeQwenImageEditPlus":
-            return node["inputs"].get("prompt", "")
+def _positive_node_prompt(workflow: dict) -> str:
+    """Return the prompt from node '10' (positive TextEncodeQwenImageEditPlus)."""
+    node = workflow.get("10", {})
+    if node.get("class_type") == "TextEncodeQwenImageEditPlus":
+        return node["inputs"].get("prompt", "")
     return ""
 
 
+def _negative_node_prompt(workflow: dict) -> str:
+    """Return the prompt from node '11' (negative TextEncodeQwenImageEditPlus)."""
+    node = workflow.get("11", {})
+    if node.get("class_type") == "TextEncodeQwenImageEditPlus":
+        return node["inputs"].get("prompt", "")
+    return ""
+
+
+def _ksampler_node(workflow: dict) -> dict:
+    """Return the KSampler node inputs dict."""
+    return workflow.get("7", {}).get("inputs", {})
+
+
 # ---------------------------------------------------------------------------
-# Test 1: per-slot prefix is injected into the real Qwen workflow
+# Shared fixture data
 # ---------------------------------------------------------------------------
 
 KELLY_NAME = "Kelly Gray"
@@ -55,9 +68,26 @@ NATT_APP   = "black hair, glasses, casual outfit"
 
 SCENE_PROMPT = "Kelly Gray and Natt sitting in a cozy cafe, anime style"
 
+_BASE_KWARGS = dict(
+    gguf_path="dummy_model.gguf",
+    vae_name="dummy_vae.safetensors",
+    clip_gguf_name="dummy_clip.gguf",
+    steps=1,
+    width=512,
+    height=512,
+    seed=42,
+    sampler_name="lcm",
+    scheduler_name="sgm_uniform",
+)
+
+
+# ---------------------------------------------------------------------------
+# Test 1: per-slot prefix format in positive encoder prompt
+# ---------------------------------------------------------------------------
 
 def test_prefix_in_real_qwen_workflow():
-    """_build_multi_edit_workflow_qwen embeds the per-slot prefix in its prompt."""
+    """_build_multi_edit_workflow_qwen embeds the name-only per-slot prefix
+    in the positive encoder prompt using 'image N is [Name].' syntax."""
     subjects    = [KELLY_NAME, NATT_NAME]
     appearances = {KELLY_NAME: KELLY_APP, NATT_NAME: NATT_APP}
     dummy_files = ["kelly_ref.png", "natt_ref.png"]
@@ -66,61 +96,58 @@ def test_prefix_in_real_qwen_workflow():
     with contextlib.redirect_stdout(buf):
         wf = _build_multi_edit_workflow_qwen(
             SCENE_PROMPT,
-            gguf_path="dummy_model.gguf",
-            vae_name="dummy_vae.safetensors",
-            clip_gguf_name="dummy_clip.gguf",
-            steps=1,
-            width=512,
-            height=512,
-            seed=42,
-            sampler_name="euler_ancestral",
-            scheduler_name="beta",
+            **_BASE_KWARGS,
             uploaded_image_names=dummy_files,
             uploaded_subjects=subjects,
             subject_appearances=appearances,
         )
 
     log_output = buf.getvalue()
-    prompt_in_wf = _qwen_node_prompt(wf)
+    prompt_in_wf = _positive_node_prompt(wf)
 
     check(
-        "workflow has a TextEncodeQwenImageEditPlus node",
+        "positive node (10) is a TextEncodeQwenImageEditPlus",
+        wf.get("10", {}).get("class_type") == "TextEncodeQwenImageEditPlus",
+        f"node 10 class_type: {wf.get('10', {}).get('class_type')!r}",
+    )
+    check(
+        "positive prompt is non-empty",
         bool(prompt_in_wf),
         f"node prompt: {prompt_in_wf[:80]!r}",
     )
     check(
-        "prompt starts with slot prefix bracket",
-        prompt_in_wf.startswith("["),
-        f"prompt start: {prompt_in_wf[:80]!r}",
+        "prefix uses 'image 1 is Kelly Gray' format (not 'Reference image')",
+        "image 1 is Kelly Gray" in prompt_in_wf,
+        f"prompt start: {prompt_in_wf[:120]!r}",
     )
     check(
-        "Kelly Gray is labelled as Reference image 1",
-        "Reference image 1 is Kelly Gray" in prompt_in_wf,
+        "prefix uses 'image 2 is Natt' format (not 'Reference image')",
+        "image 2 is Natt" in prompt_in_wf,
         f"prompt: {prompt_in_wf[:120]!r}",
     )
     check(
-        "Natt is labelled as Reference image 2",
-        "Reference image 2 is Natt" in prompt_in_wf,
-        f"prompt: {prompt_in_wf[:120]!r}",
+        "prefix does NOT contain verbose appearance text for Kelly",
+        KELLY_APP not in prompt_in_wf[:100],
+        f"prefix region: {prompt_in_wf[:100]!r}",
     )
     check(
-        "Kelly's appearance details are in the prefix",
-        KELLY_APP in prompt_in_wf,
+        "prefix does NOT contain verbose appearance text for Natt",
+        NATT_APP not in prompt_in_wf[:100],
+        f"prefix region: {prompt_in_wf[:100]!r}",
+    )
+    check(
+        "prefix does NOT use old bracket '[Reference image …]' format",
+        "[Reference image" not in prompt_in_wf,
         f"prompt: {prompt_in_wf[:160]!r}",
     )
     check(
-        "Natt's appearance details are in the prefix",
-        NATT_APP in prompt_in_wf,
-        f"prompt: {prompt_in_wf[:200]!r}",
-    )
-    check(
-        "scene prompt follows the prefix",
+        "scene prompt is present in the positive prompt",
         SCENE_PROMPT in prompt_in_wf,
         f"prompt: {prompt_in_wf[:200]!r}",
     )
     check(
         "slot prefix comes before the scene prompt",
-        prompt_in_wf.index("[Reference image") < prompt_in_wf.index(SCENE_PROMPT),
+        prompt_in_wf.index("image 1 is") < prompt_in_wf.index(SCENE_PROMPT),
         f"prompt: {prompt_in_wf[:200]!r}",
     )
     check(
@@ -131,7 +158,143 @@ def test_prefix_in_real_qwen_workflow():
 
 
 # ---------------------------------------------------------------------------
-# Test 2: "self" / "player" labels are skipped by the real builder
+# Test 2: dual-encoder architecture — node "11" replaces CLIPTextEncode "5"
+# ---------------------------------------------------------------------------
+
+def test_dual_encoder_architecture():
+    """Workflow must use two TextEncodeQwenImageEditPlus nodes (positive + negative).
+    The old CLIPTextEncode node '5' must be absent.
+    KSampler must reference node '11' for its negative input."""
+    subjects    = [KELLY_NAME, NATT_NAME]
+    appearances = {KELLY_NAME: KELLY_APP, NATT_NAME: NATT_APP}
+    dummy_files = ["kelly_ref.png", "natt_ref.png"]
+
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=dummy_files,
+        uploaded_subjects=subjects,
+        subject_appearances=appearances,
+    )
+
+    check(
+        "node '5' (CLIPTextEncode) is NOT present in workflow",
+        "5" not in wf,
+        f"node 5 class_type: {wf.get('5', {}).get('class_type', 'absent')!r}",
+    )
+    check(
+        "node '11' (negative TextEncodeQwenImageEditPlus) IS present",
+        wf.get("11", {}).get("class_type") == "TextEncodeQwenImageEditPlus",
+        f"node 11 class_type: {wf.get('11', {}).get('class_type', 'absent')!r}",
+    )
+    check(
+        "KSampler positive input references node '10'",
+        _ksampler_node(wf).get("positive") == ["10", 0],
+        f"positive: {_ksampler_node(wf).get('positive')!r}",
+    )
+    check(
+        "KSampler negative input references node '11'",
+        _ksampler_node(wf).get("negative") == ["11", 0],
+        f"negative: {_ksampler_node(wf).get('negative')!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 3: negative encoder receives same image slots as positive encoder
+# ---------------------------------------------------------------------------
+
+def test_negative_encoder_images_match_positive():
+    """Both encoders must wire the same reference images into the same slots."""
+    dummy_files = ["kelly_ref.png", "natt_ref.png"]
+
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=dummy_files,
+        uploaded_subjects=[KELLY_NAME, NATT_NAME],
+        subject_appearances={},
+    )
+
+    pos_inputs = wf.get("10", {}).get("inputs", {})
+    neg_inputs = wf.get("11", {}).get("inputs", {})
+
+    check(
+        "positive encoder has image1 slot",
+        "image1" in pos_inputs,
+        f"pos inputs keys: {list(pos_inputs.keys())}",
+    )
+    check(
+        "negative encoder has image1 slot",
+        "image1" in neg_inputs,
+        f"neg inputs keys: {list(neg_inputs.keys())}",
+    )
+    check(
+        "image1 slot matches in both encoders",
+        pos_inputs.get("image1") == neg_inputs.get("image1"),
+        f"pos={pos_inputs.get('image1')!r}, neg={neg_inputs.get('image1')!r}",
+    )
+    check(
+        "image2 slot matches in both encoders",
+        pos_inputs.get("image2") == neg_inputs.get("image2"),
+        f"pos={pos_inputs.get('image2')!r}, neg={neg_inputs.get('image2')!r}",
+    )
+    check(
+        "positive encoder wired to correct VAE (node '3')",
+        pos_inputs.get("vae") == ["3", 0],
+        f"pos vae: {pos_inputs.get('vae')!r}",
+    )
+    check(
+        "negative encoder wired to correct VAE (node '3')",
+        neg_inputs.get("vae") == ["3", 0],
+        f"neg vae: {neg_inputs.get('vae')!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 4: negative prompt contains failure-mode suppression terms
+# ---------------------------------------------------------------------------
+
+def test_negative_prompt_content():
+    """Negative encoder must carry scene + anatomy negatives."""
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=["kelly.png", "natt.png"],
+        uploaded_subjects=[KELLY_NAME, NATT_NAME],
+        subject_appearances={},
+    )
+
+    neg_prompt = _negative_node_prompt(wf)
+
+    check(
+        "negative prompt is non-empty",
+        bool(neg_prompt),
+        f"neg prompt: {neg_prompt[:80]!r}",
+    )
+    check(
+        "negative contains duplicate-character suppression",
+        "duplicate" in neg_prompt or "cloned" in neg_prompt,
+        f"neg prompt: {neg_prompt[:200]!r}",
+    )
+    check(
+        "negative contains mirror-reflection suppression",
+        "mirror" in neg_prompt,
+        f"neg prompt: {neg_prompt[:200]!r}",
+    )
+    check(
+        "negative contains face close-up suppression",
+        "close-up" in neg_prompt or "zoomed in" in neg_prompt,
+        f"neg prompt: {neg_prompt[:200]!r}",
+    )
+    check(
+        "negative contains anatomy suppression (from _ANATOMY_NEGATIVE)",
+        "bad anatomy" in neg_prompt,
+        f"neg prompt: {neg_prompt[:200]!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 5: "self" / "player" labels are skipped by the real builder
 # ---------------------------------------------------------------------------
 
 def test_self_label_skipped_by_real_builder():
@@ -140,75 +303,61 @@ def test_self_label_skipped_by_real_builder():
     appearances = {KELLY_NAME: KELLY_APP}
     dummy_files = ["kelly_ref.png", "player_selfie.png"]
 
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        wf = _build_multi_edit_workflow_qwen(
-            SCENE_PROMPT,
-            gguf_path="dummy.gguf",
-            vae_name="dummy.safetensors",
-            clip_gguf_name="dummy_clip.gguf",
-            steps=1, width=512, height=512, seed=0,
-            sampler_name="euler_ancestral",
-            scheduler_name="beta",
-            uploaded_image_names=dummy_files,
-            uploaded_subjects=subjects,
-            subject_appearances=appearances,
-        )
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=dummy_files,
+        uploaded_subjects=subjects,
+        subject_appearances=appearances,
+    )
 
-    prompt_in_wf = _qwen_node_prompt(wf)
+    prompt_in_wf = _positive_node_prompt(wf)
 
     check(
         "'self' label does not appear in slot prefix",
-        "Reference image 2 is self" not in prompt_in_wf.lower(),
+        "image 2 is self" not in prompt_in_wf.lower(),
         f"prompt: {prompt_in_wf[:160]!r}",
     )
     check(
         "Kelly Gray still labelled in prefix when slot 2 is 'self'",
-        "Reference image 1 is Kelly Gray" in prompt_in_wf,
+        "image 1 is Kelly Gray" in prompt_in_wf,
         f"prompt: {prompt_in_wf[:160]!r}",
     )
 
     subjects2    = [KELLY_NAME, "player"]
     dummy_files2 = ["kelly_ref.png", "player_photo.png"]
 
-    buf2 = io.StringIO()
-    with contextlib.redirect_stdout(buf2):
-        wf2 = _build_multi_edit_workflow_qwen(
-            SCENE_PROMPT,
-            gguf_path="dummy.gguf",
-            vae_name="dummy.safetensors",
-            clip_gguf_name="dummy_clip.gguf",
-            steps=1, width=512, height=512, seed=0,
-            sampler_name="euler_ancestral",
-            scheduler_name="beta",
-            uploaded_image_names=dummy_files2,
-            uploaded_subjects=subjects2,
-            subject_appearances=appearances,
-        )
+    wf2 = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=dummy_files2,
+        uploaded_subjects=subjects2,
+        subject_appearances=appearances,
+    )
 
-    prompt2 = _qwen_node_prompt(wf2)
+    prompt2 = _positive_node_prompt(wf2)
 
     check(
         "'player' label does not appear in slot prefix",
-        "Reference image 2 is player" not in prompt2.lower(),
+        "image 2 is player" not in prompt2.lower(),
         f"prompt: {prompt2[:160]!r}",
     )
 
 
 # ---------------------------------------------------------------------------
-# Test 3: _inject_player_refs handoff — player photo lands in subjects list
+# Test 6: _inject_player_refs handoff — player photo lands in subjects list
 # ---------------------------------------------------------------------------
 
 def test_inject_player_refs_adds_player_photo():
     """
-    _inject_player_refs (scene_image.py:1254) appends the player photo and
+    _inject_player_refs (scene_image.py) appends the player photo and
     label to the refs/subjects/appearances lists when the player is named
     in the seed. Exercises the actual handoff that passes data into Qwen.
     """
     import scene_image
 
     fake_profile  = {"discord_name": NATT_NAME, "looks": NATT_APP}
-    fake_photo    = b"\x89PNG\r\n\x1a\n"  # minimal PNG header bytes
+    fake_photo    = b"\x89PNG\r\n\x1a\n"
 
     with (
         patch.object(scene_image.database, "get_user_profile", return_value=fake_profile),
@@ -251,14 +400,15 @@ def test_inject_player_refs_adds_player_photo():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: end-to-end handoff — _inject_player_refs output feeds real builder
+# Test 7: end-to-end handoff — _inject_player_refs output feeds real builder
 # ---------------------------------------------------------------------------
 
 def test_inject_handoff_into_real_builder():
     """
     Simulate the full data flow:
       _inject_player_refs → subjects/appearances → _build_multi_edit_workflow_qwen
-    Both Kelly Gray (slot 1) and Natt (slot 2) must appear in the final prompt.
+    Both Kelly Gray (slot 1) and Natt (slot 2) must appear in the final prompt
+    with the new 'image N is [Name].' format.
     """
     import scene_image
 
@@ -285,28 +435,23 @@ def test_inject_handoff_into_real_builder():
     with contextlib.redirect_stdout(buf):
         wf = _build_multi_edit_workflow_qwen(
             SCENE_PROMPT,
-            gguf_path="dummy.gguf",
-            vae_name="dummy.safetensors",
-            clip_gguf_name="dummy_clip.gguf",
-            steps=1, width=512, height=512, seed=7,
-            sampler_name="euler_ancestral",
-            scheduler_name="beta",
+            **_BASE_KWARGS,
             uploaded_image_names=dummy_files,
             uploaded_subjects=subjects_out,
             subject_appearances=appearances_out,
         )
 
-    prompt_in_wf = _qwen_node_prompt(wf)
+    prompt_in_wf = _positive_node_prompt(wf)
     log_output   = buf.getvalue()
 
     check(
-        "end-to-end: Kelly Gray is Reference image 1 in workflow prompt",
-        "Reference image 1 is Kelly Gray" in prompt_in_wf,
+        "end-to-end: 'image 1 is Kelly Gray' in workflow prompt",
+        "image 1 is Kelly Gray" in prompt_in_wf,
         f"prompt: {prompt_in_wf[:160]!r}",
     )
     check(
-        "end-to-end: Natt is Reference image 2 in workflow prompt",
-        "Reference image 2 is Natt" in prompt_in_wf,
+        "end-to-end: 'image 2 is Natt' in workflow prompt",
+        "image 2 is Natt" in prompt_in_wf,
         f"prompt: {prompt_in_wf[:200]!r}",
     )
     check(
@@ -315,14 +460,24 @@ def test_inject_handoff_into_real_builder():
         f"stdout: {log_output[:200]!r}",
     )
     check(
-        "end-to-end: log line contains expected slot label for Kelly",
-        f"Reference image 1 is {KELLY_NAME}" in log_output,
+        "end-to-end: log line contains new-format label for Kelly",
+        f"image 1 is {KELLY_NAME}" in log_output,
         f"stdout: {log_output[:200]!r}",
     )
     check(
-        "end-to-end: log line contains expected slot label for Natt",
-        f"Reference image 2 is {NATT_NAME}" in log_output,
+        "end-to-end: log line contains new-format label for Natt",
+        f"image 2 is {NATT_NAME}" in log_output,
         f"stdout: {log_output[:200]!r}",
+    )
+    check(
+        "end-to-end: node '11' (negative encoder) is present",
+        wf.get("11", {}).get("class_type") == "TextEncodeQwenImageEditPlus",
+        f"node 11: {wf.get('11', {}).get('class_type', 'absent')!r}",
+    )
+    check(
+        "end-to-end: CLIPTextEncode node '5' is absent",
+        "5" not in wf,
+        f"node 5 present: {'5' in wf}",
     )
 
 
@@ -331,16 +486,25 @@ def test_inject_handoff_into_real_builder():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    print("\n── Test 1: per-slot prefix in real Qwen workflow ─────────────────────")
+    print("\n── Test 1: per-slot prefix format (name-only, no appearance text) ────")
     test_prefix_in_real_qwen_workflow()
 
-    print("\n── Test 2: 'self'/'player' labels skipped by real builder ────────────")
+    print("\n── Test 2: dual-encoder architecture (node '11' replaces '5') ────────")
+    test_dual_encoder_architecture()
+
+    print("\n── Test 3: negative encoder receives same image slots as positive ─────")
+    test_negative_encoder_images_match_positive()
+
+    print("\n── Test 4: negative prompt contains failure-mode suppression terms ────")
+    test_negative_prompt_content()
+
+    print("\n── Test 5: 'self'/'player' labels skipped by real builder ────────────")
     test_self_label_skipped_by_real_builder()
 
-    print("\n── Test 3: _inject_player_refs handoff (with mocked DB) ──────────────")
+    print("\n── Test 6: _inject_player_refs handoff (with mocked DB) ─────────────")
     test_inject_player_refs_adds_player_photo()
 
-    print("\n── Test 4: end-to-end — inject_player_refs → real builder ───────────")
+    print("\n── Test 7: end-to-end — inject_player_refs → real builder ───────────")
     test_inject_handoff_into_real_builder()
 
     total  = len(_results)
@@ -354,6 +518,6 @@ if __name__ == "__main__":
     else:
         print("  — all good!")
         print()
-        print("Per-slot identity prefix code path is verified end-to-end.")
+        print("Qwen dual-encoder architecture and per-slot prefix verified end-to-end.")
         print("Live visual confirmation still needed: run a Discord scene")
         print("generation with /addprofilephoto set and inspect the output.")

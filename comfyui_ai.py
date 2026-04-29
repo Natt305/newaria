@@ -126,13 +126,13 @@ DEFAULT_STRENGTH = 0.75
 DEFAULT_TIMEOUT = 300
 
 # Qwen-Image-Edit-Rapid AIO defaults (Phr00t / phil2sat GGUF stack).
-# Distilled model: 4–6 steps + CFG 1.0 is the intended config. Phr00t's
+# Distilled model: 4–6 steps + CFG 1.5 is the intended config. Phr00t's
 # Qwen-Rapid-AIO.json reference uses 4; we default to 6 here for a small
-# detail bump at modest cost. euler_ancestral/beta matches the reference.
+# detail bump at modest cost. lcm/sgm_uniform matches the reference.
 # Default canvas is 1024 × 768 (4:3), the most common Discord scene aspect.
 DEFAULT_QWEN_STEPS = 6
-DEFAULT_QWEN_SAMPLER = "euler_ancestral"
-DEFAULT_QWEN_SCHEDULER = "beta"
+DEFAULT_QWEN_SAMPLER = "lcm"
+DEFAULT_QWEN_SCHEDULER = "sgm_uniform"
 DEFAULT_QWEN_WIDTH = 1024
 DEFAULT_QWEN_HEIGHT = 768
 
@@ -146,6 +146,18 @@ _ANATOMY_NEGATIVE = (
     "missing hands, extra hands, fused fingers, missing fingers, "
     "extra fingers, malformed hands, mutated hands, "
     "extra limbs, missing limbs, poorly drawn hands"
+)
+
+# Scene-composition negatives for Qwen multi-reference generations.
+# Targets the failure modes observed during testing: character duplication
+# (same character appears twice), physically impossible mirror reflections,
+# and sudden face close-ups that crop out the scene.
+_QWEN_SCENE_NEGATIVE = (
+    "duplicate person, cloned character, same character twice, copy of character, "
+    "extra person, mirror of same character, "
+    "incorrect mirror reflection, physically impossible reflection, wrong mirror angle, "
+    "extreme close-up, face only, zoomed in face, portrait shot, no body visible, "
+    "cropped scene, disembodied head"
 )
 
 # Global feminine-build bias — togglable via QWEN_FEMININE_BUILD=on|off
@@ -997,16 +1009,17 @@ def _build_multi_edit_workflow_qwen(
     them through the Qwen 2.5 VL multimodal encoder so the model truly "sees"
     every reference alongside the prompt — true edit-mode, not classical
     img2img. Inputs beyond 4 are silently dropped (encoder only has 4 slots).
-    Negative conditioning is a plain empty `CLIPTextEncode`; with CFG=1.0
-    the negative branch is multiplied by zero.
 
-    `uploaded_subjects` (aligned to `uploaded_image_names`) and
-    `subject_appearances` (name → appearance text) are used to inject a
-    per-slot identity prefix into the prompt so the Qwen 2.5 VL multimodal
-    encoder knows which reference image belongs to which character. Without
-    this prefix the encoder treats all slots as equal style references,
-    causing the most visually dominant photo to bleed its appearance across
-    every character in the output.
+    Two `TextEncodeQwenImageEditPlus` nodes are used — one positive (node "10")
+    and one negative (node "11") — both wired with the identical reference images.
+    The negative carries scene-composition + anatomy + feminine-build negatives
+    and is active at the default CFG of 1.5 (overridable via QWEN_CFG).
+
+    `uploaded_subjects` (aligned to `uploaded_image_names`) is used to inject a
+    brief per-slot identity prefix (`"image 1 is Kelly Gray. image 2 is Natt. "`)
+    so the encoder knows which slot belongs to which character. No verbose
+    appearance text is included in the prefix — appearances are handled by the
+    enriched scene prompt via `subject_appearances`.
 
     Used by `_run_generate_qwen` whenever there are 2 or more refs. For the
     single-ref case prefer `_build_edit_workflow_qwen`, which is a thin
@@ -1032,8 +1045,8 @@ def _build_multi_edit_workflow_qwen(
     # Optional global feminine-build bias — appended to the positive prompt
     # to steer the model away from generic male proportions when the bot
     # hosts a slim/feminine character. The matching negative is populated
-    # in node "5" below so users who raise QWEN_CFG above 1.0 also get
-    # classifier-free guidance steering.
+    # in node "11" (negative TextEncodeQwenImageEditPlus) below and is
+    # active at the default CFG of 1.5.
     _feminine_on = _feminine_build_enabled()
     _feminine_pos = _FEMININE_BUILD_SUFFIX if _feminine_on else ""
 
@@ -1042,43 +1055,38 @@ def _build_multi_edit_workflow_qwen(
     # character. Without this the encoder sees all reference images as
     # equivalent style guides for the whole output; the most visually
     # dominant photo (often the player's portrait) overrides everyone else.
-    # Format: "[Reference image 1 is Kelly Gray (dark hair, blue eyes).
-    #          Reference image 2 is Natt (black hair, glasses).] "
+    # Format: "image 1 is Kelly Gray. image 2 is Natt. "
+    # (brief name-only; appearance text flows through the scene prompt instead)
     _subjects = uploaded_subjects or []
-    _appearances = subject_appearances or {}
     _slot_labels: List[str] = []
     for _si in range(n):
         _name = (_subjects[_si].strip() if _si < len(_subjects) else "").strip()
         if not _name or _name.lower() in ("self", "player"):
             continue
-        _app = _appearances.get(_name, "").strip()
-        if _app:
-            _slot_labels.append(f"Reference image {_si + 1} is {_name} ({_app})")
-        else:
-            _slot_labels.append(f"Reference image {_si + 1} is {_name}")
-    _slot_prefix = ("[" + ". ".join(_slot_labels) + ".] ") if _slot_labels else ""
+        _slot_labels.append(f"image {_si + 1} is {_name}")
+    _slot_prefix = (". ".join(_slot_labels) + ". ") if _slot_labels else ""
     if _slot_prefix:
         print(f"[ComfyUI] Qwen: per-slot identity prefix — {_slot_prefix!r}")
 
     enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
-    # Build the negative prompt — anatomy + (optionally) feminine-build
-    # negatives. With CFG=1.0 (the Qwen Rapid AIO default) the negative
-    # branch is multiplied by zero, so this is a no-op until QWEN_CFG > 1.0.
-    # Populating it unconditionally means raising CFG via env requires no
-    # code change.
-    _negative_parts: List[str] = [_ANATOMY_NEGATIVE]
+    # Build the negative prompt — scene composition + anatomy +
+    # (optionally) feminine-build negatives. All three feed the negative
+    # TextEncodeQwenImageEditPlus node (node "11") which receives the same
+    # reference images as the positive encoder. CFG=1.5 (default) keeps the
+    # negative branch active; operators can override via QWEN_CFG.
+    _negative_parts: List[str] = [_QWEN_SCENE_NEGATIVE, _ANATOMY_NEGATIVE]
     if _feminine_on:
         _negative_parts.append(_FEMININE_BUILD_NEGATIVE)
     _negative_text = ", ".join(p for p in _negative_parts if p)
 
-    # KSampler CFG — opt-in via env. Default 1.0 keeps the distilled Rapid
-    # AIO at its intended config; raising it activates the negative branch.
+    # KSampler CFG — default 1.5 so the negative branch is active.
+    # Override via QWEN_CFG env var.
     try:
-        _cfg = float(os.environ.get("QWEN_CFG", "1.0"))
+        _cfg = float(os.environ.get("QWEN_CFG", "1.5"))
     except ValueError:
-        print("[ComfyUI] Invalid QWEN_CFG — using default 1.0.")
-        _cfg = 1.0
+        print("[ComfyUI] Invalid QWEN_CFG — using default 1.5.")
+        _cfg = 1.5
 
     workflow: dict = {
         "1": {
@@ -1093,10 +1101,6 @@ def _build_multi_edit_workflow_qwen(
             "class_type": "VAELoader",
             "inputs": {"vae_name": vae_name},
         },
-        "5": {
-            "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": _negative_text},
-        },
         "6": {
             "class_type": "EmptySD3LatentImage",
             "inputs": {"width": width, "height": height, "batch_size": 1},
@@ -1104,10 +1108,19 @@ def _build_multi_edit_workflow_qwen(
     }
 
     # LoadImage nodes per reference (IDs 200..203) wired into image1..image4.
+    # Both the positive encoder (node "10") and the negative encoder (node "11")
+    # receive the exact same image slots — this is the architecture used by the
+    # reference Qwen-Rapid-AIO workflow. The negative node carries
+    # _negative_text (scene + anatomy + feminine-build negatives).
     encoder_inputs: dict = {
         "clip": ["2", 0],
         "vae": ["3", 0],
         "prompt": enhanced_prompt,
+    }
+    neg_encoder_inputs: dict = {
+        "clip": ["2", 0],
+        "vae": ["3", 0],
+        "prompt": _negative_text,
     }
     for i in range(n):
         load_id = f"20{i}"
@@ -1116,27 +1129,34 @@ def _build_multi_edit_workflow_qwen(
             "inputs": {"image": uploaded_image_names[i], "upload": "image"},
         }
         encoder_inputs[f"image{i + 1}"] = [load_id, 0]
+        neg_encoder_inputs[f"image{i + 1}"] = [load_id, 0]
 
-    # v2-only: wire the empty latent into the encoder so the node can size
+    # v2-only: wire the empty latent into both encoders so the node can size
     # the reference embeddings against the target canvas — this is what
     # actually kills the scaling/cropping/zoom artifacts on multi-ref edits.
+    # The input key is `target_latent` (confirmed via live /object_info query).
     # Gated by the diagnose() probe so v1 installs (which don't accept this
     # input) aren't poisoned with an unknown slot. When the cache is None
     # (diagnose hasn't run yet) we deliberately do NOT wire it: a one-shot
     # warning in `_run_generate_qwen` tells the operator to run /diagcomfyui.
     if _QWEN_ENCODER_V2 is True:
-        encoder_inputs["latent_image"] = ["6", 0]
+        encoder_inputs["target_latent"] = ["6", 0]
+        neg_encoder_inputs["target_latent"] = ["6", 0]
 
     workflow["10"] = {
         "class_type": "TextEncodeQwenImageEditPlus",
         "inputs": encoder_inputs,
+    }
+    workflow["11"] = {
+        "class_type": "TextEncodeQwenImageEditPlus",
+        "inputs": neg_encoder_inputs,
     }
     workflow["7"] = {
         "class_type": "KSampler",
         "inputs": {
             "model": ["1", 0],
             "positive": ["10", 0],
-            "negative": ["5", 0],
+            "negative": ["11", 0],
             "latent_image": ["6", 0],
             "seed": seed,
             "steps": steps,
