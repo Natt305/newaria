@@ -253,26 +253,17 @@ the user values. Two specific decisions matter:
    fine-grained vocabulary that the single-ref `match_reference` policy
    text already provides, so multi-ref scenes get the same level of
    art-style anchoring as single-ref scenes.
-2. **`"unwanted super close up shots"` removed from the negative.** That
-   phrase was actively suppressing the cinematic close-ups the user
-   explicitly wants (dramatic framing, intimate face shots). All other
-   guards in `_MIRROR_AND_QUALITY_NEGATIVE` (mirror artifacts, quality
-   push, chat/thought bubbles, hands-through-mirror, wearables-on-wrong-
-   characters) and `_ANATOMY_NEGATIVE` (clone suppression, anatomy) and
-   `_FEMININE_BUILD_NEGATIVE` all stay intact.
+2. **All negative guards preserved.** `_MIRROR_AND_QUALITY_NEGATIVE`
+   retains every guard phrase: `"unwanted super close up shots"`,
+   mirror artifact suppression, quality push, chat/thought bubble
+   suppression, hands-through-mirror, and wearables-on-wrong-characters.
+   `_ANATOMY_NEGATIVE` keeps clone suppression; `_FEMININE_BUILD_NEGATIVE`
+   keeps the feminine-build bias.
 
-The lock is now 4 clauses instead of 6. Two earlier positive-prompt
-clauses ("Omit props when it would be absurd…" and "Make sure mirror
-reflections are accurate…") were dropped — they diluted conditioning
-without proportional benefit, and mirror artifacts are still suppressed
-via the negative prompt above.
-
-> **Note on `QWEN_CFG=1.0`.** The negative CLIPTextEncode is multiplied by
-> zero at CFG=1.0 (legacy distilled-Rapid behavior), so users who run that
-> non-default mode rely on the model's prior alone for mirror-scene quality
-> (the dropped positive mirror clause used to provide an extra anchor
-> there). The default `QWEN_CFG=1.5` keeps the negative active and
-> therefore retains full mirror-artifact suppression.
+The lock is now 5 clauses instead of 6. One earlier positive-prompt
+clause ("Omit props when it would be absurd…") was dropped — too rare
+to spend prompt budget on. The mirror-logic clause ("Make sure mirror
+reflections are accurate and logical…") is retained as clause 5.
 
 | Env var | Default | Effect |
 |---|---|---|

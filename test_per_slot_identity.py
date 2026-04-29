@@ -654,7 +654,7 @@ def test_no_discord_id_is_passthrough():
 
 def test_multi_ref_per_slot_appearance_lock():
     """For ≥2 refs with named slots the generic style-policy text is replaced
-    by a character-led 4-part lock:
+    by a character-led 5-part lock:
       1. Style directive  — image 1 (Kelly Gray) is the art-style authority,
          expressed with rich detail vocabulary (gloss, highlight placement,
          pupil detail, skin shading, hair rendering, eye design, line-art
@@ -664,11 +664,10 @@ def test_multi_ref_per_slot_appearance_lock():
       3. Char-0 full lock       — Kelly kept exactly as in image 1
       4. Char-1+ likeness       — Natt provides face/hair/eye from image 2,
          art style from image 1, bidirectional accessory ban
+      5. Mirror logic           — accurate, logical mirror reflections;
+         hands don't pass through mirrors
     The generic 'Replicate the visual style of the reference images exactly'
-    must NOT appear — it would route the model to blend across all refs.
-    The earlier 'absurd-prop' and 'mirror-reflections' positive clauses are
-    intentionally removed (they diluted conditioning; mirror artifacts are
-    handled via the negative)."""
+    must NOT appear — it would route the model to blend across all refs."""
     wf = _build_multi_edit_workflow_qwen(
         SCENE_PROMPT,
         **_BASE_KWARGS,
@@ -737,14 +736,14 @@ def test_multi_ref_per_slot_appearance_lock():
         f"prompt: {p[:300]!r}",
     )
     check(
-        "multi-ref: dropped 'absurd props' positive clause NOT in prompt",
+        "multi-ref: 'absurd props' positive clause NOT in prompt",
         "absurd" not in p.lower() and "weapon in a shower" not in p,
         f"prompt: {p[:600]!r}",
     )
     check(
-        "multi-ref: dropped 'mirror reflections are accurate' positive clause NOT in prompt",
-        "mirror reflections are accurate" not in p
-        and "hands don't go through mirrors" not in p,
+        "multi-ref: mirror-logic clause IS in prompt",
+        "mirror reflections are accurate" in p
+        and "hands don't go through mirrors" in p,
         f"prompt: {p[:600]!r}",
     )
 
@@ -753,19 +752,19 @@ def test_multi_ref_per_slot_appearance_lock():
 # Test 11b: hybrid negative — close-up suppressor removed, other guards stay
 # ---------------------------------------------------------------------------
 
-def test_negative_drops_close_up_suppressor_keeps_others():
-    """`_MIRROR_AND_QUALITY_NEGATIVE` previously included
-    'unwanted super close up shots' which actively suppressed the cinematic
-    close-ups the user wants. That single phrase was dropped; mirror, anatomy,
-    quality, chat-bubble, and clone suppression all remain."""
+def test_negative_guards_all_present():
+    """`_MIRROR_AND_QUALITY_NEGATIVE` must contain all required guard phrases:
+    close-up suppressor, mirror artifacts, quality push, chat/thought bubble
+    suppression, hands-through-mirror, wearables-on-wrong-characters.
+    Clone suppression is in `_ANATOMY_NEGATIVE`; feminine-build stays in
+    `_FEMININE_BUILD_NEGATIVE`."""
     from comfyui_ai import (
         _MIRROR_AND_QUALITY_NEGATIVE, _ANATOMY_NEGATIVE, _FEMININE_BUILD_NEGATIVE,
     )
 
     check(
-        "negative: 'super close up' phrase removed from mirror/quality negative",
-        "super close up" not in _MIRROR_AND_QUALITY_NEGATIVE.lower()
-        and "close up shot" not in _MIRROR_AND_QUALITY_NEGATIVE.lower(),
+        "negative: 'unwanted super close up shots' present in mirror/quality negative",
+        "unwanted super close up shots" in _MIRROR_AND_QUALITY_NEGATIVE,
         f"_MIRROR_AND_QUALITY_NEGATIVE: {_MIRROR_AND_QUALITY_NEGATIVE!r}",
     )
     check(
@@ -867,8 +866,8 @@ if __name__ == "__main__":
     print("\n── Test 11: multi-ref → character-led style, player likeness only ──────")
     test_multi_ref_per_slot_appearance_lock()
 
-    print("\n── Test 11b: negative drops close-up suppressor, keeps others ───────")
-    test_negative_drops_close_up_suppressor_keeps_others()
+    print("\n── Test 11b: all negative guards present (close-up, mirror, quality, etc.) ───────")
+    test_negative_guards_all_present()
 
     print("\n── Test 12: single-ref → generic policy lock preserved (no override) ─")
     test_single_ref_keeps_generic_appearance_lock()

@@ -163,14 +163,9 @@ _FEMININE_BUILD_NEGATIVE = (
     "bulky frame, thick neck, heavy build, manly features"
 )
 
-# Note: an earlier version of this constant included "unwanted super close
-# up shots" — removed because it was actively suppressing the cinematic
-# close-ups the user explicitly wants (dramatic framing, intimate face
-# shots). Mirror artifacts, anatomy, and clone suppression all stay; only
-# the close-up suppressor was dropped.
 _MIRROR_AND_QUALITY_NEGATIVE = (
     "ghost objects in mirror, objects that don't show up in mirror, "
-    "illogical mirror reflections, "
+    "illogical mirror reflections, unwanted super close up shots, "
     "poor or mediocre quality artstyle, text chat bubbles, thought bubbles, "
     "hands that go through mirror, wearables on wrong characters"
 )
@@ -1076,7 +1071,7 @@ def _build_multi_edit_workflow_qwen(
     # style of the reference images exactly") works well — there is only one
     # reference so "the references" means that character.
     # For multi-ref (≥2 refs with named slots) the generic text causes the
-    # model to blend visual styles from ALL slots. Instead use a 4-part lock
+    # model to blend visual styles from ALL slots. Instead use a 5-part lock
     # that anchors style + identity to image 1 (the bot), then maps each
     # secondary slot to its character's likeness:
     #   1. Style directive       — image 1 (bot) is the art-style authority,
@@ -1093,11 +1088,8 @@ def _build_multi_edit_workflow_qwen(
     #                              rendered in the EXACT same art style
     #                              as image 1; bidirectional accessory ban
     #                              (no cross-bleed in either direction)
-    #
-    # Mirror artifacts and absurd-prop suppression are handled via the
-    # negative prompt (`_MIRROR_AND_QUALITY_NEGATIVE` plus anatomy/feminine
-    # negatives), not the positive lock — keeping them in the positive
-    # diluted conditioning without proportional benefit.
+    #   5. Mirror logic          — accurate, logical mirror reflections;
+    #                              hands don't pass through mirrors
     #
     # We deliberately do NOT inject the per-character `subject_appearances`
     # text blob inside the character lock — that caused the model to read
@@ -1137,6 +1129,10 @@ def _build_multi_edit_workflow_qwen(
                     f" Do NOT copy {_name_i}'s hat, clothing, or accessories onto {_name0}"
                     f" or any other character in the scene, and vice versa"
                 )
+            _lock_parts.append(
+                "Make sure mirror reflections are accurate and logical for all characters,"
+                " limbs, props, and wearables. Make sure hands don't go through mirrors"
+            )
             _appearance_lock = ". ".join(_lock_parts) + ". "
             print(f"[ComfyUI] Qwen: multi-ref character-led appearance lock — {_appearance_lock!r}")
 
