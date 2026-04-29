@@ -675,13 +675,23 @@ def test_multi_ref_per_slot_appearance_lock():
         f"prompt: {p[:400]!r}",
     )
     check(
-        "multi-ref: Kelly kept exactly as in image 1",
-        f"Keep {KELLY_NAME} exactly as shown in image 1" in p,
+        "multi-ref: Kelly kept EXACTLY as in image 1 (CAPS lock, beats scene description)",
+        f"Keep {KELLY_NAME} EXACTLY as shown in image 1" in p,
         f"prompt: {p[:400]!r}",
     )
     check(
-        "multi-ref: Natt rendered with likeness from image 2 in Kelly's art style",
-        f"Render {NATT_NAME} with the face shape, hair colour, and eye colour from image 2, drawn in the same art style as image 1" in p,
+        "multi-ref: explicit eye/hair/outfit override for Kelly present",
+        f"Do NOT change {KELLY_NAME}'s eye colour, hair colour, or outfit to match the scene description" in p,
+        f"prompt: {p[:400]!r}",
+    )
+    check(
+        "multi-ref: Natt rendered with ONLY face/hair/eye from image 2 (no accessory bleed)",
+        f"Render {NATT_NAME} with ONLY the face shape, hair colour, and eye colour from image 2" in p,
+        f"prompt: {p[:400]!r}",
+    )
+    check(
+        "multi-ref: Natt's hat/clothing explicitly excluded from Kelly Gray",
+        f"Do NOT copy {NATT_NAME}'s hat, clothing, or accessories onto {KELLY_NAME}" in p,
         f"prompt: {p[:400]!r}",
     )
     check(

@@ -84,3 +84,15 @@ id = "MjVWrDgw8wBWQ07m10PbV"
 uri = "file://attached_assets/_hug_2.png"
 type = "image"
 title = "Try 3 (seed 1745190559)"
+
+[[outputs]]
+id = "Mt3_seQWhvuaY2913d9aj"
+uri = "file://workflows/Flux_2_AIO_Pro_Simple_v3_1.json"
+type = "unspecified"
+title = "Flux 2 AIO Pro Simple v3.1"
+
+[[outputs]]
+id = "SeSlZ5KcPi1g_bdPU6yT2"
+uri = "file://workflows/Flux_2_Ultimate_Inpaint_Pro_Ultra_v3_1.json"
+type = "unspecified"
+title = "Flux 2 Ultimate Inpaint Pro Ultra v3.1"

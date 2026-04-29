@@ -145,7 +145,9 @@ _ANATOMY_NEGATIVE = (
     "bad anatomy, missing arms, extra arms, deformed arms, "
     "missing hands, extra hands, fused fingers, missing fingers, "
     "extra fingers, malformed hands, mutated hands, "
-    "extra limbs, missing limbs, poorly drawn hands"
+    "extra limbs, missing limbs, poorly drawn hands, "
+    "duplicate characters, twin characters, cloned person, "
+    "multiple instances of same character, mirror character clone"
 )
 
 # Global feminine-build bias — togglable via QWEN_FEMININE_BUILD=on|off
@@ -1071,17 +1073,29 @@ def _build_multi_edit_workflow_qwen(
     if n >= 2 and _slot_labels:
         _name0 = (_subjects[0].strip() if _subjects else "").strip()
         if _name0 and _name0.lower() not in ("self", "player"):
+            # Inject physical traits from subject_appearances so the model has an
+            # authoritative text anchor that beats scene-described conflicting attire
+            # (e.g. a scene saying "black suit" won't override a grey military coat
+            # that is visible in the reference AND named here).
+            _app0 = ((subject_appearances or {}).get(_name0) or "").strip()
+            _trait_hint = f" ({_app0})" if _app0 else ""
             _lock_parts: List[str] = [
                 f"Use the art style, line art, shading, and colour palette from image 1 ({_name0}) for the entire scene",
-                f"Keep {_name0} exactly as shown in image 1",
+                (
+                    f"Keep {_name0} EXACTLY as shown in image 1{_trait_hint}. "
+                    f"Do NOT change {_name0}'s eye colour, hair colour, or outfit "
+                    f"to match the scene description — keep all of {_name0}'s appearance from image 1"
+                ),
             ]
             for _si in range(1, n):
                 _name_i = (_subjects[_si].strip() if _si < len(_subjects) else "").strip()
                 if not _name_i or _name_i.lower() in ("self", "player"):
                     continue
                 _lock_parts.append(
-                    f"Render {_name_i} with the face shape, hair colour, and eye colour"
-                    f" from image {_si + 1}, drawn in the same art style as image 1"
+                    f"Render {_name_i} with ONLY the face shape, hair colour, and eye colour"
+                    f" from image {_si + 1}, drawn in the same art style as image 1."
+                    f" Do NOT copy {_name_i}'s hat, clothing, or accessories onto {_name0}"
+                    f" or any other character in the scene"
                 )
             _appearance_lock = ". ".join(_lock_parts) + ". "
             print(f"[ComfyUI] Qwen: multi-ref character-led appearance lock — {_appearance_lock!r}")

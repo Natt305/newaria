@@ -1536,7 +1536,18 @@ async def run_scene_image(
                     continue
                 featured.append(s_clean)
         _cinematic_on = _cinematic_suffix_enabled()
-        _suffix = CINEMATIC_SUFFIX if _cinematic_on else ""
+        if _cinematic_on and len(all_subjects) >= 2 and backend == "comfyui" and engine == "qwen":
+            # Multi-character scene: switch from a tight portrait to a wide two-shot.
+            # CINEMATIC_SUFFIX ("medium-close portrait shot, face prominent in frame")
+            # overrides the "full body, wide shot" cue appended by _assemble_scene_prompt,
+            # so for 2+ ref slots we use a composition that keeps both characters visible
+            # rather than cropping in to one face and mirroring it 4 times.
+            _suffix = (
+                ", medium shot, both characters fully visible in frame, "
+                "wide composition, eye-level camera"
+            )
+        else:
+            _suffix = CINEMATIC_SUFFIX if _cinematic_on else ""
         if featured:
             enriched = enriched_base + ", featuring " + ", ".join(featured) + _suffix
         else:
