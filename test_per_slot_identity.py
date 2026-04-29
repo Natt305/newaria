@@ -618,6 +618,75 @@ def test_no_discord_id_is_passthrough():
 
 
 # ---------------------------------------------------------------------------
+# Test 11: multi-ref uses per-slot appearance lock (not generic policy text)
+# ---------------------------------------------------------------------------
+
+def test_multi_ref_per_slot_appearance_lock():
+    """For ≥2 refs with named slots the generic style-policy text is replaced
+    by per-character 'keep character in image N (Name) exactly as shown'
+    anchors.  The generic 'Replicate the visual style of the reference images
+    exactly' must NOT appear in the final prompt — it causes style blending."""
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=["kelly_ref.png", "natt_ref.png"],
+        uploaded_subjects=[KELLY_NAME, NATT_NAME],
+        subject_appearances={KELLY_NAME: KELLY_APP, NATT_NAME: NATT_APP},
+    )
+    p = _positive_node_prompt(wf)
+
+    check(
+        "multi-ref: per-slot anchor for Kelly in positive prompt",
+        f"keep character in image 1 ({KELLY_NAME}) exactly as shown in image 1" in p,
+        f"prompt: {p[:300]!r}",
+    )
+    check(
+        "multi-ref: per-slot anchor for Natt in positive prompt",
+        f"keep character in image 2 ({NATT_NAME}) exactly as shown in image 2" in p,
+        f"prompt: {p[:300]!r}",
+    )
+    check(
+        "multi-ref: generic 'Replicate the visual style' NOT in prompt",
+        "Replicate the visual style" not in p,
+        f"prompt: {p[:300]!r}",
+    )
+    check(
+        "multi-ref: generic 'Do NOT change hair colour, eye colour' NOT in prompt",
+        "Do NOT change hair colour" not in p,
+        f"prompt: {p[:300]!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 12: single-ref still uses the configured style-policy text (no change)
+# ---------------------------------------------------------------------------
+
+def test_single_ref_keeps_generic_appearance_lock():
+    """For exactly 1 ref, the per-slot override must NOT fire — the generic
+    style-policy text is correct for single-ref and must still be present."""
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=["kelly_ref.png"],
+        uploaded_subjects=[KELLY_NAME],
+        subject_appearances={KELLY_NAME: KELLY_APP},
+    )
+    p = _positive_node_prompt(wf)
+
+    check(
+        "single-ref: generic appearance lock IS still in prompt",
+        "Preserve the exact appearance" in p or "Do NOT change hair colour" in p
+        or "Replicate the visual style" in p,
+        f"prompt: {p[:300]!r}",
+    )
+    check(
+        "single-ref: per-slot 'keep character in image' NOT injected",
+        "keep character in image" not in p,
+        f"prompt: {p[:300]!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -652,6 +721,12 @@ if __name__ == "__main__":
     print("\n── Test 10: no discord_id → pure pass-through ───────────────────────")
     test_no_discord_id_is_passthrough()
 
+    print("\n── Test 11: multi-ref → per-slot appearance lock (no style blending) ─")
+    test_multi_ref_per_slot_appearance_lock()
+
+    print("\n── Test 12: single-ref → generic policy lock preserved (no override) ─")
+    test_single_ref_keeps_generic_appearance_lock()
+
     total  = len(_results)
     passed = sum(1 for _, ok, _ in _results if ok)
     failed = total - passed
@@ -666,6 +741,10 @@ if __name__ == "__main__":
         print("Qwen dual-encoder architecture and per-slot prefix verified end-to-end.")
         print("All no-photo / no-player paths confirmed: zero style bleed when")
         print("no profile photo is uploaded or the player is not in the scene seed.")
+        print()
+        print("Multi-ref per-slot appearance lock verified: generic style-blending")
+        print("text is replaced with per-character 'keep character in image N' anchors")
+        print("so Kelly Gray and the player are pinned to their own reference slots.")
         print()
         print("Live visual confirmation still needed: run a Discord scene")
         print("generation with /addprofilephoto set and inspect the output.")

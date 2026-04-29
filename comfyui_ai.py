@@ -1039,7 +1039,7 @@ def _build_multi_edit_workflow_qwen(
     _feminine_on = _feminine_build_enabled()
     _feminine_pos = _FEMININE_BUILD_SUFFIX if _feminine_on else ""
 
-    # ── Per-slot identity prefix ───────────────────────────────────────────
+    # ── Per-slot identity prefix + appearance lock ─────────────────────────
     # Tell the Qwen 2.5 VL encoder which image slot belongs to which
     # character. Without this the encoder sees all reference images as
     # equivalent style guides for the whole output; the most visually
@@ -1056,6 +1056,28 @@ def _build_multi_edit_workflow_qwen(
     _slot_prefix = (". ".join(_slot_labels) + ". ") if _slot_labels else ""
     if _slot_prefix:
         print(f"[ComfyUI] Qwen: per-slot identity prefix — {_slot_prefix!r}")
+
+    # ── Multi-ref appearance lock override ─────────────────────────────────
+    # For single-ref, the generic style-policy text ("replicate the visual
+    # style of the reference images exactly") works well — there is only one
+    # reference so "the references" means that character.
+    # For multi-ref (≥2 refs with named slots) the same text causes the model
+    # to blend visual styles from ALL slots, overwriting each character's
+    # identity with a merged aesthetic. Replace with per-slot anchors using
+    # the model's trained "character in image N" syntax so each character is
+    # pinned to its own reference slot independently.
+    if n >= 2 and _slot_labels:
+        _char_anchors: List[str] = []
+        for _si in range(n):
+            _name = (_subjects[_si].strip() if _si < len(_subjects) else "").strip()
+            if not _name or _name.lower() in ("self", "player"):
+                continue
+            _char_anchors.append(
+                f"keep character in image {_si + 1} ({_name}) exactly as shown in image {_si + 1}"
+            )
+        if _char_anchors:
+            _appearance_lock = ". ".join(_char_anchors) + ". "
+            print(f"[ComfyUI] Qwen: multi-ref per-slot appearance lock — {_appearance_lock!r}")
 
     enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
@@ -1175,6 +1197,7 @@ def _build_multi_edit_workflow_qwen(
         prompt_full=enhanced_prompt,
         negative_prompt="",
         style_policy=_style_policy_name,
+        appearance_lock=_appearance_lock,
         feminine_build=_feminine_on,
         ref_slot_map=[
             (f"image{i + 1}", uploaded_image_names[i]) for i in range(n)
