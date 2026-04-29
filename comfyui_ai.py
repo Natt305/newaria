@@ -1132,13 +1132,23 @@ def _build_multi_edit_workflow_qwen(
 
     enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
-    # Build the negative text — anatomy + mirror/quality + (optionally) feminine-build.
-    # Order matches the user's gold-standard reference workflow JSON's negative prompt.
-    _negative_parts: List[str] = [_ANATOMY_NEGATIVE, _MIRROR_AND_QUALITY_NEGATIVE]
+    # Build the negative text. Order is taken directly from the user's
+    # gold-standard reference workflow JSON node 11:
+    #   ANATOMY -> FEMININE_BUILD (when on) -> MIRROR_AND_QUALITY
+    # When the feminine-build bias is disabled we drop that middle slice and
+    # keep the same relative order of the surrounding constants:
+    #   ANATOMY -> MIRROR_AND_QUALITY
+    # (Note: this differs from the literal text in the original plan
+    # description, which had MIRROR before FEMININE — the reference JSON is
+    # the authoritative source for ordering, so we match it byte-structurally.)
     if _feminine_on:
-        # Feminine-build negatives are inserted between anatomy and mirror/quality
-        # in the reference workflow; replicate that ordering here.
-        _negative_parts = [_ANATOMY_NEGATIVE, _FEMININE_BUILD_NEGATIVE, _MIRROR_AND_QUALITY_NEGATIVE]
+        _negative_parts: List[str] = [
+            _ANATOMY_NEGATIVE,
+            _FEMININE_BUILD_NEGATIVE,
+            _MIRROR_AND_QUALITY_NEGATIVE,
+        ]
+    else:
+        _negative_parts = [_ANATOMY_NEGATIVE, _MIRROR_AND_QUALITY_NEGATIVE]
     _negative_text = ", ".join(p for p in _negative_parts if p)
 
     # KSampler CFG — default 1.5 activates negative guidance. At CFG=1.0 the
