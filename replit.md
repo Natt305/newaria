@@ -260,10 +260,21 @@ the user values. Two specific decisions matter:
    `_ANATOMY_NEGATIVE` keeps clone suppression; `_FEMININE_BUILD_NEGATIVE`
    keeps the feminine-build bias.
 
-The lock is now 5 clauses instead of 6. One earlier positive-prompt
-clause ("Omit props when it would be absurd…") was dropped — too rare
-to spend prompt budget on. The mirror-logic clause ("Make sure mirror
-reflections are accurate and logical…") is retained as clause 5.
+The appearance lock has 6 clauses: style directive, main-subject
+directive, char-0 full lock, per-char likeness, absurd-prop omission,
+and mirror-logic.
+
+**Text-only player anti-clone.** When a player appears in the scene but
+has no profile photo, the model has no visual reference for them and
+defaults to cloning the bot's face, hair colour, and eye colour. A
+dedicated anti-clone directive is injected for each such "text-only"
+subject: "Render [player] as a VISUALLY DISTINCT person from [bot] —
+[player looks text if available]. Do NOT copy [bot]'s face shape, hair
+colour, or eye colour onto [player]." If the player has no looks text,
+a generic differentiation clause ("clearly different face shape, hair
+colour, and eye colour") is used instead. This block is skipped when
+the player has an uploaded photo (the per-slot likeness lock handles
+that case).
 
 | Env var | Default | Effect |
 |---|---|---|

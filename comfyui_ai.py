@@ -1142,7 +1142,42 @@ def _build_multi_edit_workflow_qwen(
             _appearance_lock = ". ".join(_lock_parts) + ". "
             print(f"[ComfyUI] Qwen: multi-ref character-led appearance lock — {_appearance_lock!r}")
 
-    enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
+    # ── Text-only subject differentiation ─────────────────────────────────
+    # When a subject appears in subject_appearances but NOT in
+    # uploaded_subjects (the main case: player has no profile photo), the
+    # model has no visual reference for them and tends to clone the bot
+    # character's face, hair colour, and eye colour — the only visual it
+    # has. Inject an explicit anti-clone directive for each such subject so
+    # the model renders them as a visually distinct second person.
+    # This block is skipped when the subject already has an uploaded ref
+    # (multi-ref path) — in that case the per-slot likeness lock handles it.
+    _text_only_clauses: List[str] = []
+    _uploaded_subject_set = {s.strip().lower() for s in (_subjects or []) if s}
+    _bot_name_ref = (_subjects[0].strip() if _subjects else "").strip()
+    if _bot_name_ref and _bot_name_ref.lower() not in ("self", "player"):
+        for _to_name, _to_looks in (subject_appearances or {}).items():
+            _to_name_clean = _to_name.strip()
+            if not _to_name_clean or _to_name_clean.lower() in _uploaded_subject_set:
+                continue
+            if _to_looks:
+                _text_only_clauses.append(
+                    f"Render {_to_name_clean} as a VISUALLY DISTINCT person from "
+                    f"{_bot_name_ref} — {_to_name_clean} has {_to_looks}. "
+                    f"Do NOT copy {_bot_name_ref}'s face shape, hair colour, or eye colour "
+                    f"onto {_to_name_clean}"
+                )
+            else:
+                _text_only_clauses.append(
+                    f"Render {_to_name_clean} as a VISUALLY DISTINCT person from "
+                    f"{_bot_name_ref} — give {_to_name_clean} a clearly different face shape, "
+                    f"hair colour, and eye colour from {_bot_name_ref}. "
+                    f"Do NOT clone {_bot_name_ref}'s appearance for {_to_name_clean}"
+                )
+    _text_only_suffix = ". ".join(_text_only_clauses) + ". " if _text_only_clauses else ""
+    if _text_only_suffix:
+        print(f"[ComfyUI] Qwen: text-only subject differentiation — {_text_only_suffix!r}")
+
+    enhanced_prompt = _slot_prefix + _appearance_lock + _text_only_suffix + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
     # Build the negative text. Order is taken directly from the user's
     # gold-standard reference workflow JSON node 11:

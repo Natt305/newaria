@@ -802,6 +802,118 @@ def test_negative_guards_all_present():
 
 
 # ---------------------------------------------------------------------------
+# Test 13: text-only player — anti-clone directive injected when no photo
+# ---------------------------------------------------------------------------
+
+def test_text_only_player_anti_clone_with_looks():
+    """When a player is in subject_appearances but NOT in uploaded_subjects
+    (no profile photo), the positive prompt must contain an explicit
+    anti-clone directive that:
+    - names the player as VISUALLY DISTINCT from the bot
+    - includes the player's looks text
+    - explicitly prohibits copying the bot's face/hair/eye onto the player
+    The multi-ref appearance lock path must NOT fire (n=1 here)."""
+    PLAYER_NAME = "Natt"
+    PLAYER_LOOKS = "short brown hair, green eyes, casual hoodie"
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=["kelly_ref.png"],          # bot only — no player photo
+        uploaded_subjects=[KELLY_NAME],
+        subject_appearances={KELLY_NAME: KELLY_APP, PLAYER_NAME: PLAYER_LOOKS},
+    )
+    p = _positive_node_prompt(wf)
+
+    check(
+        "text-only player: VISUALLY DISTINCT directive present",
+        "VISUALLY DISTINCT" in p,
+        f"prompt: {p[:800]!r}",
+    )
+    check(
+        "text-only player: player name in prompt",
+        PLAYER_NAME in p,
+        f"prompt: {p[:800]!r}",
+    )
+    check(
+        "text-only player: bot name referenced in anti-clone clause",
+        KELLY_NAME in p,
+        f"prompt: {p[:800]!r}",
+    )
+    check(
+        "text-only player: player looks text included in clause",
+        "short brown hair" in p and "green eyes" in p,
+        f"prompt: {p[:800]!r}",
+    )
+    check(
+        "text-only player: 'Do NOT copy' face/hair/eye prohibition present",
+        "Do NOT copy" in p and "face shape" in p,
+        f"prompt: {p[:800]!r}",
+    )
+    check(
+        "text-only player: multi-ref lock NOT fired (no 'image 1 is the art-style authority')",
+        "for the entire scene — match the rendering technique" not in p,
+        f"prompt: {p[:300]!r}",
+    )
+
+
+def test_text_only_player_anti_clone_no_looks():
+    """When the text-only player has no looks text at all, the fallback
+    clause must still prohibit cloning and use generic differentiation
+    language ('clearly different face shape, hair colour, and eye colour')."""
+    PLAYER_NAME = "Natt"
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=["kelly_ref.png"],
+        uploaded_subjects=[KELLY_NAME],
+        subject_appearances={KELLY_NAME: KELLY_APP, PLAYER_NAME: ""},
+    )
+    p = _positive_node_prompt(wf)
+
+    check(
+        "text-only no-looks: VISUALLY DISTINCT directive present",
+        "VISUALLY DISTINCT" in p,
+        f"prompt: {p[:800]!r}",
+    )
+    check(
+        "text-only no-looks: generic differentiation language present",
+        "clearly different face shape" in p or "different face shape" in p,
+        f"prompt: {p[:800]!r}",
+    )
+    check(
+        "text-only no-looks: 'Do NOT clone' prohibition present",
+        "Do NOT clone" in p,
+        f"prompt: {p[:800]!r}",
+    )
+
+
+def test_text_only_not_fired_when_player_has_photo():
+    """When the player IS in uploaded_subjects (they have a photo), the
+    text-only anti-clone block must NOT fire — the multi-ref per-slot
+    likeness lock already handles them correctly."""
+    PLAYER_NAME = "Natt"
+    wf = _build_multi_edit_workflow_qwen(
+        SCENE_PROMPT,
+        **_BASE_KWARGS,
+        uploaded_image_names=["kelly_ref.png", "natt_ref.png"],
+        uploaded_subjects=[KELLY_NAME, PLAYER_NAME],
+        subject_appearances={KELLY_NAME: KELLY_APP, PLAYER_NAME: NATT_APP},
+    )
+    p = _positive_node_prompt(wf)
+
+    check(
+        "text-only NOT fired when player has photo: 'VISUALLY DISTINCT' absent",
+        "VISUALLY DISTINCT" not in p,
+        f"prompt: {p[:800]!r}",
+    )
+    check(
+        "text-only NOT fired when player has photo: multi-ref lock still present",
+        f"from image 1 ({KELLY_NAME}) for the entire scene" in p,
+        f"prompt: {p[:400]!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test 12: single-ref still uses the configured style-policy text (no change)
 # ---------------------------------------------------------------------------
 
@@ -873,6 +985,15 @@ if __name__ == "__main__":
 
     print("\n── Test 12: single-ref → generic policy lock preserved (no override) ─")
     test_single_ref_keeps_generic_appearance_lock()
+
+    print("\n── Test 13a: text-only player (has looks) → anti-clone directive ─────")
+    test_text_only_player_anti_clone_with_looks()
+
+    print("\n── Test 13b: text-only player (no looks) → fallback anti-clone ───────")
+    test_text_only_player_anti_clone_no_looks()
+
+    print("\n── Test 13c: player with photo → text-only block NOT fired ───────────")
+    test_text_only_not_fired_when_player_has_photo()
 
     total  = len(_results)
     passed = sum(1 for _, ok, _ in _results if ok)
