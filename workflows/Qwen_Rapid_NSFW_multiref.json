@@ -1,0 +1,145 @@
+{
+  "1": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": {
+      "unet_name": "YOUR_QWEN_GGUF.gguf"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoaderGGUF",
+    "inputs": {
+      "clip_name": "YOUR_CLIP_GGUF.gguf",
+      "type": "qwen_image"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "YOUR_VAE.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 768,
+      "batch_size": 1
+    }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "positive": [
+        "10",
+        0
+      ],
+      "negative": [
+        "11",
+        0
+      ],
+      "latent_image": [
+        "6",
+        0
+      ],
+      "seed": 42,
+      "steps": 6,
+      "cfg": 1.5,
+      "sampler_name": "lcm",
+      "scheduler": "sgm_uniform",
+      "denoise": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ],
+      "filename_prefix": "ariabot_qwen_multiref_"
+    }
+  },
+  "10": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "image1": [
+        "200",
+        0
+      ],
+      "image2": [
+        "201",
+        0
+      ],
+      "latent_image": [
+        "6",
+        0
+      ],
+      "prompt": "image 1 is CHARACTER_NAME. image 2 is PLAYER_NAME. Use the art style, line art, shading, and colour palette from image 1 (CHARACTER_NAME) for the entire scene. Keep CHARACTER_NAME EXACTLY as shown in image 1. Do NOT change CHARACTER_NAME's eye colour, hair colour, or outfit to match the scene description — keep all of CHARACTER_NAME's appearance from image 1. Render PLAYER_NAME with ONLY the face shape, hair colour, and eye colour from image 2, drawn in the same art style as image 1. Do NOT copy PLAYER_NAME's hat, clothing, or accessories onto CHARACTER_NAME or any other character in the scene. YOUR SCENE DESCRIPTION HERE, medium shot, both characters fully visible in frame, wide composition, eye-level camera, perfect anatomy, correct arms, well-drawn hands, five fingers, proper limbs, symmetrical body, slim feminine build, slender frame, soft graceful proportions, delicate facial features, narrow shoulders, beautiful elegant figure, not masculine, no broad shoulders, no square jaw, no muscular build, no thick neck"
+    }
+  },
+  "11": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "image1": [
+        "200",
+        0
+      ],
+      "image2": [
+        "201",
+        0
+      ],
+      "latent_image": [
+        "6",
+        0
+      ],
+      "prompt": "bad anatomy, missing arms, extra arms, deformed arms, missing hands, extra hands, fused fingers, missing fingers, extra fingers, malformed hands, mutated hands, extra limbs, missing limbs, poorly drawn hands, duplicate characters, twin characters, cloned person, multiple instances of same character, mirror character clone, masculine build, broad shoulders, wide jaw, square jawline, muscular, bulky frame, thick neck, heavy build, manly features"
+    }
+  },
+  "200": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "char_reference.png",
+      "upload": "image"
+    }
+  },
+  "201": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "player_reference.png",
+      "upload": "image"
+    }
+  }
+}
