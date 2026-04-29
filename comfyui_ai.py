@@ -1664,10 +1664,38 @@ def _run_generate_qwen(
         return None
 
     if uploaded:
+        # Surface the actual server-side filename per slot alongside the
+        # subject label. This makes any future filename collision (which
+        # would collapse character likeness across slots) visible at a
+        # glance in the per-generate log line, instead of having to trace
+        # back into _upload_image. Cf. Task #4 root cause — the legacy
+        # log only printed subject labels, which is why the
+        # "every upload returns 'reference.png'" bug went undetected.
         _slot_map = ", ".join(
-            f"image{i + 1}={s}" for i, s in enumerate(uploaded_subjects)
+            f"image{i + 1}={s}: {fn}"
+            for i, (s, fn) in enumerate(zip(uploaded_subjects, uploaded))
         )
         print(f"[ComfyUI] Qwen: subject→slot mapping — {_slot_map}")
+
+        # Belt-and-suspenders: detect duplicate server-side filenames in
+        # the uploaded list. Since _upload_image now generates a fresh
+        # UUID-based filename per call, this should be impossible in
+        # practice; if it ever fires, a future refactor has regressed the
+        # uniqueness guarantee and silently collapsed multi-ref identity.
+        # We log loudly but do NOT abort — a partial scene is better than
+        # no scene, and the operator will see the warning in the logs and
+        # in the upcoming /scenedebug capture.
+        if len(set(uploaded)) < len(uploaded):
+            _seen: Dict[str, List[int]] = {}
+            for _i, _fn in enumerate(uploaded):
+                _seen.setdefault(_fn, []).append(_i + 1)  # 1-indexed slot
+            _dups = {fn: slots for fn, slots in _seen.items() if len(slots) > 1}
+            print(
+                f"[ComfyUI] Qwen: WARNING — duplicate uploaded filename(s) "
+                f"detected across encoder slots: {_dups}. This will collapse "
+                f"character likeness across the affected slots. Check that "
+                f"_upload_image still generates unique server-side names."
+            )
 
     # Dispatch by reference count to the matching named builder, so each
     # variant has an explicit, self-documenting entry point:
@@ -2436,15 +2464,39 @@ def _run_generate(
 
 
 def _upload_image(base_url: str, img_bytes: bytes, requests_mod) -> Optional[str]:
-    """Upload PNG bytes to ComfyUI /upload/image; return the server filename or None."""
+    """Upload PNG bytes to ComfyUI /upload/image; return the server filename or None.
+
+    The form-data filename is generated fresh per call as
+    ``ariabot_ref_<uuid4>.png``. ComfyUI persists the upload under that
+    exact name in its ``input/`` directory, and the server responds with
+    the same name (returned via ``resp.json()["name"]``).
+
+    Why a unique name per call:
+      The previous implementation hard-coded the form-data filename to
+      "reference.png" with ``overwrite=true``, so every upload landed at
+      ``input/reference.png`` and clobbered the previous one. When the
+      multi-ref runner uploaded N reference photos in sequence (bot first,
+      then any KB / player photos), only the LAST upload survived on the
+      server. The workflow's ``LoadImage`` nodes (200..20N) all pointed
+      at "reference.png" and therefore all loaded the same pixels, so
+      ``image1`` and ``image2`` of ``TextEncodeQwenImageEditPlus`` saw
+      identical content — which collapses character likeness and art
+      style to whatever was uploaded last.
+
+      Generating a unique name per call guarantees each reference photo
+      has its own server-side file. ``overwrite`` stays ``true`` only as
+      a safety net against the (astronomically unlikely) case of a UUID
+      collision; new names will not collide in practice.
+    """
     try:
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             tmp.write(img_bytes)
             tmp_path = tmp.name
+        unique_name = f"ariabot_ref_{uuid.uuid4().hex}.png"
         with open(tmp_path, "rb") as f:
             resp = requests_mod.post(
                 f"{base_url}/upload/image",
-                files={"image": ("reference.png", f, "image/png")},
+                files={"image": (unique_name, f, "image/png")},
                 data={"type": "input", "overwrite": "true"},
                 timeout=30,
             )
