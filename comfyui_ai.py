@@ -148,20 +148,6 @@ _ANATOMY_NEGATIVE = (
     "extra limbs, missing limbs, poorly drawn hands"
 )
 
-# Scene-composition negatives for Qwen multi-reference generations — staged.
-# Not wired into the negative encoder until QWEN_CFG > 1.0 is activated
-# (the negative branch is zeroed at the default CFG=1.0). Targets failure
-# modes observed during testing: character duplication, impossible mirror
-# reflections, and sudden face close-ups. Add to _negative_parts when
-# enabling the negative branch in a follow-up task.
-_QWEN_SCENE_NEGATIVE = (
-    "duplicate person, cloned character, same character twice, copy of character, "
-    "extra person, mirror of same character, "
-    "incorrect mirror reflection, physically impossible reflection, wrong mirror angle, "
-    "extreme close-up, face only, zoomed in face, portrait shot, no body visible, "
-    "cropped scene, disembodied head"
-)
-
 # Global feminine-build bias — togglable via QWEN_FEMININE_BUILD=on|off
 # (default on). Negative half only "bites" when QWEN_CFG > 1.0.
 _FEMININE_BUILD_SUFFIX = (
@@ -1076,9 +1062,8 @@ def _build_multi_edit_workflow_qwen(
     # Build the negative text — anatomy + (optionally) feminine-build negatives.
     # Currently _negative_text is computed but NOT passed to node "11"; node "11"
     # carries an empty prompt matching the reference Qwen-Rapid-AIO workflow.
-    # To activate negative steering: wire _negative_text (and optionally
-    # _QWEN_SCENE_NEGATIVE) into neg_encoder_inputs["prompt"] in a follow-up task
-    # that also raises the QWEN_CFG default above 1.0.
+    # A follow-up task will wire _negative_text into neg_encoder_inputs["prompt"]
+    # and raise QWEN_CFG above 1.0 to activate the negative branch.
     _negative_parts: List[str] = [_ANATOMY_NEGATIVE]
     if _feminine_on:
         _negative_parts.append(_FEMININE_BUILD_NEGATIVE)
