@@ -163,6 +163,13 @@ _FEMININE_BUILD_NEGATIVE = (
     "bulky frame, thick neck, heavy build, manly features"
 )
 
+_MIRROR_AND_QUALITY_NEGATIVE = (
+    "ghost objects in mirror, objects that don't show up in mirror, "
+    "illogical mirror reflections, unwanted super close up shots, "
+    "poor or mediocre quality artstyle, text chat bubbles, thought bubbles, "
+    "hands that go through mirror, wearables on wrong characters"
+)
+
 
 # Style-policy text selected by QWEN_STYLE_POLICY (default match_reference).
 # match_reference = replicate ref style; flat_anime = legacy override; off = none.
@@ -1063,26 +1070,40 @@ def _build_multi_edit_workflow_qwen(
     # For single-ref, the generic style-policy text ("replicate the visual
     # style of the reference images exactly") works well — there is only one
     # reference so "the references" means that character.
-    # For multi-ref (≥2 refs with named slots) the generic text causes the model
-    # to blend visual styles from ALL slots. Instead use a three-part lock:
-    #   1. Style directive  — image 1 (the bot character) is the art-style authority
-    #   2. Char-0 full lock — bot character kept exactly as in image 1
-    #   3. Char-1+ likeness — secondary / player slots provide face/hair/eye likeness
-    #                         only, rendered in the art style of image 1
-    # Single-ref (n=1) is unchanged — the generic policy text works correctly there.
+    # For multi-ref (≥2 refs with named slots) the generic text causes the
+    # model to blend visual styles from ALL slots. Instead use a multi-part
+    # lock that mirrors the user's gold-standard reference workflow JSON:
+    #   1. Style directive       — image 1 (bot) is the art-style authority
+    #   2. Main-subject directive — bot is always the primary subject
+    #   3. Char-0 full lock      — bot kept exactly as in image 1
+    #   4. Char-1+ likeness      — secondary slots: face/hair/eyes only,
+    #                              rendered in the EXACT same art style
+    #                              (pupil shape, shading, line thickness,
+    #                              general feel) as image 1; bidirectional
+    #                              accessory ban (no cross-bleed in either
+    #                              direction)
+    #   5. Absurd-prop omission  — drop persistent items when scene context
+    #                              makes them nonsensical (e.g. weapon in
+    #                              shower scene)
+    #   6. Mirror logic          — accurate, logical mirror reflections;
+    #                              hands don't pass through mirrors
+    #
+    # We deliberately do NOT inject the per-character `subject_appearances`
+    # text blob inside the character lock — that caused the model to read
+    # the lock as "reproduce the reference photo verbatim" and overpower
+    # the scene description (regression: solo white-background portrait
+    # instead of cinematic two-character scene). The appearance text still
+    # flows through the scene prompt itself and through pronoun resolution
+    # in scene_image.py.
+    # Single-ref (n=1) is unchanged — the generic policy text works there.
     if n >= 2 and _slot_labels:
         _name0 = (_subjects[0].strip() if _subjects else "").strip()
         if _name0 and _name0.lower() not in ("self", "player"):
-            # Inject physical traits from subject_appearances so the model has an
-            # authoritative text anchor that beats scene-described conflicting attire
-            # (e.g. a scene saying "black suit" won't override a grey military coat
-            # that is visible in the reference AND named here).
-            _app0 = ((subject_appearances or {}).get(_name0) or "").strip()
-            _trait_hint = f" ({_app0})" if _app0 else ""
             _lock_parts: List[str] = [
                 f"Use the art style, line art, shading, and colour palette from image 1 ({_name0}) for the entire scene",
+                f"{_name0} will always be the main subject",
                 (
-                    f"Keep {_name0} EXACTLY as shown in image 1{_trait_hint}. "
+                    f"Keep {_name0} EXACTLY as shown in image 1. "
                     f"Do NOT change {_name0}'s eye colour, hair colour, or outfit "
                     f"to match the scene description — keep all of {_name0}'s appearance from image 1"
                 ),
@@ -1093,19 +1114,31 @@ def _build_multi_edit_workflow_qwen(
                     continue
                 _lock_parts.append(
                     f"Render {_name_i} with ONLY the face shape, hair colour, and eye colour"
-                    f" from image {_si + 1}, drawn in the same art style as image 1."
+                    f" from image {_si + 1}. Picture generated in the EXACT same art style"
+                    f" (including pupil shape, shading, coloring, line thickness and the"
+                    f" general feel of the art) as image 1 ({_name0})."
                     f" Do NOT copy {_name_i}'s hat, clothing, or accessories onto {_name0}"
-                    f" or any other character in the scene"
+                    f" or any other character in the scene, and vice versa"
                 )
+            _lock_parts.append(
+                "Omit props when it would be absurd not to, e.g., carrying a weapon in a shower scene"
+            )
+            _lock_parts.append(
+                "Make sure mirror reflections are accurate and logical for all characters,"
+                " limbs, props, and wearables. Make sure hands don't go through mirrors"
+            )
             _appearance_lock = ". ".join(_lock_parts) + ". "
             print(f"[ComfyUI] Qwen: multi-ref character-led appearance lock — {_appearance_lock!r}")
 
     enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
-    # Build the negative text — anatomy + (optionally) feminine-build negatives.
-    _negative_parts: List[str] = [_ANATOMY_NEGATIVE]
+    # Build the negative text — anatomy + mirror/quality + (optionally) feminine-build.
+    # Order matches the user's gold-standard reference workflow JSON's negative prompt.
+    _negative_parts: List[str] = [_ANATOMY_NEGATIVE, _MIRROR_AND_QUALITY_NEGATIVE]
     if _feminine_on:
-        _negative_parts.append(_FEMININE_BUILD_NEGATIVE)
+        # Feminine-build negatives are inserted between anatomy and mirror/quality
+        # in the reference workflow; replicate that ordering here.
+        _negative_parts = [_ANATOMY_NEGATIVE, _FEMININE_BUILD_NEGATIVE, _MIRROR_AND_QUALITY_NEGATIVE]
     _negative_text = ", ".join(p for p in _negative_parts if p)
 
     # KSampler CFG — default 1.5 activates negative guidance. At CFG=1.0 the

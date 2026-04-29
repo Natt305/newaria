@@ -1542,8 +1542,12 @@ async def run_scene_image(
             # overrides the "full body, wide shot" cue appended by _assemble_scene_prompt,
             # so for 2+ ref slots we use a composition that keeps both characters visible
             # rather than cropping in to one face and mirroring it 4 times.
+            # Bot is the primary subject — frame around them rather than
+            # forcing the model to squeeze both characters into a wide group
+            # shot. The player anchors naturally beside the bot.
+            _focus = bot_name or "main subject"
             _suffix = (
-                ", medium shot, both characters fully visible in frame, "
+                f", medium-close shot, {_focus} fully visible in frame, "
                 "wide composition, eye-level camera"
             )
         else:
@@ -1702,8 +1706,16 @@ async def run_scene_image(
                     f"Persistent items: {_persistent_items or 'none'}."
                 )
 
-            elif _looks_text:
-                # Normal scene — append full static looks as identity anchor.
+            elif _looks_text and len(refs) <= 1:
+                # Normal scene, single-ref only — append full static looks as
+                # identity anchor. With multiple reference photos the visual
+                # identity is supplied by the photos themselves and appending
+                # the looks text causes the model to read it as "reproduce the
+                # portrait verbatim" — overriding the scene description and
+                # producing a solo white-background portrait. Persistent items,
+                # runtime-state, and outfit-cache branches above remain active
+                # for multi-ref since they carry runtime info the photos can't
+                # convey.
                 enriched = (
                     enriched
                     + ". Character identity (must be preserved from reference photos): "
@@ -1714,7 +1726,7 @@ async def run_scene_image(
                 _looks_appended = True
                 print(
                     f"[SceneImage] Appended {len(_looks_text)}-char looks identity suffix "
-                    f"post-LLM (QWEN_APPEND_LOOKS=on). "
+                    f"post-LLM (QWEN_APPEND_LOOKS=on, single-ref). "
                     f"Persistent items: {_persistent_items or 'none'}."
                 )
 
