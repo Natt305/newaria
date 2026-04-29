@@ -654,7 +654,7 @@ def test_no_discord_id_is_passthrough():
 
 def test_multi_ref_per_slot_appearance_lock():
     """For ≥2 refs with named slots the generic style-policy text is replaced
-    by a character-led 5-part lock:
+    by a character-led 6-part lock:
       1. Style directive  — image 1 (Kelly Gray) is the art-style authority,
          expressed with rich detail vocabulary (gloss, highlight placement,
          pupil detail, skin shading, hair rendering, eye design, line-art
@@ -664,7 +664,9 @@ def test_multi_ref_per_slot_appearance_lock():
       3. Char-0 full lock       — Kelly kept exactly as in image 1
       4. Char-1+ likeness       — Natt provides face/hair/eye from image 2,
          art style from image 1, bidirectional accessory ban
-      5. Mirror logic           — accurate, logical mirror reflections;
+      5. Absurd-prop omission   — drop props when scene context makes them
+         nonsensical (e.g. weapon in a shower scene)
+      6. Mirror logic           — accurate, logical mirror reflections;
          hands don't pass through mirrors
     The generic 'Replicate the visual style of the reference images exactly'
     must NOT appear — it would route the model to blend across all refs."""
@@ -736,8 +738,8 @@ def test_multi_ref_per_slot_appearance_lock():
         f"prompt: {p[:300]!r}",
     )
     check(
-        "multi-ref: 'absurd props' positive clause NOT in prompt",
-        "absurd" not in p.lower() and "weapon in a shower" not in p,
+        "multi-ref: absurd-prop omission clause present",
+        "absurd" in p.lower() and "weapon in a shower" in p,
         f"prompt: {p[:600]!r}",
     )
     check(
