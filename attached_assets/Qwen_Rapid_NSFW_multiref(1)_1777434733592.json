@@ -1,0 +1,647 @@
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "revision": 0,
+  "last_node_id": 201,
+  "last_link_id": 30,
+  "nodes": [
+    {
+      "id": 201,
+      "type": "LoadImage",
+      "pos": [
+        94.63166609924315,
+        890.7398169503788
+      ],
+      "size": [
+        282.8199996948242,
+        314.0000000000001
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            26,
+            30
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "154b5cc256f1eaf766c17b5dc9f21d9c.jpg",
+        "image"
+      ]
+    },
+    {
+      "id": 200,
+      "type": "LoadImage",
+      "pos": [
+        -260.5044036917115,
+        565.6071523629755
+      ],
+      "size": [
+        282.8199996948242,
+        314
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            25,
+            29
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "a3cd0878-f79c-4657-94d6-4e460ca6284e.png",
+        "image"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "SaveImage",
+      "pos": [
+        1867.6189776618148,
+        238.25429789247232
+      ],
+      "size": [
+        270,
+        270
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 22
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "ariabot_qwen_multiref_"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecode",
+      "pos": [
+        1778.2542111206055,
+        67.77666224670406
+      ],
+      "size": [
+        140,
+        46
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 20
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 21
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            22
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "VAEDecode"
+      }
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [
+        60.070000000000036,
+        498.9433197937013
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            21,
+            24,
+            28
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "pig_qwen_image_vae_fp32-f16.safetensors"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "EmptySD3LatentImage",
+      "pos": [
+        30.12250000000001,
+        655.8866802062987
+      ],
+      "size": [
+        270,
+        106
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            19
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "EmptySD3LatentImage"
+      },
+      "widgets_values": [
+        1024,
+        768,
+        1
+      ]
+    },
+    {
+      "id": 2,
+      "type": "CLIPLoaderGGUF",
+      "pos": [
+        52.3058197937012,
+        318
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            23,
+            27
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-GGUF",
+        "ver": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+        "Node name for S&R": "CLIPLoaderGGUF"
+      },
+      "widgets_values": [
+        "Qwen2.5-VL-7B-Instruct-abliterated.Q4_K_M.gguf",
+        "qwen_image"
+      ]
+    },
+    {
+      "id": 1,
+      "type": "UnetLoaderGGUF",
+      "pos": [
+        100.04284870790119,
+        109.06343932449714
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            16
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-GGUF",
+        "ver": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+        "Node name for S&R": "UnetLoaderGGUF"
+      },
+      "widgets_values": [
+        "Qwen-Rapid-NSFW-v23_Q4_K.gguf"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "KSampler",
+      "pos": [
+        1383.2290986633295,
+        268.6457994842529
+      ],
+      "size": [
+        270,
+        262
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 16
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 17
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 18
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            20
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        720634082113610,
+        "randomize",
+        6,
+        1,
+        "lcm",
+        "sgm_uniform",
+        1
+      ]
+    },
+    {
+      "id": 11,
+      "type": "TextEncodeQwenImageEditPlus",
+      "pos": [
+        556.5049450458483,
+        699.7955593926457
+      ],
+      "size": [
+        640.76228470402,
+        373.06157809858655
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 27
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 28
+        },
+        {
+          "name": "image1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 29
+        },
+        {
+          "name": "image2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 30
+        },
+        {
+          "name": "image3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image4",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "target_latent",
+          "shape": 7,
+          "type": "LATENT",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "TextEncodeQwenImageEditPlus"
+      },
+      "widgets_values": [
+        "bad anatomy, missing arms, extra arms, deformed arms, missing hands, extra hands, fused fingers, missing fingers, extra fingers, malformed hands, mutated hands, extra limbs, missing limbs, poorly drawn hands, duplicate characters, twin characters, cloned person, multiple instances of same character, mirror character clone, masculine build, broad shoulders, wide jaw, square jawline, muscular, bulky frame, thick neck, heavy build, manly features, ghost objects in mirror, objects that don't show up in mirror, illogical mirror reflections, unwanted super close up shots, poor or mediocre quality artstyle, text chat bubbles, thought bubbles, Hands that go through mirror. wearables on wrong characters."
+      ]
+    },
+    {
+      "id": 10,
+      "type": "TextEncodeQwenImageEditPlus",
+      "pos": [
+        594.1174489791425,
+        40.79192109072135
+      ],
+      "size": [
+        628.0302845348012,
+        460.27272727272714
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 23
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 24
+        },
+        {
+          "name": "image1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 25
+        },
+        {
+          "name": "image2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 26
+        },
+        {
+          "name": "image3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image4",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "target_latent",
+          "shape": 7,
+          "type": "LATENT",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            17
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.19.5",
+        "Node name for S&R": "TextEncodeQwenImageEditPlus"
+      },
+      "widgets_values": [
+        "image 1 is Kelly Gray. image 2 is Natt . Use the art style, line art, shading, and colour palette from image 1 (Kelly Gray) for the entire scene. Kelly Grey will always be the main subject. Keep Kelly Gray EXACTLY as shown in image 1. Do NOT change Kelly Gray's eye colour, hair colour, or outfit to match the scene description — keep all of Kelly Gray's appearance from image 1. Render Natt with ONLY the face shape, hair colour, and eye colour from image 2. Picture generated in the EXACT same art style (including pupil shape, shading, coloring, line thickness and the general feel of the art) as image 1 (kelly Gray). Do NOT copy Natt's hat, clothing, or accessories onto Kelly Gray or any other character in the scene, and vice versa. Omit props when it would be obsurd not to, say carrying a weapon in shower. Make sure mirror reflections are accurate and logical for all characters, the limbs, the props and wearables. Make sure hands don't go through mirrors.\n\nAs Natt settles the crimson cap onto Kelly's head, she looks down at it, then back up to him. raising an eyebrow. She reaches up and adjusts it slightly on her head.\n\nHer expression softens a fraction as she takes in Natt's sincerity. she concedes, voice still cool but carrying a hint of something else — perhaps appreciation or amusement.\n\nShe turns to face the mirror, examining herself in the red hat. She looks back at Natt and nods once. Her tone is dry as she adds, \n\nShe turns to face him fully, a challenge in her eyes. The hat sits atop her head at an angle, giving her a slightly rakish air. she prompts again \n\nmedium-close shot, Kelly Gray fully visible in frame, wide composition, eye-level camera, perfect anatomy, correct arms, well-drawn hands, five fingers, proper limbs, symmetrical body, slim feminine build, slender frame, soft graceful proportions, delicate facial features, narrow shoulders, beautiful elegant figure, not masculine, no broad shoulders, no square jaw, no muscular build, no thick neck"
+      ]
+    }
+  ],
+  "links": [
+    [
+      16,
+      1,
+      0,
+      7,
+      0,
+      "MODEL"
+    ],
+    [
+      17,
+      10,
+      0,
+      7,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      18,
+      11,
+      0,
+      7,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      19,
+      6,
+      0,
+      7,
+      3,
+      "LATENT"
+    ],
+    [
+      20,
+      7,
+      0,
+      8,
+      0,
+      "LATENT"
+    ],
+    [
+      21,
+      3,
+      0,
+      8,
+      1,
+      "VAE"
+    ],
+    [
+      22,
+      8,
+      0,
+      9,
+      0,
+      "IMAGE"
+    ],
+    [
+      23,
+      2,
+      0,
+      10,
+      0,
+      "CLIP"
+    ],
+    [
+      24,
+      3,
+      0,
+      10,
+      1,
+      "VAE"
+    ],
+    [
+      25,
+      200,
+      0,
+      10,
+      2,
+      "IMAGE"
+    ],
+    [
+      26,
+      201,
+      0,
+      10,
+      3,
+      "IMAGE"
+    ],
+    [
+      27,
+      2,
+      0,
+      11,
+      0,
+      "CLIP"
+    ],
+    [
+      28,
+      3,
+      0,
+      11,
+      1,
+      "VAE"
+    ],
+    [
+      29,
+      200,
+      0,
+      11,
+      2,
+      "IMAGE"
+    ],
+    [
+      30,
+      201,
+      0,
+      11,
+      3,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.9090909090909091,
+      "offset": [
+        -198.00933305924693,
+        287.9889996133214
+      ]
+    },
+    "frontendVersion": "1.43.1",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}
