@@ -4968,7 +4968,8 @@ def main():
         print("[ERROR] DISCORD_BOT_TOKEN is not set!")
         return
 
-    if not GROQ_API_KEY:
+    _startup_ai_backend = os.environ.get("AI_BACKEND", "groq").strip().lower()
+    if _startup_ai_backend == "groq" and not GROQ_API_KEY:
         print("[WARNING] GROQ_API_KEY 未設定。文字聊天將不可用。")
 
     if not _image_ready():
@@ -4983,7 +4984,15 @@ def main():
     database.migrate_thumbnails()
     bot_name, *_ = load_character()
     print(f"[Bot] 啟動角色: {bot_name}")
-    print(f"[Bot] Groq: {'準備就緒' if GROQ_API_KEY else '遺失'}")
+    if _startup_ai_backend == "lmstudio":
+        _lms_url = os.environ.get("LMSTUDIO_BASE_URL", "").strip()
+        _lms_model = os.environ.get("LMSTUDIO_MODEL", "").strip()
+        print(f"[Bot] LM Studio: 準備就緒 ({_lms_url}, {_lms_model})")
+    elif _startup_ai_backend == "ollama":
+        _ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").strip()
+        print(f"[Bot] Ollama: {'準備就緒 (' + _ollama_url + ')' if _ollama_url else '遺失'}")
+    else:
+        print(f"[Bot] Groq: {'準備就緒' if GROQ_API_KEY else '遺失'}")
     if _IMAGE_BACKEND == "local_diffusers":
         _local_model = os.environ.get("LOCAL_DIFFUSER_MODEL", "").strip()
         print(f"[Bot] 圖像後端: 本地 Diffusers — {'準備就緒 (' + _local_model + ')' if _local_model else '已禁用 (未設定 LOCAL_DIFFUSER_MODEL)'}")
