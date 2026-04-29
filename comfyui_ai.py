@@ -1607,7 +1607,7 @@ def _run_generate_qwen(
 
     if uploaded:
         _slot_map = ", ".join(
-            f"image{i + 1}={s}" for i, s in enumerate(uploaded_subjects)
+            f"image{i + 1}={fname}" for i, fname in enumerate(uploaded)
         )
         print(f"[ComfyUI] Qwen: subject→slot mapping — {_slot_map}")
 
