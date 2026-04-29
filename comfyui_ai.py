@@ -1061,23 +1061,30 @@ def _build_multi_edit_workflow_qwen(
     # For single-ref, the generic style-policy text ("replicate the visual
     # style of the reference images exactly") works well — there is only one
     # reference so "the references" means that character.
-    # For multi-ref (≥2 refs with named slots) the same text causes the model
-    # to blend visual styles from ALL slots, overwriting each character's
-    # identity with a merged aesthetic. Replace with per-slot anchors using
-    # the model's trained "character in image N" syntax so each character is
-    # pinned to its own reference slot independently.
+    # For multi-ref (≥2 refs with named slots) the generic text causes the model
+    # to blend visual styles from ALL slots. Instead use a three-part lock:
+    #   1. Style directive  — image 1 (the bot character) is the art-style authority
+    #   2. Char-0 full lock — bot character kept exactly as in image 1
+    #   3. Char-1+ likeness — secondary / player slots provide face/hair/eye likeness
+    #                         only, rendered in the art style of image 1
+    # Single-ref (n=1) is unchanged — the generic policy text works correctly there.
     if n >= 2 and _slot_labels:
-        _char_anchors: List[str] = []
-        for _si in range(n):
-            _name = (_subjects[_si].strip() if _si < len(_subjects) else "").strip()
-            if not _name or _name.lower() in ("self", "player"):
-                continue
-            _char_anchors.append(
-                f"keep character in image {_si + 1} ({_name}) exactly as shown in image {_si + 1}"
-            )
-        if _char_anchors:
-            _appearance_lock = ". ".join(_char_anchors) + ". "
-            print(f"[ComfyUI] Qwen: multi-ref per-slot appearance lock — {_appearance_lock!r}")
+        _name0 = (_subjects[0].strip() if _subjects else "").strip()
+        if _name0 and _name0.lower() not in ("self", "player"):
+            _lock_parts: List[str] = [
+                f"Use the art style, line art, shading, and colour palette from image 1 ({_name0}) for the entire scene",
+                f"Keep {_name0} exactly as shown in image 1",
+            ]
+            for _si in range(1, n):
+                _name_i = (_subjects[_si].strip() if _si < len(_subjects) else "").strip()
+                if not _name_i or _name_i.lower() in ("self", "player"):
+                    continue
+                _lock_parts.append(
+                    f"Render {_name_i} with the face shape, hair colour, and eye colour"
+                    f" from image {_si + 1}, drawn in the same art style as image 1"
+                )
+            _appearance_lock = ". ".join(_lock_parts) + ". "
+            print(f"[ComfyUI] Qwen: multi-ref character-led appearance lock — {_appearance_lock!r}")
 
     enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
 

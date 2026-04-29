@@ -623,9 +623,12 @@ def test_no_discord_id_is_passthrough():
 
 def test_multi_ref_per_slot_appearance_lock():
     """For ≥2 refs with named slots the generic style-policy text is replaced
-    by per-character 'keep character in image N (Name) exactly as shown'
-    anchors.  The generic 'Replicate the visual style of the reference images
-    exactly' must NOT appear in the final prompt — it causes style blending."""
+    by a character-led three-part lock:
+      1. Style directive  — image 1 (Kelly Gray) is the art-style authority
+      2. Char-0 full lock — Kelly kept exactly as in image 1
+      3. Char-1+ likeness — Natt provides face/hair/eye from image 2, art style from image 1
+    The generic 'Replicate the visual style of the reference images exactly' must NOT
+    appear — it causes style blending across all refs."""
     wf = _build_multi_edit_workflow_qwen(
         SCENE_PROMPT,
         **_BASE_KWARGS,
@@ -636,14 +639,19 @@ def test_multi_ref_per_slot_appearance_lock():
     p = _positive_node_prompt(wf)
 
     check(
-        "multi-ref: per-slot anchor for Kelly in positive prompt",
-        f"keep character in image 1 ({KELLY_NAME}) exactly as shown in image 1" in p,
-        f"prompt: {p[:300]!r}",
+        "multi-ref: style-from-image-1 directive present for Kelly",
+        f"Use the art style, line art, shading, and colour palette from image 1 ({KELLY_NAME}) for the entire scene" in p,
+        f"prompt: {p[:400]!r}",
     )
     check(
-        "multi-ref: per-slot anchor for Natt in positive prompt",
-        f"keep character in image 2 ({NATT_NAME}) exactly as shown in image 2" in p,
-        f"prompt: {p[:300]!r}",
+        "multi-ref: Kelly kept exactly as in image 1",
+        f"Keep {KELLY_NAME} exactly as shown in image 1" in p,
+        f"prompt: {p[:400]!r}",
+    )
+    check(
+        "multi-ref: Natt rendered with likeness from image 2 in Kelly's art style",
+        f"Render {NATT_NAME} with the face shape, hair colour, and eye colour from image 2, drawn in the same art style as image 1" in p,
+        f"prompt: {p[:400]!r}",
     )
     check(
         "multi-ref: generic 'Replicate the visual style' NOT in prompt",
@@ -651,7 +659,7 @@ def test_multi_ref_per_slot_appearance_lock():
         f"prompt: {p[:300]!r}",
     )
     check(
-        "multi-ref: generic 'Do NOT change hair colour, eye colour' NOT in prompt",
+        "multi-ref: generic 'Do NOT change hair colour' NOT in prompt",
         "Do NOT change hair colour" not in p,
         f"prompt: {p[:300]!r}",
     )
@@ -721,7 +729,7 @@ if __name__ == "__main__":
     print("\n── Test 10: no discord_id → pure pass-through ───────────────────────")
     test_no_discord_id_is_passthrough()
 
-    print("\n── Test 11: multi-ref → per-slot appearance lock (no style blending) ─")
+    print("\n── Test 11: multi-ref → character-led style, player likeness only ──────")
     test_multi_ref_per_slot_appearance_lock()
 
     print("\n── Test 12: single-ref → generic policy lock preserved (no override) ─")
@@ -742,9 +750,10 @@ if __name__ == "__main__":
         print("All no-photo / no-player paths confirmed: zero style bleed when")
         print("no profile photo is uploaded or the player is not in the scene seed.")
         print()
-        print("Multi-ref per-slot appearance lock verified: generic style-blending")
-        print("text is replaced with per-character 'keep character in image N' anchors")
-        print("so Kelly Gray and the player are pinned to their own reference slots.")
+        print("Multi-ref character-led style verified:")
+        print("  image 1 (bot character) drives art style + appearance for the whole scene.")
+        print("  image 2+ (player/secondary) provide face/hair/eye likeness only,")
+        print("  rendered in the bot character's art style.")
         print()
         print("Live visual confirmation still needed: run a Discord scene")
         print("generation with /addprofilephoto set and inspect the output.")
