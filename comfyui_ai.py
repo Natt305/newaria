@@ -1074,12 +1074,11 @@ def _build_multi_edit_workflow_qwen(
     enhanced_prompt = _slot_prefix + _appearance_lock + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
     # Build the negative text — anatomy + (optionally) feminine-build negatives.
-    # Scene-composition negatives (_QWEN_SCENE_NEGATIVE) are defined above and
-    # can be added here when QWEN_CFG > 1.0 is activated via a follow-up task.
-    # With CFG=1.0 (the Qwen Rapid AIO default) the negative branch is zeroed;
-    # node "11" carries an empty prompt to match the reference workflow exactly.
-    # Populating _negative_text unconditionally means raising CFG via env var
-    # will get meaningful text-based steering without any extra code change.
+    # Currently _negative_text is computed but NOT passed to node "11"; node "11"
+    # carries an empty prompt matching the reference Qwen-Rapid-AIO workflow.
+    # To activate negative steering: wire _negative_text (and optionally
+    # _QWEN_SCENE_NEGATIVE) into neg_encoder_inputs["prompt"] in a follow-up task
+    # that also raises the QWEN_CFG default above 1.0.
     _negative_parts: List[str] = [_ANATOMY_NEGATIVE]
     if _feminine_on:
         _negative_parts.append(_FEMININE_BUILD_NEGATIVE)
