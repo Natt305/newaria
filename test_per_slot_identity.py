@@ -654,12 +654,21 @@ def test_no_discord_id_is_passthrough():
 
 def test_multi_ref_per_slot_appearance_lock():
     """For ≥2 refs with named slots the generic style-policy text is replaced
-    by a character-led three-part lock:
-      1. Style directive  — image 1 (Kelly Gray) is the art-style authority
-      2. Char-0 full lock — Kelly kept exactly as in image 1
-      3. Char-1+ likeness — Natt provides face/hair/eye from image 2, art style from image 1
-    The generic 'Replicate the visual style of the reference images exactly' must NOT
-    appear — it causes style blending across all refs."""
+    by a character-led 4-part lock:
+      1. Style directive  — image 1 (Kelly Gray) is the art-style authority,
+         expressed with rich detail vocabulary (gloss, highlight placement,
+         pupil detail, skin shading, hair rendering, eye design, line-art
+         weight, colour palette) so the model gets the same fine-grained
+         style anchor that the single-ref `match_reference` policy provides.
+      2. Main-subject directive — Kelly is always the primary subject
+      3. Char-0 full lock       — Kelly kept exactly as in image 1
+      4. Char-1+ likeness       — Natt provides face/hair/eye from image 2,
+         art style from image 1, bidirectional accessory ban
+    The generic 'Replicate the visual style of the reference images exactly'
+    must NOT appear — it would route the model to blend across all refs.
+    The earlier 'absurd-prop' and 'mirror-reflections' positive clauses are
+    intentionally removed (they diluted conditioning; mirror artifacts are
+    handled via the negative)."""
     wf = _build_multi_edit_workflow_qwen(
         SCENE_PROMPT,
         **_BASE_KWARGS,
@@ -671,8 +680,26 @@ def test_multi_ref_per_slot_appearance_lock():
 
     check(
         "multi-ref: style-from-image-1 directive present for Kelly",
-        f"Use the art style, line art, shading, and colour palette from image 1 ({KELLY_NAME}) for the entire scene" in p,
+        f"from image 1 ({KELLY_NAME}) for the entire scene" in p,
         f"prompt: {p[:400]!r}",
+    )
+    check(
+        "multi-ref: rich style vocabulary present (gloss / highlight / pupil / skin shading)",
+        all(tok in p for tok in (
+            "gloss", "highlight placement", "pupil detail", "skin shading",
+            "hair rendering", "eye design",
+        )),
+        f"prompt: {p[:600]!r}",
+    )
+    check(
+        "multi-ref: 'Do NOT introduce photorealism' guard present",
+        "Do NOT introduce photorealism" in p,
+        f"prompt: {p[:600]!r}",
+    )
+    check(
+        "multi-ref: main-subject directive present for Kelly",
+        f"{KELLY_NAME} will always be the main subject" in p,
+        f"prompt: {p[:600]!r}",
     )
     check(
         "multi-ref: Kelly kept EXACTLY as in image 1 (CAPS lock, beats scene description)",
@@ -690,6 +717,11 @@ def test_multi_ref_per_slot_appearance_lock():
         f"prompt: {p[:400]!r}",
     )
     check(
+        "multi-ref: bidirectional accessory ban present ('and vice versa')",
+        "and vice versa" in p,
+        f"prompt: {p[:600]!r}",
+    )
+    check(
         "multi-ref: Natt's hat/clothing explicitly excluded from Kelly Gray",
         f"Do NOT copy {NATT_NAME}'s hat, clothing, or accessories onto {KELLY_NAME}" in p,
         f"prompt: {p[:400]!r}",
@@ -703,6 +735,68 @@ def test_multi_ref_per_slot_appearance_lock():
         "multi-ref: generic 'Do NOT change hair colour' NOT in prompt",
         "Do NOT change hair colour" not in p,
         f"prompt: {p[:300]!r}",
+    )
+    check(
+        "multi-ref: dropped 'absurd props' positive clause NOT in prompt",
+        "absurd" not in p.lower() and "weapon in a shower" not in p,
+        f"prompt: {p[:600]!r}",
+    )
+    check(
+        "multi-ref: dropped 'mirror reflections are accurate' positive clause NOT in prompt",
+        "mirror reflections are accurate" not in p
+        and "hands don't go through mirrors" not in p,
+        f"prompt: {p[:600]!r}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 11b: hybrid negative — close-up suppressor removed, other guards stay
+# ---------------------------------------------------------------------------
+
+def test_negative_drops_close_up_suppressor_keeps_others():
+    """`_MIRROR_AND_QUALITY_NEGATIVE` previously included
+    'unwanted super close up shots' which actively suppressed the cinematic
+    close-ups the user wants. That single phrase was dropped; mirror, anatomy,
+    quality, chat-bubble, and clone suppression all remain."""
+    from comfyui_ai import (
+        _MIRROR_AND_QUALITY_NEGATIVE, _ANATOMY_NEGATIVE, _FEMININE_BUILD_NEGATIVE,
+    )
+
+    check(
+        "negative: 'super close up' phrase removed from mirror/quality negative",
+        "super close up" not in _MIRROR_AND_QUALITY_NEGATIVE.lower()
+        and "close up shot" not in _MIRROR_AND_QUALITY_NEGATIVE.lower(),
+        f"_MIRROR_AND_QUALITY_NEGATIVE: {_MIRROR_AND_QUALITY_NEGATIVE!r}",
+    )
+    check(
+        "negative: mirror artifact suppression preserved",
+        all(tok in _MIRROR_AND_QUALITY_NEGATIVE for tok in (
+            "ghost objects in mirror", "illogical mirror reflections",
+            "hands that go through mirror", "wearables on wrong characters",
+        )),
+        f"_MIRROR_AND_QUALITY_NEGATIVE: {_MIRROR_AND_QUALITY_NEGATIVE!r}",
+    )
+    check(
+        "negative: quality push and chat-bubble suppression preserved",
+        all(tok in _MIRROR_AND_QUALITY_NEGATIVE for tok in (
+            "poor or mediocre quality artstyle",
+            "text chat bubbles", "thought bubbles",
+        )),
+        f"_MIRROR_AND_QUALITY_NEGATIVE: {_MIRROR_AND_QUALITY_NEGATIVE!r}",
+    )
+    check(
+        "negative: clone suppression still in anatomy negative",
+        all(tok in _ANATOMY_NEGATIVE for tok in (
+            "duplicate characters", "twin characters", "cloned person",
+            "multiple instances of same character", "mirror character clone",
+        )),
+        f"_ANATOMY_NEGATIVE: {_ANATOMY_NEGATIVE!r}",
+    )
+    check(
+        "negative: feminine-build negative untouched",
+        "masculine build" in _FEMININE_BUILD_NEGATIVE
+        and "broad shoulders" in _FEMININE_BUILD_NEGATIVE,
+        f"_FEMININE_BUILD_NEGATIVE: {_FEMININE_BUILD_NEGATIVE!r}",
     )
 
 
@@ -772,6 +866,9 @@ if __name__ == "__main__":
 
     print("\n── Test 11: multi-ref → character-led style, player likeness only ──────")
     test_multi_ref_per_slot_appearance_lock()
+
+    print("\n── Test 11b: negative drops close-up suppressor, keeps others ───────")
+    test_negative_drops_close_up_suppressor_keeps_others()
 
     print("\n── Test 12: single-ref → generic policy lock preserved (no override) ─")
     test_single_ref_keeps_generic_appearance_lock()

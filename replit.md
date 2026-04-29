@@ -241,6 +241,39 @@ configuration — every knob has a sensible default that ships with the bot,
 and there is no per-character hardcoding. Disable any of them per env var
 when running a non-feminine character or a different art-style reference.
 
+**Best-of-both-worlds prompt shape (multi-ref, default behavior).** The
+multi-ref appearance-lock is intentionally tuned to keep the multi-character
+correctness wins from Tasks #1–#6 *and* the cinematic art quality / likeness
+the user values. Two specific decisions matter:
+
+1. **Rich style vocabulary in the lock's first line.** The lock's style
+   directive explicitly names *gloss, highlight placement, pupil detail,
+   skin shading, hair rendering, eye design, line-art weight, and colour
+   palette* — anchored to image 1 (the bot character). This restores the
+   fine-grained vocabulary that the single-ref `match_reference` policy
+   text already provides, so multi-ref scenes get the same level of
+   art-style anchoring as single-ref scenes.
+2. **`"unwanted super close up shots"` removed from the negative.** That
+   phrase was actively suppressing the cinematic close-ups the user
+   explicitly wants (dramatic framing, intimate face shots). All other
+   guards in `_MIRROR_AND_QUALITY_NEGATIVE` (mirror artifacts, quality
+   push, chat/thought bubbles, hands-through-mirror, wearables-on-wrong-
+   characters) and `_ANATOMY_NEGATIVE` (clone suppression, anatomy) and
+   `_FEMININE_BUILD_NEGATIVE` all stay intact.
+
+The lock is now 4 clauses instead of 6. Two earlier positive-prompt
+clauses ("Omit props when it would be absurd…" and "Make sure mirror
+reflections are accurate…") were dropped — they diluted conditioning
+without proportional benefit, and mirror artifacts are still suppressed
+via the negative prompt above.
+
+> **Note on `QWEN_CFG=1.0`.** The negative CLIPTextEncode is multiplied by
+> zero at CFG=1.0 (legacy distilled-Rapid behavior), so users who run that
+> non-default mode rely on the model's prior alone for mirror-scene quality
+> (the dropped positive mirror clause used to provide an extra anchor
+> there). The default `QWEN_CFG=1.5` keeps the negative active and
+> therefore retains full mirror-artifact suppression.
+
 | Env var | Default | Effect |
 |---|---|---|
 | `QWEN_STYLE_POLICY` | `match_reference` | Style instruction prepended to every Qwen edit-mode prompt. `match_reference` (new default) replicates the reference's rendering, gloss, line weight, and palette verbatim. `flat_anime` is the legacy override that forces flat 2D anime regardless of the reference. `off` adds no style instruction. |
