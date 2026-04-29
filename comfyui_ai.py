@@ -1080,8 +1080,10 @@ def _build_multi_edit_workflow_qwen(
                 if not _name_i or _name_i.lower() in ("self", "player"):
                     continue
                 _lock_parts.append(
-                    f"Render {_name_i} with the face shape, hair colour, and eye colour"
-                    f" from image {_si + 1}, drawn in the same art style as image 1"
+                    f"Render {_name_i}'s face shape, hair colour, and eye colour"
+                    f" using image {_si + 1} ONLY"
+                    f" — do NOT copy {_name0}'s facial features, hair, or eye colour"
+                    f" onto {_name_i}"
                 )
             _appearance_lock = ". ".join(_lock_parts) + ". "
             print(f"[ComfyUI] Qwen: multi-ref character-led appearance lock — {_appearance_lock!r}")
@@ -1585,7 +1587,7 @@ def _run_generate_qwen(
     uploaded_subjects: List[str] = []
     for (ref_bytes, _ref_mime), _subj in zip(qwen_input_refs, qwen_input_subjects):
         png_bytes = _to_png(ref_bytes) or ref_bytes
-        name = _upload_image(base_url, png_bytes, requests_mod)
+        name = _upload_image(base_url, png_bytes, requests_mod, subject_name=_subj)
         if name:
             uploaded.append(name)
             uploaded_subjects.append(_subj)
@@ -1784,10 +1786,10 @@ def _run_generate(
                 for idx, (ref_bytes, ref_mime) in enumerate(refs):
                     processed = _to_png(ref_bytes)
                     up_bytes = processed if processed is not None else ref_bytes
-                    up_name = _upload_image(base_url, up_bytes, _requests)
+                    subj = labels[idx] if idx < len(labels) else ""
+                    up_name = _upload_image(base_url, up_bytes, _requests, subject_name=subj)
                     if up_name:
                         uploaded_names.append(up_name)
-                        subj = labels[idx] if idx < len(labels) else ""
                         if subj:
                             subject_uploaded[subj].append(up_name)
 
@@ -2374,16 +2376,33 @@ def _run_generate(
         return None
 
 
-def _upload_image(base_url: str, img_bytes: bytes, requests_mod) -> Optional[str]:
-    """Upload PNG bytes to ComfyUI /upload/image; return the server filename or None."""
+def _upload_image(
+    base_url: str,
+    img_bytes: bytes,
+    requests_mod,
+    subject_name: str = "",
+) -> Optional[str]:
+    """Upload PNG bytes to ComfyUI /upload/image; return the server filename or None.
+
+    Each upload gets a unique per-call filename that embeds the subject's name so
+    consecutive uploads for the same scene never overwrite each other and every
+    ComfyUI server file is immediately identifiable by character:
+      kelly_gray_a3f012bc.png   (bot)
+      natt_9d2e4711.png         (player)
+    When subject_name is empty the fallback is ref_<uuid8>.png.
+    """
     try:
+        import re as _re
+        safe = _re.sub(r"[^a-z0-9]+", "_", subject_name.lower().strip())[:32].strip("_")
+        prefix = safe if safe else "ref"
+        unique_name = f"{prefix}_{uuid.uuid4().hex[:8]}.png"
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             tmp.write(img_bytes)
             tmp_path = tmp.name
         with open(tmp_path, "rb") as f:
             resp = requests_mod.post(
                 f"{base_url}/upload/image",
-                files={"image": ("reference.png", f, "image/png")},
+                files={"image": (unique_name, f, "image/png")},
                 data={"type": "input", "overwrite": "true"},
                 timeout=30,
             )

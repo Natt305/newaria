@@ -649,8 +649,9 @@ def test_multi_ref_per_slot_appearance_lock():
         f"prompt: {p[:400]!r}",
     )
     check(
-        "multi-ref: Natt rendered with likeness from image 2 in Kelly's art style",
-        f"Render {NATT_NAME} with the face shape, hair colour, and eye colour from image 2, drawn in the same art style as image 1" in p,
+        "multi-ref: Natt rendered with likeness from image 2 ONLY (clone guard)",
+        f"Render {NATT_NAME}'s face shape, hair colour, and eye colour using image 2 ONLY" in p
+        and f"do NOT copy {KELLY_NAME}'s facial features, hair, or eye colour onto {NATT_NAME}" in p,
         f"prompt: {p[:400]!r}",
     )
     check(
