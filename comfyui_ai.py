@@ -1138,14 +1138,16 @@ def _build_multi_edit_workflow_qwen(
     # v2-only: wire the empty latent into both encoders so the node can size
     # the reference embeddings against the target canvas — this is what
     # actually kills the scaling/cropping/zoom artifacts on multi-ref edits.
-    # The input key is `target_latent` (confirmed via live /object_info query).
     # Gated by the diagnose() probe so v1 installs (which don't accept this
     # input) aren't poisoned with an unknown slot. When the cache is None
     # (diagnose hasn't run yet) we deliberately do NOT wire it: a one-shot
     # warning in `_run_generate_qwen` tells the operator to run /diagcomfyui.
+    # NOTE: live /object_info inspection shows the actual node input may be
+    # named `target_latent` rather than `latent_image`; both the probe and
+    # the key name are updated together in follow-up task #11.
     if _QWEN_ENCODER_V2 is True:
-        encoder_inputs["target_latent"] = ["6", 0]
-        neg_encoder_inputs["target_latent"] = ["6", 0]
+        encoder_inputs["latent_image"] = ["6", 0]
+        neg_encoder_inputs["latent_image"] = ["6", 0]
 
     workflow["10"] = {
         "class_type": "TextEncodeQwenImageEditPlus",
