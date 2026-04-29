@@ -126,7 +126,7 @@ DEFAULT_STRENGTH = 0.75
 DEFAULT_TIMEOUT = 300
 
 # Qwen-Image-Edit-Rapid AIO defaults (Phr00t / phil2sat GGUF stack).
-# Distilled model: 4–6 steps + CFG 1.5 is the intended config. Phr00t's
+# Distilled model: 4–6 steps + CFG 1.0 (reference default). Phr00t's
 # Qwen-Rapid-AIO.json reference uses 4; we default to 6 here for a small
 # detail bump at modest cost. lcm/sgm_uniform matches the reference.
 # Default canvas is 1024 × 768 (4:3), the most common Discord scene aspect.
@@ -148,10 +148,12 @@ _ANATOMY_NEGATIVE = (
     "extra limbs, missing limbs, poorly drawn hands"
 )
 
-# Scene-composition negatives for Qwen multi-reference generations.
-# Targets the failure modes observed during testing: character duplication
-# (same character appears twice), physically impossible mirror reflections,
-# and sudden face close-ups that crop out the scene.
+# Scene-composition negatives for Qwen multi-reference generations — staged.
+# Not wired into the negative encoder until QWEN_CFG > 1.0 is activated
+# (the negative branch is zeroed at the default CFG=1.0). Targets failure
+# modes observed during testing: character duplication, impossible mirror
+# reflections, and sudden face close-ups. Add to _negative_parts when
+# enabling the negative branch in a follow-up task.
 _QWEN_SCENE_NEGATIVE = (
     "duplicate person, cloned character, same character twice, copy of character, "
     "extra person, mirror of same character, "
