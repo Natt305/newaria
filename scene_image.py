@@ -252,6 +252,14 @@ def _strip_outfit_from_looks(looks_text: str, *, fallback_to_empty: bool = False
 # Last-generation debug capture for /scenedebug. Overwritten per generate.
 _LAST_SCENE_GENERATION: dict = {}
 
+# Last KB-decision summary from `_gather_refs`, captured by the runner when
+# building the /scenedebug snapshot. Keyed module-level (rather than added to
+# the `_gather_refs` return tuple) so the three call sites that use the
+# function don't all need their unpack signature touched. Always reflects the
+# MOST RECENT call to `_gather_refs`, which in normal operation is the one
+# the current generate consumed.
+_LAST_KB_DECISION: dict = {}
+
 
 def get_last_scene_generation() -> dict:
     """Return a snapshot of the most recent scene-image generation."""
@@ -749,8 +757,17 @@ def _format_refs_footer(subjects: list, bot_name: str) -> str:
 def _gather_refs(
     seed_text: str,
     explicit_subjects: Optional[list[str]] = None,
-) -> tuple[list, list, dict]:
-    """Build ``(refs, subjects, appearances)`` from character + KB matches.
+) -> tuple[list, list, dict, dict]:
+    """Build ``(refs, subjects, appearances, decision)`` from character + KB matches.
+
+    The fourth return value, ``decision``, is a per-call summary of what
+    happened during KB lookup (counts of strict/fuzzy/dropped explicit
+    matches, fuzzy-seed matches, whether the bot self was used, whether
+    the per-subject cap was relaxed). It is also mirrored to the
+    module-global ``_LAST_KB_DECISION`` for any caller that doesn't unpack
+    it, but the runner threads the per-call value directly into
+    ``_record_last_scene_generation`` to avoid a race where two
+    interleaved generates would clobber the global.
 
     Subject-aware slot balancing: ``TextEncodeQwenImageEditPlus`` only has
     ``image1..image4`` slots, so when the scene contains multiple unique
@@ -782,6 +799,20 @@ def _gather_refs(
     subjects: list = []
     appearances: dict = {}
 
+    # KB-decision summary captured for /scenedebug + per-generate log line.
+    # Keys mirror what the operator wants to see when verifying that the
+    # right characters reached the encoder.
+    decision: dict = {
+        "kb_considered": 0,
+        "explicit_queries": list(explicit_subjects or []),
+        "explicit_strict_matches": [],   # list of {"query": q, "title": t}
+        "explicit_fuzzy_matches": [],    # list of {"query": q, "title": t}
+        "explicit_dropped": [],          # list of queries with no match at all
+        "fuzzy_seed_matches": [],        # list of titles matched by seed
+        "bot_self_used": False,
+        "single_subject_relax": False,
+    }
+
     seed_lower = (seed_text or "").lower()
     seed_tokens = _seed_token_set(seed_text)
 
@@ -796,11 +827,16 @@ def _gather_refs(
         kb_entries = database.get_image_entries()
     except Exception:
         kb_entries = []
+    decision["kb_considered"] = len(kb_entries)
 
     # ── Subject discovery ────────────────────────────────────────────────
-    # Each candidate is (label, loader, max_photos). loader(idx_1based)
-    # returns a (bytes, mime) tuple or None. max_photos is the hard cap on
-    # how many photos this subject may contribute across both passes.
+    # Each candidate is (label, loader, soft_cap, src). loader(idx_1based)
+    # returns a (bytes, mime) tuple or None. ``soft_cap`` is the per-subject
+    # cap used when MULTIPLE subjects compete for slots (≤2 photos each so
+    # everyone gets representation). When only ONE subject ends up
+    # contributing in Pass A — i.e. a solo scene where the bot is the
+    # only candidate — the Pass-B loop below relaxes the cap to MAX_TOTAL
+    # so the remaining slots can be filled instead of left empty.
     candidates: list = []
     seen_keys: set = set()
     used_entry_ids: set = set()
@@ -816,6 +852,7 @@ def _gather_refs(
             "self",
         ))
         seen_keys.add(_key(bot_label))
+        decision["bot_self_used"] = True
         if bot_name and looks:
             appearances[bot_name] = looks
 
@@ -841,15 +878,57 @@ def _gather_refs(
         if desc and title not in appearances:
             appearances[title] = desc
 
-    # 1a. Explicit `with: ...` overrides — strict equality against KB titles.
+    # 1a. Explicit `with: ...` overrides — strict equality first, then a
+    # fuzzy fallback against title/aliases. The fuzzy fallback covers the
+    # common case where the user wrote `with: Saki` but the KB entry is
+    # titled `Saki Tanaka` — strict equality alone would silently drop the
+    # query and the operator would never know. If even the fuzzy pass
+    # misses, log a loud "did not match" warning so the operator can fix
+    # the spelling or add an alias.
     if explicit_subjects:
         for name in explicit_subjects:
+            matched_entry: Optional[dict] = None
             for entry in kb_entries:
                 if entry.get("id") in used_entry_ids:
                     continue
                 if _entry_matches_explicit(entry, name):
-                    _add_kb_entry(entry)
+                    matched_entry = entry
                     break
+            if matched_entry is not None:
+                _add_kb_entry(matched_entry)
+                decision["explicit_strict_matches"].append({
+                    "query": name,
+                    "title": (matched_entry.get("title") or "").strip(),
+                })
+                continue
+
+            # Fuzzy fallback. Treat the query itself as a mini-seed.
+            q_lower = (name or "").strip().lower()
+            q_tokens = _seed_token_set(name)
+            for entry in kb_entries:
+                if entry.get("id") in used_entry_ids:
+                    continue
+                if _entry_matches_seed(entry, q_lower, q_tokens):
+                    matched_entry = entry
+                    break
+            if matched_entry is not None:
+                _add_kb_entry(matched_entry)
+                decision["explicit_fuzzy_matches"].append({
+                    "query": name,
+                    "title": (matched_entry.get("title") or "").strip(),
+                })
+                print(
+                    f"[SceneImage] with: {name!r} matched KB entry "
+                    f"{(matched_entry.get('title') or '').strip()!r} via "
+                    f"fuzzy fallback (strict equality missed)."
+                )
+                continue
+
+            decision["explicit_dropped"].append(name)
+            print(
+                f"[SceneImage] with: {name!r} did not match any KB entry — "
+                f"dropped. Check spelling or add an alias to the KB entry."
+            )
 
     # 1b. Fuzzy seed-driven KB matches.
     for entry in kb_entries:
@@ -857,9 +936,24 @@ def _gather_refs(
             continue
         if _entry_matches_seed(entry, seed_lower, seed_tokens):
             _add_kb_entry(entry)
+            decision["fuzzy_seed_matches"].append(
+                (entry.get("title") or "").strip()
+            )
 
     if not candidates:
-        return refs, subjects, appearances
+        # No subjects discovered — still log + stash the decision so
+        # /scenedebug can show that the gather completed with zero refs.
+        print(
+            f"[SceneImage] _gather_refs: considered {decision['kb_considered']} "
+            f"KB entries, no subjects matched (bot_self={decision['bot_self_used']}, "
+            f"explicit_dropped={decision['explicit_dropped']!r})."
+        )
+        try:
+            _LAST_KB_DECISION.clear()
+            _LAST_KB_DECISION.update(decision)
+        except Exception:
+            pass
+        return refs, subjects, appearances, decision
 
     # Track per-subject usage so Pass B doesn't exceed the per-subject cap.
     used_by_label: dict = {}
@@ -888,15 +982,47 @@ def _gather_refs(
             break
         _take_from(label, loader, max_photos)
 
-    # ── Pass B: fill remaining slots from same candidates, ≤2 each ────────
+    # ── Pass B: fill remaining slots from same candidates ─────────────────
+    # Multi-subject scenes use the soft per-subject cap (≤2). Solo scenes
+    # — only one subject contributed in Pass A — relax to MAX_TOTAL so a
+    # bot with 3 or 4 saved photos can fill every slot instead of leaving
+    # the encoder with 2 empty slots and 2 duplicates.
     if len(refs) < MAX_TOTAL:
+        single_subject = len(used_by_label) <= 1
+        if single_subject:
+            decision["single_subject_relax"] = True
+            print(
+                f"[SceneImage] _gather_refs: only one subject contributed in "
+                f"Pass A — relaxing per-subject cap to {MAX_TOTAL} so the "
+                f"remaining slots can be filled."
+            )
         for label, loader, max_photos, _src in candidates:
-            while len(refs) < MAX_TOTAL and _take_from(label, loader, max_photos):
+            effective_cap = MAX_TOTAL if single_subject else max_photos
+            while len(refs) < MAX_TOTAL and _take_from(label, loader, effective_cap):
                 pass
             if len(refs) >= MAX_TOTAL:
                 break
 
-    return refs, subjects, appearances
+    # One-line decision summary so the operator can verify the right
+    # characters reached the encoder without having to dig through the
+    # per-subject prints above.
+    print(
+        f"[SceneImage] _gather_refs: considered {decision['kb_considered']} "
+        f"KB entries → strict={len(decision['explicit_strict_matches'])}, "
+        f"fuzzy_explicit={len(decision['explicit_fuzzy_matches'])}, "
+        f"dropped_explicit={len(decision['explicit_dropped'])}, "
+        f"fuzzy_seed={len(decision['fuzzy_seed_matches'])} → "
+        f"final {len(refs)} refs across {len(used_by_label)} subjects "
+        f"(bot_self={decision['bot_self_used']}, "
+        f"single_subject_relax={decision['single_subject_relax']})."
+    )
+    try:
+        _LAST_KB_DECISION.clear()
+        _LAST_KB_DECISION.update(decision)
+    except Exception:
+        pass
+
+    return refs, subjects, appearances, decision
 
 
 # ── Prose-assembly helpers (scene_only / Qwen path) ───────────────────────────
@@ -1434,9 +1560,15 @@ async def run_scene_image(
         _qwen_prefetch: Optional[tuple] = None
         llm_refs: list = []
         llm_ref_labels: list = []
+        # Per-call KB-decision snapshot — populated by whichever
+        # `_gather_refs` call wins for this engine/backend combo and then
+        # threaded into `_record_last_scene_generation` below. This avoids
+        # the race where two interleaved generates would clobber a
+        # module-global stash before the recorder reads it.
+        _kb_decision_local: dict = {}
         if backend == "comfyui" and engine == "qwen":
-            _early_refs, _early_subjects, _early_appearances = _gather_refs(
-                seed, explicit_subjects
+            _early_refs, _early_subjects, _early_appearances, _kb_decision_local = (
+                _gather_refs(seed, explicit_subjects)
             )
             _early_refs, _early_subjects, _early_appearances = _inject_player_refs(
                 _early_refs, _early_subjects, _early_appearances,
@@ -1501,7 +1633,9 @@ async def run_scene_image(
             all_subjects = subjects
         elif backend == "comfyui":
             # FLUX — single-ref char only, no KB interleaving
-            refs, subjects, _ = _gather_refs(seed, explicit_subjects)
+            refs, subjects, _, _kb_decision_local = _gather_refs(
+                seed, explicit_subjects
+            )
             if refs:
                 gen_kwargs["reference_image"] = refs[0]
                 gen_kwargs["reference_images"] = refs[:1]
@@ -1509,7 +1643,9 @@ async def run_scene_image(
             resolved_subjects = subjects[:1]
             all_subjects = subjects[:1]
         elif backend in ("local_diffusers", "hf_spaces"):
-            refs, subjects, _ = _gather_refs(seed, explicit_subjects)
+            refs, subjects, _, _kb_decision_local = _gather_refs(
+                seed, explicit_subjects
+            )
             if refs:
                 gen_kwargs["reference_image"] = refs[0]
             resolved_subjects = subjects[:1]
@@ -1814,6 +1950,13 @@ async def run_scene_image(
                         print(f"[SceneImage] No player looks; injecting persistent items for {_pname!r}: {_ppersistent}.")
 
         # Capture per-generate metadata for /scenedebug. Best-effort, never raises.
+        # Use the per-call decision captured locally from THIS generate's
+        # `_gather_refs` (rather than the module-global stash) so two
+        # interleaved generates can't clobber each other's debug snapshot.
+        try:
+            kb_decision_snapshot = dict(_kb_decision_local) if _kb_decision_local else {}
+        except Exception:
+            kb_decision_snapshot = {}
         try:
             _record_last_scene_generation(
                 enriched_base=enriched_base,
@@ -1832,6 +1975,7 @@ async def run_scene_image(
                 scene_state_label=_state_label,
                 char_state=_char_state_debug,
                 player_discord_id=player_discord_id or "",
+                kb_decision=kb_decision_snapshot,
             )
         except Exception as _dbg_exc:
             print(f"[SceneImage] debug capture failed: {type(_dbg_exc).__name__}: {_dbg_exc}")

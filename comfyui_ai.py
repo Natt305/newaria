@@ -1267,7 +1267,16 @@ def _build_multi_edit_workflow_qwen(
         appearance_lock=_appearance_lock,
         feminine_build=_feminine_on,
         ref_slot_map=[
-            (f"image{i + 1}", uploaded_image_names[i]) for i in range(n)
+            {
+                "slot": f"image{i + 1}",
+                "subject": (
+                    uploaded_subjects[i].strip()
+                    if uploaded_subjects and i < len(uploaded_subjects)
+                    else ""
+                ),
+                "filename": uploaded_image_names[i],
+            }
+            for i in range(n)
         ],
         encoder_v2=_QWEN_ENCODER_V2,
         width=width,
@@ -1543,7 +1552,19 @@ def _run_generate_qwen(
             _picked_indices.append(_idx)
             _used_per_label[_key] = 1
         # Pass B: fill leftover slots with not-yet-picked refs in caller
-        # order. The per-subject cap matches scene_image._gather_refs (≤2).
+        # order. The per-subject cap normally matches scene_image._gather_refs
+        # (≤2 photos per subject), but when only ONE subject contributed in
+        # Pass A — i.e. a solo scene where only the bot has reference photos
+        # — we relax the cap to MAX_TOTAL (4). Otherwise a bot with 3 or 4
+        # saved photos would only ever fill 2 of the 4 encoder slots even
+        # though no other subject is competing for them.
+        _per_subject_cap_b = 4 if len(_used_per_label) <= 1 else 2
+        if _per_subject_cap_b > 2:
+            print(
+                f"[ComfyUI] Qwen: only one subject contributed in Pass A — "
+                f"relaxing per-subject cap from 2 to {_per_subject_cap_b} "
+                f"so the remaining slots can be filled."
+            )
         if len(_picked_indices) < 4:
             _placed = set(_picked_indices)
             for _idx, (_ref, _subj) in enumerate(
@@ -1554,7 +1575,7 @@ def _run_generate_qwen(
                 if _idx in _placed:
                     continue
                 _key = _subj.strip().lower() or "self"
-                if _used_per_label.get(_key, 0) >= 2:
+                if _used_per_label.get(_key, 0) >= _per_subject_cap_b:
                     continue
                 _picked_indices.append(_idx)
                 _used_per_label[_key] = _used_per_label.get(_key, 0) + 1

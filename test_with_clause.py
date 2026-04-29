@@ -245,13 +245,22 @@ _db_module.get_character = lambda: {"name": "TestBot", "looks": "tall, silver ha
 _db_module.get_character_image_count = lambda: 0  # no bot photos — keeps refs list simple
 _db_module.get_image_entries = lambda: _KB_ENTRIES
 _db_module.get_entry_image_count = lambda entry_id: len(_KB_IMAGES.get(entry_id, []))
-_db_module.get_kb_image_full = lambda entry_id, image_index=1: (
-    _KB_IMAGES[entry_id][image_index - 1] if entry_id in _KB_IMAGES else None
-)
+def _mock_get_kb_image_full(entry_id, image_index=1):
+    """Mock that mirrors database.get_kb_image_full's None-on-out-of-range
+    behaviour. The real implementation returns None when image_index is out
+    of bounds; the test mock previously raised IndexError, which now hits
+    the relaxed Pass-B cap (single-subject scenes ask for higher indices)."""
+    images = _KB_IMAGES.get(entry_id) or []
+    if image_index < 1 or image_index > len(images):
+        return None
+    return images[image_index - 1]
+
+
+_db_module.get_kb_image_full = _mock_get_kb_image_full
 
 try:
     # ── 4a. Explicit with: Saki Nikaido should pull Saki's entry ──────────────
-    refs, subjects, appearances = scene_image._gather_refs(
+    refs, subjects, appearances, _decision = scene_image._gather_refs(
         "she smiles softly",
         explicit_subjects=["Saki Nikaido"],
     )
@@ -267,7 +276,7 @@ try:
     )
 
     # ── 4b. No explicit clause + seed mentioning Bocchi → fuzzy picks Bocchi ──
-    refs2, subjects2, appearances2 = scene_image._gather_refs(
+    refs2, subjects2, appearances2, _decision2 = scene_image._gather_refs(
         "Bocchi stands alone with her guitar",
         explicit_subjects=[],
     )
@@ -277,7 +286,7 @@ try:
     expect_false("fuzzy seed match: Saki NOT in subjects", "Saki Nikaido" in subjects2)
 
     # ── 4c. Unknown explicit name falls back gracefully (empty refs) ───────────
-    refs3, subjects3, _ = scene_image._gather_refs(
+    refs3, subjects3, _, _decision3 = scene_image._gather_refs(
         "mysterious stranger smiles",
         explicit_subjects=["NonExistentCharacter"],
     )
@@ -289,7 +298,7 @@ try:
     # ── 4d. Full marker string parsed and forwarded correctly ─────────────────
     full_marker_body = "she smiles | with: Saki Nikaido"
     cleaned_seed, explicit = _parse_with_clause(full_marker_body)
-    refs4, subjects4, _ = scene_image._gather_refs(cleaned_seed, explicit_subjects=explicit)
+    refs4, subjects4, _, _decision4 = scene_image._gather_refs(cleaned_seed, explicit_subjects=explicit)
 
     expect_eq("full pipeline: cleaned seed is 'she smiles'", cleaned_seed, "she smiles")
     expect_eq("full pipeline: explicit is ['Saki Nikaido']", explicit, ["Saki Nikaido"])
@@ -355,11 +364,9 @@ try:
         _db_module.get_character_image_count = lambda: 0
         _db_module.get_image_entries = lambda: _KB_ENTRIES
         _db_module.get_entry_image_count = lambda entry_id: len(_KB_IMAGES.get(entry_id, []))
-        _db_module.get_kb_image_full = lambda entry_id, image_index=1: (
-            _KB_IMAGES[entry_id][image_index - 1] if entry_id in _KB_IMAGES else None
-        )
+        _db_module.get_kb_image_full = _mock_get_kb_image_full
         try:
-            refs_chat, subjects_chat, _ = scene_image._gather_refs(
+            refs_chat, subjects_chat, _, _decision_chat = scene_image._gather_refs(
                 cleaned_chat, explicit_subjects=explicit_chat,
             )
             expect_true("chat→gather: Saki Nikaido in subjects", "Saki Nikaido" in subjects_chat)
