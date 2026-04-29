@@ -1204,19 +1204,25 @@ def _build_multi_edit_workflow_qwen(
         encoder_inputs[f"image{i + 1}"] = [load_id, 0]
         neg_encoder_inputs[f"image{i + 1}"] = [load_id, 0]
 
-    # v2-only: wire the empty latent into both encoders so the node can size
-    # the reference embeddings against the target canvas — this is what
-    # actually kills the scaling/cropping/zoom artifacts on multi-ref edits.
-    # Gated by the diagnose() probe so v1 installs (which don't accept this
-    # input) aren't poisoned with an unknown slot. When the cache is None
-    # (diagnose hasn't run yet) we deliberately do NOT wire it: a one-shot
-    # warning in `_run_generate_qwen` tells the operator to run /diagcomfyui.
-    # NOTE: live /object_info inspection shows the actual node input may be
-    # named `target_latent` rather than `latent_image`; both the probe and
-    # the key name are updated together in follow-up task #11.
+    # v2-only: wire the empty latent into both encoders' `target_latent`
+    # slot so the node can size the reference embeddings against the target
+    # canvas — this is what actually kills the scaling/cropping/zoom
+    # artifacts on multi-ref edits. Gated by the diagnose() probe so v1
+    # installs (which don't expose this slot) aren't poisoned with an
+    # unknown input. When the cache is None (diagnose hasn't run yet) we
+    # deliberately do NOT wire it: a one-shot warning in
+    # `_run_generate_qwen` tells the operator to run /diagcomfyui.
+    #
+    # The slot name on the live v2 `TextEncodeQwenImageEditPlus` node is
+    # `target_latent` (confirmed against /object_info and the gold-standard
+    # reference workflow at
+    # `attached_assets/Qwen_Rapid_NSFW_multiref(1)_1777434733592.json`,
+    # which exposes the slot with `shape: 7` and `link: null` per encoder
+    # node). The earlier `latent_image` key was a guess from before live
+    # /object_info inspection and would have been silently dropped.
     if _QWEN_ENCODER_V2 is True:
-        encoder_inputs["latent_image"] = ["6", 0]
-        neg_encoder_inputs["latent_image"] = ["6", 0]
+        encoder_inputs["target_latent"] = ["6", 0]
+        neg_encoder_inputs["target_latent"] = ["6", 0]
 
     workflow["10"] = {
         "class_type": "TextEncodeQwenImageEditPlus",
@@ -1568,7 +1574,7 @@ def _run_generate_qwen(
     # but the very first `!generate` after a process restart can fire
     # before that ever happens. When the cache is still `None` and we
     # actually have a reference to upload, run diagnose() once so the
-    # builder can wire `latent_image` correctly on the v2 encoder.
+    # builder can wire `target_latent` correctly on the v2 encoder.
     global _QWEN_ENCODER_V2_WARNED
     if _QWEN_ENCODER_V2 is None and qwen_input_refs:
         print(
@@ -1581,12 +1587,12 @@ def _run_generate_qwen(
             print(
                 f"[ComfyUI] Qwen: auto-diagnose failed "
                 f"({type(_diag_exc).__name__}: {_diag_exc}) — proceeding "
-                "without `latent_image` wiring."
+                "without `target_latent` wiring."
             )
         _QWEN_ENCODER_V2_WARNED = True  # silence the legacy one-shot warning
 
     # ── v1 fallback pre-resize ─────────────────────────────────────────────
-    # On v1-encoder installs, the encoder has no `latent_image` slot to
+    # On v1-encoder installs, the encoder has no `target_latent` slot to
     # constrain the reference embedding to the target canvas — references
     # are propagated at their native dimensions and the result drifts
     # toward the reference's aspect ratio. Resize to qwen_width × qwen_height
@@ -1669,13 +1675,14 @@ def _run_generate_qwen(
     #   1 ref    → _build_edit_workflow_qwen      (single-image edit-mode)
     #   2–4 refs → _build_multi_edit_workflow_qwen (image1..image4)
     # Resolve the v2-encoder status into a human-readable tag for the
-    # per-generate log line.
+    # per-generate log line. The slot being reported on is `target_latent`
+    # — the encoder's optional canvas-sizing input on Phr00t's v2 fork.
     if _QWEN_ENCODER_V2 is True:
-        _latent_tag = "wired"
+        _target_latent_tag = "wired"
     elif _QWEN_ENCODER_V2 is False:
-        _latent_tag = "not wired (v1 node)"
+        _target_latent_tag = "not wired (v1 node)"
     else:
-        _latent_tag = "not wired (unknown)"
+        _target_latent_tag = "not wired (unknown)"
 
     if len(uploaded) == 1:
         workflow = _build_edit_workflow_qwen(
@@ -1686,7 +1693,7 @@ def _run_generate_qwen(
             subject_appearances=subject_appearances,
         )
         print(f"[ComfyUI] Qwen edit-mode workflow with 1 reference image "
-              f"(latent_image: {_latent_tag}).")
+              f"(target_latent: {_target_latent_tag}).")
     elif len(uploaded) >= 2:
         workflow = _build_multi_edit_workflow_qwen(
             prompt, qwen_gguf, qwen_vae, qwen_clip,
@@ -1696,7 +1703,7 @@ def _run_generate_qwen(
             subject_appearances=subject_appearances,
         )
         print(f"[ComfyUI] Qwen multi-edit workflow with {len(uploaded)} "
-              f"reference image(s) (latent_image: {_latent_tag}).")
+              f"reference image(s) (target_latent: {_target_latent_tag}).")
     else:
         workflow = _build_txt2img_workflow_qwen(
             prompt, qwen_gguf, qwen_vae, qwen_clip,
@@ -2462,14 +2469,21 @@ def image_ready() -> bool:
 
 
 # ── Module-level cache: TextEncodeQwenImageEditPlus v2 detection ─────────────
-# Populated by diagnose(). True  → installed node accepts a `latent_image`
+# Populated by diagnose(). True  → installed node accepts a `target_latent`
 #                                  input (Phr00t's v2 fork; fixes the
 #                                  scaling/cropping/zoom artifacts).
-#                         False → v1-style node, no `latent_image` slot.
+#                         False → v1-style node, no `target_latent` slot.
 #                         None  → not probed yet (diagnose hasn't run, or
 #                                 ComfyUI was unreachable). Builders default
-#                                 to NOT wiring `latent_image` so a v1 install
-#                                 isn't poisoned by an unknown input.
+#                                 to NOT wiring `target_latent` so a v1
+#                                 install isn't poisoned by an unknown input.
+#
+# We keep the default at None (rather than True/False) on purpose: it is the
+# only value that means "we don't know yet" and lets `_run_generate_qwen`
+# distinguish "v1 — pre-resize" from "v2 — encoder handles sizing" from
+# "unknown — leave references untouched and emit a warning". Flipping the
+# default would force one of those choices on every fresh process before the
+# operator has had a chance to run /diagcomfyui, so None stays.
 _QWEN_ENCODER_V2: Optional[bool] = None
 # One-shot warning latch so the "wiring decision made before diagnose ran"
 # warning prints once per process, not per !generate.
@@ -2500,20 +2514,28 @@ _REQUIRED_NODES_FLUX = [
 ]
 
 
-def _has_qwen_encoder_latent_input(payload: dict) -> bool:
+def _has_qwen_encoder_target_latent_input(payload: dict) -> bool:
     """Return True iff the /object_info payload for `TextEncodeQwenImageEditPlus`
-    advertises a `latent_image` input slot — the marker for Phr00t's v2 fork
-    of `nodes_qwen.py`. The slot may live under `required` or `optional`
-    depending on how the pack author registered it, so we check both.
-    Returns False on any unexpected shape; this defaults the workflow builder
-    to v1-safe behaviour rather than poisoning the prompt with an unknown input.
+    advertises a `target_latent` input slot — the marker for Phr00t's v2
+    fork of `nodes_qwen.py`. The slot may live under `required` or
+    `optional` depending on how the pack author registered it, so we check
+    both. Returns False on any unexpected shape; this defaults the workflow
+    builder to v1-safe behaviour rather than poisoning the prompt with an
+    unknown input.
+
+    The slot name is `target_latent` (confirmed against the gold-standard
+    reference workflow at
+    `attached_assets/Qwen_Rapid_NSFW_multiref(1)_1777434733592.json`,
+    which exposes the slot with `shape: 7` and `link: null` per encoder
+    node). An earlier name `latent_image` was a guess from before live
+    /object_info inspection and never matched a real install.
     """
     try:
         node_info = next(iter(payload.values())) if payload else {}
         inputs = node_info.get("input", {}) or {}
         for bucket in ("required", "optional"):
             slots = inputs.get(bucket) or {}
-            if isinstance(slots, dict) and "latent_image" in slots:
+            if isinstance(slots, dict) and "target_latent" in slots:
                 return True
     except Exception:
         pass
@@ -2567,16 +2589,16 @@ def diagnose() -> dict:
                                          # not expose device info.
             "qwen_encoder_v2": bool|None,  # True  → installed
                                            # `TextEncodeQwenImageEditPlus`
-                                           # accepts a `latent_image` input
-                                           # (Phr00t v2 fork — fixes
+                                           # accepts a `target_latent`
+                                           # input (Phr00t v2 fork — fixes
                                            # scaling/cropping artifacts).
                                            # False → v1-style node, no slot.
                                            # None  → node missing or unparsed.
         }
 
     Side effect: updates the module-level `_QWEN_ENCODER_V2` cache so that
-    `_build_multi_edit_workflow_qwen` can decide whether to wire `latent_image`
-    without re-probing /object_info on every generate.
+    `_build_multi_edit_workflow_qwen` can decide whether to wire
+    `target_latent` without re-probing /object_info on every generate.
     """
     base_url = os.environ.get("COMFYUI_URL", DEFAULT_URL).rstrip("/")
     engine = os.environ.get("COMFYUI_ENGINE", "qwen").strip().lower()
@@ -2687,23 +2709,23 @@ def diagnose() -> dict:
             except Exception:
                 result["clip_types"] = []
         elif node_name == "TextEncodeQwenImageEditPlus":
-            # v2 detection: Phr00t's v2 fork advertises a `latent_image`
+            # v2 detection: Phr00t's v2 fork advertises a `target_latent`
             # input slot that fixes scaling/cropping/zoom artifacts on
             # multi-reference edits. Cache the result module-level so the
             # workflow builder can wire it without re-probing per generate.
             global _QWEN_ENCODER_V2
             try:
-                is_v2 = _has_qwen_encoder_latent_input(r.json())
+                is_v2 = _has_qwen_encoder_target_latent_input(r.json())
             except Exception:
                 is_v2 = False
             result["qwen_encoder_v2"] = is_v2
             _QWEN_ENCODER_V2 = is_v2
             if is_v2:
                 print("[ComfyUI] Diagnose:   ✅ TextEncodeQwenImageEditPlus v2 — "
-                      "`latent_image` input present (scaling fix active).")
+                      "`target_latent` input present (scaling fix active).")
             else:
                 print("[ComfyUI] Diagnose:   ⚠ TextEncodeQwenImageEditPlus v1 — "
-                      "no `latent_image` input; falling back to legacy mode "
+                      "no `target_latent` input; falling back to legacy mode "
                       "(install Phr00t's v2 nodes_qwen.py to fix scaling/"
                       "cropping/zoom artifacts).")
 

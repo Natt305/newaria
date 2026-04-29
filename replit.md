@@ -100,7 +100,7 @@ Selected via `COMFYUI_ENGINE=qwen` (the new default).
 2. `CLIPLoaderGGUF` (city96, `type=qwen_image`) → CLIP — `mmproj-f16.gguf` must sit alongside the encoder GGUF in `models/clip/`, otherwise the encoder runs in text-only mode and the reference photos are silently dropped.
 3. `VAELoader` → VAE (any Qwen-Image VAE; `pig_qwen_image_vae_fp32-f16.gguf` works through the stock loader).
 4. Up to 4 `LoadImage` nodes (one per uploaded reference) wired into `image1..image4` slots of `TextEncodeQwenImageEditPlus` (positive) and the matching `TextEncodeQwenImageEditPlus` (negative, node "11"). At the default CFG=1.5 the negative carries anatomy/feminine-build correction text; at CFG=1.0 its prompt is empty.
-5. `EmptySD3LatentImage` (16-channel — Qwen-Image is a 16-channel MMDiT model). When Phr00t's **v2** `nodes_qwen.py` is detected (see below), this latent is *also* wired into the encoder's `latent_image` input — the v2 fork uses it to size the reference embeddings against the target canvas, which kills the scaling/cropping/zoom artifacts that plagued v1 multi-ref edits.
+5. `EmptySD3LatentImage` (16-channel — Qwen-Image is a 16-channel MMDiT model). When Phr00t's **v2** `nodes_qwen.py` is detected (see below), this latent is *also* wired into the encoder's `target_latent` input — the v2 fork uses it to size the reference embeddings against the target canvas, which kills the scaling/cropping/zoom artifacts that plagued v1 multi-ref edits.
 6. `KSampler` — `cfg=1.5` (default; raises to activate negative guidance), default `steps=4`, sampler `euler_ancestral`, scheduler `beta` (all overridable via env vars).
 7. `VAEDecode` → `SaveImage`.
 
@@ -108,11 +108,13 @@ Selected via `COMFYUI_ENGINE=qwen` (the new default).
 - `ComfyUI-GGUF` (city96) — provides `UnetLoaderGGUF` and `CLIPLoaderGGUF`.
 - Any pack shipping `TextEncodeQwenImageEditPlus`. **Strongly recommended: Phr00t's v2 `nodes_qwen.py`** (rename `nodes_qwen.v2.py` → `nodes_qwen.py` and drop into `<ComfyUI>/comfy_extras/`). The v1 node still works but produces visibly worse multi-reference results — faces crop, full-body refs zoom into torsos.
 
-**Encoder v2 auto-detection.** At boot (and whenever you re-run `/diagcomfyui`) the bot probes `/object_info/TextEncodeQwenImageEditPlus` for a `latent_image` input slot — the marker for Phr00t's v2 fork — and caches the result. The boot console prints exactly one of these lines so you can verify your install at a glance:
-- `✅ TextEncodeQwenImageEditPlus v2 — `latent_image` input present (scaling fix active).`
-- `⚠ TextEncodeQwenImageEditPlus v1 — no `latent_image` input; falling back to legacy mode (install Phr00t's v2 nodes_qwen.py to fix scaling/cropping/zoom artifacts).`
+**Encoder v2 auto-detection.** At boot (and whenever you re-run `/diagcomfyui`) the bot probes `/object_info/TextEncodeQwenImageEditPlus` for a `target_latent` input slot — the marker for Phr00t's v2 fork — and caches the result. The boot console prints exactly one of these lines so you can verify your install at a glance:
+- `✅ TextEncodeQwenImageEditPlus v2 — `target_latent` input present (scaling fix active).`
+- `⚠ TextEncodeQwenImageEditPlus v1 — no `target_latent` input; falling back to legacy mode (install Phr00t's v2 nodes_qwen.py to fix scaling/cropping/zoom artifacts).`
 
-Each `!generate` then tags its workflow log with `(latent_image: wired)`, `(latent_image: not wired (v1 node))`, or `(latent_image: not wired (unknown))` so you can confirm at a glance which path actually ran. The "unknown" tag means ComfyUI was unreachable when the bot started — re-run `/diagcomfyui` after ComfyUI comes up to populate the cache. The bot **never** sends `latent_image` to a v1 node, so a v1 install can't be poisoned with an unknown input that would 400 the prompt.
+Each `!generate` then tags its workflow log with `(target_latent: wired)`, `(target_latent: not wired (v1 node))`, or `(target_latent: not wired (unknown))` so you can confirm at a glance which path actually ran. The "unknown" tag means ComfyUI was unreachable when the bot started — re-run `/diagcomfyui` after ComfyUI comes up to populate the cache. The bot **never** sends `target_latent` to a v1 node, so a v1 install can't be poisoned with an unknown input that would 400 the prompt.
+
+> Note: an earlier internal probe and wiring used the name `latent_image`, but live `/object_info` inspection — and the gold-standard reference workflow at `attached_assets/Qwen_Rapid_NSFW_multiref(1)_1777434733592.json` — confirmed the actual slot is `target_latent` (shape 7, optional). The slot is left `link: null` in that reference; on a real v2 install the bot wires it to the same `EmptySD3LatentImage` node the KSampler reads from, so the encoder and the sampler agree on the target canvas.
 
 **Backward compatibility:** by default the bot **does not** auto-switch engines when `COMFYUI_ENGINE=qwen` is set but the Qwen vars are missing — it logs a clear WARNING and fails fast, so the active engine can never silently drift to something the user didn't ask for. If you actually want the old "fall back to FLUX" behavior, set `COMFYUI_ALLOW_ENGINE_FALLBACK=1`. To force FLUX explicitly, set `COMFYUI_ENGINE=flux`.
 
@@ -350,7 +352,7 @@ When scene mode is OFF (or the backend is not LM Studio), the legacy
   aliases overlap the seed text — see *KB photo matching* below), with a
   cinematic suffix appended to the prompt (`, cinematic composition,
   soft rim light, shallow depth of field, film grain`). Pairs with the
-  Qwen v2 `latent_image` scaling fix described above so the bot's looks
+  Qwen v2 `target_latent` scaling fix described above so the bot's looks
   survive multi-reference editing.
 - **FLUX**: single-ref multiref using only the character portrait, no KB
   interleaving, same cinematic suffix.
