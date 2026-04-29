@@ -251,11 +251,14 @@ def test_negative_encoder_images_match_positive():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: negative prompt contains failure-mode suppression terms
+# Test 4: negative encoder node carries an empty prompt (reference workflow)
 # ---------------------------------------------------------------------------
 
-def test_negative_prompt_content():
-    """Negative encoder must carry scene + anatomy negatives."""
+def test_negative_encoder_empty_prompt():
+    """Negative encoder (node '11') must carry an empty string prompt to match
+    the reference Qwen-Rapid-AIO workflow. At the default CFG=1.0 the negative
+    branch is mathematically zeroed; the empty prompt ensures the model's
+    distilled guidance is not corrupted by unexpected text tokens."""
     wf = _build_multi_edit_workflow_qwen(
         SCENE_PROMPT,
         **_BASE_KWARGS,
@@ -267,29 +270,14 @@ def test_negative_prompt_content():
     neg_prompt = _negative_node_prompt(wf)
 
     check(
-        "negative prompt is non-empty",
-        bool(neg_prompt),
-        f"neg prompt: {neg_prompt[:80]!r}",
-    )
-    check(
-        "negative contains duplicate-character suppression",
-        "duplicate" in neg_prompt or "cloned" in neg_prompt,
+        "negative encoder (node '11') has an empty prompt",
+        neg_prompt == "",
         f"neg prompt: {neg_prompt[:200]!r}",
     )
     check(
-        "negative contains mirror-reflection suppression",
-        "mirror" in neg_prompt,
-        f"neg prompt: {neg_prompt[:200]!r}",
-    )
-    check(
-        "negative contains face close-up suppression",
-        "close-up" in neg_prompt or "zoomed in" in neg_prompt,
-        f"neg prompt: {neg_prompt[:200]!r}",
-    )
-    check(
-        "negative contains anatomy suppression (from _ANATOMY_NEGATIVE)",
-        "bad anatomy" in neg_prompt,
-        f"neg prompt: {neg_prompt[:200]!r}",
+        "positive encoder (node '10') has a non-empty prompt",
+        bool(_positive_node_prompt(wf)),
+        f"pos prompt: {_positive_node_prompt(wf)[:80]!r}",
     )
 
 
@@ -495,8 +483,8 @@ if __name__ == "__main__":
     print("\n── Test 3: negative encoder receives same image slots as positive ─────")
     test_negative_encoder_images_match_positive()
 
-    print("\n── Test 4: negative prompt contains failure-mode suppression terms ────")
-    test_negative_prompt_content()
+    print("\n── Test 4: negative encoder carries empty prompt (reference workflow) ──")
+    test_negative_encoder_empty_prompt()
 
     print("\n── Test 5: 'self'/'player' labels skipped by real builder ────────────")
     test_self_label_skipped_by_real_builder()
