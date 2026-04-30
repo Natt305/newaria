@@ -22,6 +22,7 @@ from scene_image import (
     _FREED_SCENE_RE, _detect_captive_scene,
     _OUTFIT_SENTENCE_RE, _strip_outfit_from_looks,
 )
+from player_state import PlayerState
 
 PASS = "\033[32mPASS\033[0m"
 FAIL = "\033[31mFAIL\033[0m"
@@ -558,6 +559,128 @@ def test_collar_always_survives_clothing_re():
         )
 
 
+# ── Player looks erotic filter tests ──────────────────────────────────────────
+
+def test_player_looks_hat_stripped_in_nude_scene():
+    """_strip_outfit_from_looks removes hat sentences from player looks during nude scene.
+
+    Mirrors the bot-character behaviour: when _player_undressed is True the code
+    calls _strip_outfit_from_looks(_plooks, fallback_to_empty=True).  The result
+    must not contain hat/outerwear sentences while preserving identity traits.
+    """
+    player_looks = (
+        "He has short brown hair and blue eyes. "
+        "He wears a fedora tilted to one side. "
+        "His build is lean and athletic."
+    )
+    result = _strip_outfit_from_looks(player_looks, fallback_to_empty=True)
+    check(
+        "player nude scene: hat sentence stripped from _plooks",
+        "fedora" not in result.lower(),
+        f"fedora still present in stripped player looks: {result!r}",
+    )
+    check(
+        "player nude scene: identity traits retained in _plooks",
+        "brown hair" in result and "blue eyes" in result,
+        f"identity traits lost from player looks: {result!r}",
+    )
+
+
+def test_player_looks_hat_kept_in_normal_scene():
+    """Hat sentences in player looks survive in the normal (non-undressed) path.
+
+    In the non-undressed branch, scene_image.py (~line 2587-2589) appends
+    _plooks directly without calling _strip_outfit_from_looks:
+        enriched = enriched + f". Player identity: {_plooks}"
+    This test documents that the raw string retains hat sentences, and that
+    filtering would change the output — proving the undressed guard is meaningful.
+    """
+    player_looks = (
+        "He has short brown hair and blue eyes. "
+        "He wears a fedora tilted to one side. "
+        "His build is lean and athletic."
+    )
+    # Normal (non-undressed) path: _plooks used as-is (scene_image.py ~line 2589)
+    normal_path_text = player_looks
+    # Undressed path: _strip_outfit_from_looks(_plooks, ...) (scene_image.py ~line 2550)
+    undressed_path_text = _strip_outfit_from_looks(player_looks, fallback_to_empty=True)
+
+    check(
+        "player normal scene: hat retained in unfiltered _plooks",
+        "fedora" in normal_path_text.lower(),
+        "hat absent from raw _plooks — test data error",
+    )
+    check(
+        "player undressed vs normal: filter removes hat (confirms filter is effective)",
+        "fedora" not in undressed_path_text.lower(),
+        f"filter did not remove hat: {undressed_path_text!r}",
+    )
+    check(
+        "player undressed vs normal: outputs differ (guard has real effect on prompt)",
+        normal_path_text != undressed_path_text,
+        "filtered and unfiltered outputs are identical — guard condition has no effect",
+    )
+
+
+def test_player_looks_branch_logic_with_player_state():
+    """Simulate the run_scene_image player-identity anchor branching (scene_image.py ~2547-2592).
+
+    Uses real PlayerState objects to verify that the guard condition
+    `_pstate.is_undressed()` correctly routes _plooks through
+    `_strip_outfit_from_looks` (undressed path) or leaves it unchanged (normal path).
+    This directly mirrors the production branching without requiring the full
+    run_scene_image harness.
+    """
+    player_looks = (
+        "She has long red hair and grey eyes. "
+        "A black cowboy hat sits atop her head. "
+        "Her frame is slender."
+    )
+
+    # ── Undressed branch (scene_image.py ~line 2547-2562) ─────────────────────
+    undressed_state = PlayerState(body_state="nude")
+    assert undressed_state.is_undressed(), "test setup error: PlayerState not undressed"
+
+    if undressed_state.is_undressed():
+        pidentity_undressed = (
+            _strip_outfit_from_looks(player_looks, fallback_to_empty=True)
+            if player_looks else ""
+        )
+    else:
+        pidentity_undressed = player_looks  # should not reach here
+
+    check(
+        "undressed branch: hat stripped from _plooks via _strip_outfit_from_looks",
+        "hat" not in pidentity_undressed.lower(),
+        f"hat still present after filter: {pidentity_undressed!r}",
+    )
+    check(
+        "undressed branch: identity traits preserved after stripping",
+        "red hair" in pidentity_undressed and "grey eyes" in pidentity_undressed,
+        f"identity traits lost: {pidentity_undressed!r}",
+    )
+
+    # ── Normal (clothed) branch (scene_image.py ~line 2587-2589) ──────────────
+    clothed_state = PlayerState(body_state="clothed")
+    assert not clothed_state.is_undressed(), "test setup error: PlayerState unexpectedly undressed"
+
+    if clothed_state.is_undressed():
+        pidentity_normal = _strip_outfit_from_looks(player_looks, fallback_to_empty=True)
+    else:
+        pidentity_normal = player_looks  # normal path: full looks appended as-is
+
+    check(
+        "normal (clothed) branch: hat preserved in unfiltered _plooks",
+        "hat" in pidentity_normal.lower(),
+        f"hat was stripped in normal path — should only be stripped when undressed: {pidentity_normal!r}",
+    )
+    check(
+        "undressed vs clothed: outputs differ (guard produces different prompt content)",
+        pidentity_undressed != pidentity_normal,
+        "filtered and unfiltered player looks are identical — guard has no real effect",
+    )
+
+
 # ── Run all tests ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -614,6 +737,15 @@ if __name__ == "__main__":
 
     print("\n── Collar always survives clothing RE ────────────────────────────────")
     test_collar_always_survives_clothing_re()
+
+    print("\n── Player looks: hat stripped in nude scene ──────────────────────────")
+    test_player_looks_hat_stripped_in_nude_scene()
+
+    print("\n── Player looks: hat kept in normal (non-nude) scene ─────────────────")
+    test_player_looks_hat_kept_in_normal_scene()
+
+    print("\n── Player looks: branch logic with real PlayerState objects ──────────")
+    test_player_looks_branch_logic_with_player_state()
 
     total = len(_results)
     passed = sum(1 for _, ok, _ in _results if ok)

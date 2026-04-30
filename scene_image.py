@@ -2545,7 +2545,11 @@ async def run_scene_image(
 
                 if _pin_seed:
                     if _pstate.is_undressed():
-                        # Player is undressed — strip outfit sentences, keep identity only
+                        # Player is undressed — strip outfit sentences, keep identity only.
+                        # _strip_outfit_from_looks removes hat/outerwear/clothing sentences
+                        # from the player's static looks text so they cannot leak into the
+                        # erotic/nude prompt via the looks-text path (mirrors bot-character
+                        # behaviour on the state-triggered branch).
                         _pidentity = (
                             _strip_outfit_from_looks(_plooks, fallback_to_empty=True)
                             if _plooks else ""
