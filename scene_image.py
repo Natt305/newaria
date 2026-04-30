@@ -1513,6 +1513,56 @@ _STANDING_BEHIND_RE = re.compile(
 )
 
 
+_RELATIVE_CLAUSE_RE = re.compile(
+    r",?\s*(?:who\s+(?:is|was)\b[^,]*|as\s+(?:he|she|they)\b[^,]*)",
+    re.I,
+)
+
+_WORD_LIMIT = 40
+
+
+def _enforce_prompt_brevity(prompt: str) -> str:
+    """Post-process the LLM-generated erotic scene prompt to enforce flat-tag style.
+
+    1. Replace semicolons with commas.
+    2. Strip relative clauses ('who is/was …', 'as he/she …') from any tag.
+    3. Hard-truncate to _WORD_LIMIT words by dropping whole trailing comma-separated
+       tags rather than cutting mid-tag (so the result never ends on a partial phrase).
+    """
+    # 1. Semicolons → commas
+    cleaned = prompt.replace(";", ",")
+
+    # 2. Strip relative clauses
+    before = cleaned
+    cleaned = _RELATIVE_CLAUSE_RE.sub("", cleaned)
+    # Tidy up any double-commas or leading/trailing commas left behind
+    cleaned = re.sub(r",\s*,+", ",", cleaned)
+    cleaned = re.sub(r"^\s*,\s*", "", cleaned).strip(" ,")
+    if cleaned != before:
+        print("[SceneImage] brevity: stripped relative clause(s) from erotic prompt")
+
+    # 3. Hard word-count truncation — keep whole comma-separated tags up to the limit
+    words_so_far = 0
+    kept_tags: list[str] = []
+    for tag in cleaned.split(","):
+        tag_stripped = tag.strip()
+        if not tag_stripped:
+            continue
+        tag_words = len(tag_stripped.split())
+        if words_so_far + tag_words > _WORD_LIMIT:
+            break
+        kept_tags.append(tag_stripped)
+        words_so_far += tag_words
+
+    truncated = ", ".join(kept_tags)
+    if truncated != cleaned.strip(" ,"):
+        print(
+            f"[SceneImage] brevity: truncated erotic prompt from "
+            f"{len(cleaned.split())} words → {words_so_far} words"
+        )
+    return truncated
+
+
 def _sanitize_spatial_conflicts(prompt: str) -> str:
     """Fix physically impossible position + sex-act combinations in the prompt.
 
@@ -1675,41 +1725,44 @@ async def _generate_erotic_scene_prompt(
         "YOUR TASK: The prose below may span multiple events. "
         "Pick ONE frozen moment — the single frame of peak intensity — and describe ONLY that instant.\n"
         "\n"
-        "Output a SINGLE LINE of comma-separated tags covering these elements:\n"
-        "  1. Location / setting\n"
-        "  2. Exact body positions and physical contact — name each character explicitly, "
-        "use 'CharacterName's [body part]' form "
-        "(e.g. 'Kelly Gray kneeling, Kelly Gray's mouth around man's cock')\n"
-        "  3. Clothing state for each character — ONLY: fully nude / topless / clothed / partially clothed\n"
-        "  4. Facial expression for each named character\n"
+        "Output a SINGLE LINE of short comma-separated tags covering these elements:\n"
+        "  1. Location / setting — one short tag (e.g. 'dungeon')\n"
+        "  2. Body pose and contact — ONE short independent tag per character or contact point. "
+        "Use 'CharacterName verb' or 'CharacterName's body-part + action' form. "
+        "Each tag must stand completely alone. "
+        "GOOD: 'Kelly Gray kneeling, Kelly Gray's mouth on cock' "
+        "BAD: 'Kelly Gray kneeling on all fours on top of Natt who is standing'\n"
+        "  3. Clothing state per character — ONLY: fully nude / topless / clothed / partially clothed\n"
+        "  4. Sensory/reaction detail per character — expressive multi-word tags are encouraged here: "
+        "tears streaming, drool on chin, eyes wide shock, cheeks flushed, gagging, "
+        "but still tag-style not prose sentences\n"
         "  5. Camera framing — close-up / medium shot / wide shot\n"
         "  6. Restraints (if present) — name the bound character and their bound limbs "
-        "(e.g. 'Kelly Gray's wrists tied behind back, Kelly Gray's ankles bound'). "
-        "ONLY the character explicitly described as bound in the prose wears restraints — "
-        "never attribute ropes, cuffs, or bindings to any other character. "
-        "Omit this element only if no restraints appear in the prose.\n"
+        "(e.g. 'Kelly Gray's wrists tied behind back'). "
+        "ONLY the character explicitly described as bound in the prose wears restraints. "
+        "Omit if no restraints appear.\n"
         "\n"
         "STRICT RULES:\n"
+        "- FLAT TAGS ONLY: Every comma-separated item must be a short, self-contained tag. "
+        "NEVER use relative clauses or subordinate phrases — "
+        "no 'who is', 'who was', 'as he', 'as she', 'forcing', 'slamming', 'while X does Y', "
+        "no 'on top of X who is…', no 'pressed against X as he…'. "
+        "If a description needs a subordinate clause to make sense, split it into two flat tags instead.\n"
         "- OUTPUT FORMAT: ONE single line, comma-separated only. "
-        "NO newlines, NO blank lines, NO per-character section headers "
-        "(never write 'Kelly Gray: fully nude' — write 'Kelly Gray fully nude'), "
-        "NO asterisks, NO markdown, NO semicolons.\n"
+        "NO newlines, NO semicolons, NO asterisks, NO markdown, NO section headers.\n"
         "- ONE MOMENT: Describe only the single frozen frame — do NOT summarise "
         "multiple events, before/after states, or sequential actions.\n"
         "- Every body part must carry the character's exact name in possessive form — "
-        "write 'Kelly Gray's mouth' not 'her mouth' or just 'mouth'.\n"
-        "- If restraints appear in the prose, you MUST include them — they affect body position. "
-        "Restraints belong ONLY to the explicitly bound character — never on anyone else.\n"
+        "write 'Kelly Gray's mouth' not 'her mouth'.\n"
+        "- Restraints belong ONLY to the explicitly bound character — never on anyone else.\n"
         "- Clothing state: ONLY 'fully nude', 'topless', 'clothed', or 'partially clothed'. "
-        "NEVER name specific garments or fabrics.\n"
+        "NEVER name specific garments.\n"
         "- NEVER mention weapons, holsters, or held objects.\n"
-        "- Be anatomically precise about body positions and contact points; vague descriptions "
-        "cause the image model to generate incorrect anatomy.\n"
-        "- SPATIAL LOGIC: Oral sex (face-fuck, blow job, mouth-on-cock) requires face-to-face "
-        "positioning — NEVER place the active partner 'standing behind' the receiver when describing "
-        "oral sex. Use 'standing in front of', 'kneeling before', or omit the relative position.\n"
+        "- SPATIAL LOGIC: Oral sex requires face-to-face positioning — never 'standing behind' "
+        "when describing oral sex.\n"
+        "- HARD LIMIT: Under 40 words total. If in doubt, omit pose context — "
+        "Qwen reads better with fewer, cleaner tags.\n"
         "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks.\n"
-        "- Under 60 words; do not omit any required element.\n"
         "- Write in English regardless of the input language.\n"
     )
 
@@ -1729,12 +1782,15 @@ async def _generate_erotic_scene_prompt(
         response_text: str = (result[0] if result else "").strip()
         success: bool = bool(result[3]) if result and len(result) > 3 else False
         if response_text and success and len(response_text) >= 20:
-            # Fix spatially impossible position + sex-act combinations
-            # (e.g. "standing behind" + face-fuck) before appending tags.
+            # 1. Enforce brevity: strip relative clauses, replace semicolons,
+            #    and hard-truncate to the word limit before anything else.
+            response_text = _enforce_prompt_brevity(response_text)
+            # 2. Fix spatially impossible position + sex-act combinations
+            #    (e.g. "standing behind" + face-fuck).
             response_text = _sanitize_spatial_conflicts(response_text)
-            # Unconditionally append weapon-suppression tags so that any weapon
-            # Qwen might infer from the character's reference photo is overridden
-            # by an explicit "unarmed" directive in the text prompt.
+            # 3. Unconditionally append weapon-suppression tags so that any weapon
+            #    Qwen might infer from the character's reference photo is overridden
+            #    by an explicit "unarmed" directive in the text prompt.
             response_text = response_text.rstrip(" ,") + ", unarmed, no weapons, no holsters"
             print(
                 f"[SceneImage] erotic prompt generated ({len(response_text)} chars): "
