@@ -987,10 +987,9 @@ def _build_txt2img_workflow_qwen(
     carries the weapon-suppression terms even on the zero-reference (txt2img)
     fallback path — in which case the negative will be non-empty.
     """
-    # Prepend weapon-rejection when suppression is active — same logic as the
-    # multi-edit builder so both paths behave identically.
-    _weapon_prefix = "no gun, no weapon, no holster, empty hands, " if extra_negative else ""
-    enhanced_prompt = _weapon_prefix + prompt + _ANATOMY_SUFFIX
+    # Weapon suppression is handled via the negative encoder only.
+    # Weapon tokens must not appear in the positive prompt.
+    enhanced_prompt = prompt + _ANATOMY_SUFFIX
     negative_text = extra_negative if extra_negative else ""
     return {
         "1": {
@@ -1245,19 +1244,11 @@ def _build_multi_edit_workflow_qwen(
     if _text_only_suffix:
         print(f"[ComfyUI] Qwen: text-only subject differentiation — {_text_only_suffix!r}")
 
-    # When weapon suppression is active (extra_negative non-empty, erotic scenes
-    # only), prepend the rejection directive at the very front of the positive
-    # prompt so it occupies the highest-attention token positions — the earliest
-    # tokens receive the strongest attention weight from the encoder.
-    _weapon_prefix = "no gun, no weapon, no holster, empty hands, " if extra_negative else ""
-    # Keep the positive prompt short: slot identity + scene description +
-    # anatomy quality.  The appearance lock, text-only suffix, and feminine
-    # suffix are computed and logged above (and returned in metadata) but NOT
-    # injected here — Qwen is a vision-language model and already receives all
-    # identity/style/appearance information through the reference images.
-    # Overloading the text encoder with 800+ chars of prose instructions
-    # competes with the scene description and degrades output quality.
-    enhanced_prompt = _weapon_prefix + _slot_prefix + prompt + _ANATOMY_SUFFIX
+    # Keep the positive prompt to slot identity + scene description + anatomy
+    # quality only.  Weapon tokens must NOT appear in the positive — they prime
+    # the model to render weapons.  Weapon suppression is handled exclusively
+    # via the negative encoder (see _run_generate_qwen sentinel detection).
+    enhanced_prompt = _slot_prefix + prompt + _ANATOMY_SUFFIX
 
     # Build the negative text. Order is taken directly from the user's
     # gold-standard reference workflow JSON node 11:
@@ -1879,16 +1870,30 @@ def _run_generate_qwen(
         _target_latent_tag = "not wired (unknown)"
 
     # Detect weapon-suppress intent: the erotic-scene path (scene_image.py)
-    # already appends the sentinel to the positive prompt.  When found, also
-    # inject weapon terms into the *negative* prompt so the Qwen VL encoder
-    # receives a direct visual-level "suppress the weapon in the reference
-    # photos" gradient — complementing the text-side "unarmed" directive.
+    # appends the sentinel to the scene prompt.  When found:
+    #   1. Inject weapon terms into the *negative* encoder — this is sufficient
+    #      to suppress weapons visually; the negative does not prime the model.
+    #   2. Strip the sentinel (and the _weapon_prefix that the builders would
+    #      prepend) from the positive prompt.  Weapon tokens in the POSITIVE
+    #      prime the diffusion model to render weapons — explicitly naming a
+    #      weapon, even with "no", increases its presence.  Removing them from
+    #      the positive while keeping them in the negative is the correct split.
+    # Note: the upload loop above already ran its crop check before this strip,
+    # so the reference-photo crop (Task #14) still fires as intended.
     _extra_neg = ""
     if _WEAPON_SUPPRESS_SENTINEL in prompt:
         _extra_neg = _WEAPON_SUPPRESS_NEGATIVE
+        prompt = (
+            prompt
+            .replace(", " + _WEAPON_SUPPRESS_SENTINEL, "")
+            .replace(_WEAPON_SUPPRESS_SENTINEL, "")
+            .strip()
+            .rstrip(",")
+            .strip()
+        )
         print(
             "[ComfyUI] Qwen: weapon-suppress sentinel detected — "
-            "injecting weapon negative into negative prompt."
+            "injecting weapon negative; sentinel stripped from positive prompt."
         )
 
     if len(uploaded) == 1:
