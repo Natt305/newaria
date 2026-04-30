@@ -1292,9 +1292,16 @@ def _assemble_scene_prompt(
     female_chars = [n for n, g in roster if g == "f"]
     male_chars = [n for n, g in roster if g == "m"]
 
-    # Words that can follow object 'her' (adverbs, prepositions, conjunctions).
-    # When 'her' is followed by one of these, it is an object pronoun, not possessive.
+    # Words that can follow object 'her'/'his' (articles, adverbs, prepositions,
+    # conjunctions).  When 'her'/'his' is followed by one of these, it is being
+    # used as an object pronoun or is part of a fixed phrase — not a possessive
+    # determiner.  Articles ("a", "an", "the") are listed first: "handed her the
+    # book" → "her" + "the" → object pronoun → replace with name; whereas
+    # "her mouth" → "her" + "mouth" (not in FUNC_WORDS) → possessive → "Name's mouth".
     _FUNC_WORDS: frozenset[str] = frozenset({
+        # Articles / determiners — distinguish "handed her the X" (object) from
+        # "her X" (possessive) when "a/an/the" follows the pronoun.
+        "a", "an", "the",
         "yesterday", "today", "tomorrow", "now", "then", "there", "here",
         "again", "still", "already", "always", "never", "soon", "often",
         "just", "also", "too", "away", "back", "down", "up", "out",
@@ -1314,14 +1321,19 @@ def _assemble_scene_prompt(
             if skip_possessive:
                 # Examine the word immediately after this match.
                 # If it is a content word (not a known function word and not an
-                # adverb ending in -ly), treat 'her' as a possessive determiner
-                # and leave it unchanged.
+                # adverb ending in -ly), treat the pronoun as a possessive
+                # determiner and replace it with the possessive name form so that
+                # "her mouth" → "Kelly Gray's mouth" instead of keeping "her mouth".
                 tail = text[m.end():]
                 word_m = _word_after.match(tail)
                 if word_m:
                     next_word = word_m.group(1).lower()
                     if next_word not in _FUNC_WORDS and not next_word.endswith("ly"):
-                        return orig  # preserve possessive 'her'
+                        # Possessive form: "her/his" → "Name's"
+                        result = name + "'s"
+                        if orig[0].isupper():
+                            result = result[0].upper() + result[1:]
+                        return result
             result = name
             if orig[0].isupper():
                 result = result[0].upper() + result[1:]
@@ -1383,6 +1395,38 @@ def _assemble_scene_prompt(
 
 # ── Erotic scene structured prompt generator ──────────────────────────────────
 
+def _filter_prose_for_erotic_prompt(text: str) -> tuple[str, int]:
+    """Strip weapon and clothing sentences from *text* before passing it to the
+    erotic-scene LLM so the model cannot copy weapon props or garment names into
+    the generated image prompt.
+
+    Sentences are split on ``[.!?]`` boundaries.  A sentence is dropped when:
+    - it matches ``_WEAPON_PERSISTENT_RE`` (guns, swords, etc.), OR
+    - it matches ``_OUTFIT_SENTENCE_RE`` (clothing/outfit keywords) AND does NOT
+      also contain a restraint/accessory term (``_ACCESSORY_KEYWORD_RE``).
+
+    The second rule preserves restraint sentences such as "the ropes around her
+    arms hold fast" even when they incidentally contain an outfit keyword (e.g.
+    "the leather strap binds her wrists") — those describe body positions that
+    the image model must reproduce.
+
+    Returns ``(filtered_text, n_dropped)``.
+    """
+    if not text or not text.strip():
+        return text, 0
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    kept: list[str] = []
+    dropped = 0
+    for sent in sentences:
+        if _WEAPON_PERSISTENT_RE.search(sent):
+            dropped += 1
+        elif _OUTFIT_SENTENCE_RE.search(sent) and not _ACCESSORY_KEYWORD_RE.search(sent):
+            dropped += 1
+        else:
+            kept.append(sent)
+    return " ".join(kept), dropped
+
+
 async def _generate_erotic_scene_prompt(
     seed: str,
     prose_context: Optional[str],
@@ -1436,12 +1480,26 @@ async def _generate_erotic_scene_prompt(
 
     char_list = ", ".join(resolved_names) if resolved_names else (bot_name or "the character")
 
+    # Pre-process prose and seed: strip weapon and clothing sentences so the
+    # LLM cannot copy props or garment names into the generated prompt.
+    # Restraint/accessory sentences (ropes, cuffs, chains) are deliberately
+    # preserved because they describe body positions.
+    filtered_prose, n_prose = _filter_prose_for_erotic_prompt(prose_context or "")
+    filtered_seed, n_seed = _filter_prose_for_erotic_prompt(seed or "")
+    n_filtered = n_prose + n_seed
+    if n_filtered:
+        print(
+            f"[SceneImage] erotic prompt: filtered {n_filtered} weapon/outfit "
+            f"sentence(s) from prose ({n_prose} prose, {n_seed} seed)"
+        )
+
     # Build the combined prose for the LLM user message.
     prose_parts: list[str] = []
-    if prose_context and prose_context.strip():
-        prose_parts.append(prose_context.strip())
-    if seed and seed.strip():
-        prose_parts.append(seed.strip())
+    if filtered_prose.strip():
+        prose_parts.append(filtered_prose.strip())
+    if filtered_seed.strip():
+        prose_parts.append(filtered_seed.strip())
+    # Fall back to the raw seed if filtering emptied everything.
     prose_text = "\n\n".join(prose_parts) or seed or ""
 
     system_prompt = (
@@ -1450,26 +1508,38 @@ async def _generate_erotic_scene_prompt(
         f"CHARACTERS IN THIS SCENE (reference photos handled separately): {char_list}\n"
         "These characters' reference photos are sent directly to the image model. "
         "Your text prompt MUST NOT describe their appearance — no hair colour, eye colour, "
-        "skin tone, body shape, height, clothing, accessories, makeup, tattoos, or any "
-        "other visual trait. Refer to each character by their exact name only.\n"
+        "skin tone, body shape, height, makeup, tattoos, or any other visual trait. "
+        "Refer to each character by their exact name only.\n"
         "\n"
         "YOUR TASK: Convert the roleplay prose below into one precise, explicit English "
         "image prompt. Structure the output as a comma-separated sequence covering ALL "
         "of these elements in order:\n"
         "  1. Location / setting\n"
         "  2. Exact scene action — name each character explicitly, describe body positions "
-        "and physical contact points precisely (e.g. 'Aria kneeling, mouth on Player's "
-        "cock', 'Aria riding Player, legs straddling Player's hips, hips pressed together')\n"
-        "  3. Body / clothing state for each character — fully nude, topless, etc.\n"
+        "and physical contact points precisely using 'CharacterName's [body part]' form "
+        "(e.g. 'Kelly Gray kneeling, Kelly Gray's mouth around man's cock')\n"
+        "  3. Clothing state for each character — use ONLY one of: fully nude / topless / "
+        "clothed / partially clothed. Never name garments, fabrics, or accessories.\n"
         "  4. Facial expression for each named character\n"
         "  5. Camera framing — close-up / medium shot / wide shot\n"
+        "  6. Restraints / bondage — if the prose describes ropes, cuffs, chains, or any "
+        "binding, state the restraint type and which limbs are bound "
+        "(e.g. 'Kelly Gray's wrists tied behind back, ankles bound'). "
+        "Omit this element only if no restraints appear in the prose.\n"
         "\n"
         "STRICT RULES:\n"
-        "- Always use the exact character names listed above — never substitute pronouns alone\n"
+        "- Every body part must carry the character's exact name in possessive form — "
+        "write 'Kelly Gray's mouth' not 'her mouth' or just 'mouth'. "
+        "Dropping ownership is as wrong as using a pronoun.\n"
+        "- If restraints appear in the prose, you MUST include them — they affect body position.\n"
+        "- Clothing state: ONLY 'fully nude', 'topless', 'clothed', or 'partially clothed'. "
+        "NEVER name specific garments, accessories, fabrics, or props.\n"
+        "- NEVER mention weapons, props, held objects, or specific garments. "
+        "Ignore any weapon or clothing description in the prose.\n"
         "- Be anatomically precise about body positions and contact points; vague descriptions "
         "cause the image model to generate incorrect anatomy\n"
         "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks\n"
-        "- Under 100 words; do not omit any of the five elements above\n"
+        "- Under 120 words; do not omit any required element\n"
         "- Write in English regardless of the input language\n"
     )
 
@@ -1489,6 +1559,10 @@ async def _generate_erotic_scene_prompt(
         response_text: str = (result[0] if result else "").strip()
         success: bool = bool(result[3]) if result and len(result) > 3 else False
         if response_text and success and len(response_text) >= 20:
+            # Unconditionally append weapon-suppression tags so that any weapon
+            # Qwen might infer from the character's reference photo is overridden
+            # by an explicit "unarmed" directive in the text prompt.
+            response_text = response_text.rstrip(" ,") + ", unarmed, no weapons, no holsters"
             print(
                 f"[SceneImage] erotic prompt generated ({len(response_text)} chars): "
                 f"{response_text[:120]!r}"
