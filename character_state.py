@@ -563,71 +563,66 @@ async def update_state(
 ) -> CharacterState:
     """Update appearance state for a channel after a roleplay exchange.
 
-    1. Runs the regex pre-filter — returns early if no appearance keywords.
-    2. Calls the LLM extractor to get a delta.
-    3. Merges the delta into the stored state.
+    1. Pre-flight: deterministic freed restoration — runs before the extractor
+       pre-filter so freed turns (e.g. "rearmed her", "returned her gun") reliably
+       promote suspended_accessories even if the text contains no generic appearance
+       keywords that would trigger the LLM extractor.
+    2. Runs the regex pre-filter — returns early if no appearance keywords.
+    3. Calls the LLM extractor to get a delta.
+    4. Merges the delta into the stored state.
+    5. Post-delta: captive suspension + belt-and-suspenders freed restoration.
     Returns the (possibly unchanged) state.
     """
-    # exchange_text is needed for deterministic suspension/restoration logic which
-    # must run independently of the extractor (even if extractor returns nothing).
     exchange_text = (user_text or "") + " " + (bot_reply or "")
-
-    if not _needs_update(user_text, bot_reply):
-        return get_state(channel_id)
-
     current = get_state(channel_id)
-    turn = _next_turn(channel_id)
-    print(f"[CharState] ch={channel_id} turn={turn} — pre-filter triggered, calling extractor…")
+
+    # ── Pre-flight: deterministic freed restoration ──────────────────────────
+    # Must run BEFORE _needs_update so freed-text turns that carry no generic
+    # appearance keywords still promote suspended_accessories reliably.
+    if current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
+        turn = _next_turn(channel_id)
+        before_snap = _copy.copy(current)
+        before_snap.suspended_accessories = list(current.suspended_accessories)
+        existing_acc_lower = {x.lower() for x in current.accessories}
+        promoted = []
+        for item in current.suspended_accessories:
+            if item.lower() not in existing_acc_lower:
+                current.accessories.append(item)
+                existing_acc_lower.add(item.lower())
+                promoted.append(item)
+        current.suspended_accessories = []
+        if promoted:
+            print(f"[CharState] Pre-flight restored from suspension: {promoted}")
+        _states[channel_id] = current
+        _db.set_character_state(channel_id, _state_to_dict(current))
+        _db.set_character_turn_counter(channel_id, turn)
+        _record_history(channel_id, turn, before_snap, current)
+        if not _needs_update(user_text, bot_reply):
+            return current   # no extractor needed; restoration already persisted
+        # Fall through to extractor — may have additional appearance changes.
+        # Re-fetch so extractor sees the post-restoration state.
+        current = get_state(channel_id)
+        turn = _next_turn(channel_id)
+        print(f"[CharState] ch={channel_id} turn={turn} — post-restoration, calling extractor…")
+    elif not _needs_update(user_text, bot_reply):
+        return current
+    else:
+        current = get_state(channel_id)
+        turn = _next_turn(channel_id)
+        print(f"[CharState] ch={channel_id} turn={turn} — pre-filter triggered, calling extractor…")
+    # ── End pre-flight ───────────────────────────────────────────────────────
 
     delta = await _extract_state_delta(user_text, bot_reply, current, bot_name, chat_fn)
     if not delta:
-        # Extractor returned nothing — still apply deterministic freed restoration
-        # so escape turns reliably reinstate suspended accessories.
-        if current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
-            before_snap = _copy.copy(current)
-            before_snap.suspended_accessories = list(current.suspended_accessories)
-            existing_acc_lower = {x.lower() for x in current.accessories}
-            promoted = []
-            for item in current.suspended_accessories:
-                if item.lower() not in existing_acc_lower:
-                    current.accessories.append(item)
-                    existing_acc_lower.add(item.lower())
-                    promoted.append(item)
-            current.suspended_accessories = []
-            if promoted:
-                print(f"[CharState] Restored from suspension on escape (no extractor delta): {promoted}")
-            _states[channel_id] = current
-            _db.set_character_state(channel_id, _state_to_dict(current))
-            _db.set_character_turn_counter(channel_id, turn)
-            _record_history(channel_id, turn, before_snap, current)
-        return current
+        return current   # freed restoration (if any) already handled in pre-flight
 
     # Log non-null / non-empty changes for ops visibility
     meaningful = {
         k: v for k, v in delta.items()
         if v not in (None, [], "")
     }
-
     if not meaningful:
-        # Extractor returned all-null delta — still apply deterministic freed restoration
-        if current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
-            before_snap = _copy.copy(current)
-            before_snap.suspended_accessories = list(current.suspended_accessories)
-            existing_acc_lower = {x.lower() for x in current.accessories}
-            promoted = []
-            for item in current.suspended_accessories:
-                if item.lower() not in existing_acc_lower:
-                    current.accessories.append(item)
-                    existing_acc_lower.add(item.lower())
-                    promoted.append(item)
-            current.suspended_accessories = []
-            if promoted:
-                print(f"[CharState] Restored from suspension on escape (no visual delta): {promoted}")
-            _states[channel_id] = current
-            _db.set_character_state(channel_id, _state_to_dict(current))
-            _db.set_character_turn_counter(channel_id, turn)
-            _record_history(channel_id, turn, before_snap, current)
-        return current
+        return current   # freed restoration (if any) already handled in pre-flight
 
     print(f"[CharState] Applying delta: {meaningful}")
     before_snapshot = _copy.copy(current)
@@ -638,7 +633,7 @@ async def update_state(
     before_snapshot.suspended_accessories = list(current.suspended_accessories)
     updated = _apply_delta(current, delta, turn)
 
-    # ── Suspension / restoration logic (post-delta) ────────────────────────
+    # ── Suspension / restoration logic (post-delta) ──────────────────────────
     # Captive transition → suspend portable items that were removed this turn
     removed_accessories = set(before_snapshot.accessories) - set(updated.accessories)
     if removed_accessories and _CAPTIVE_TRANSITION_RE.search(exchange_text):
@@ -654,22 +649,23 @@ async def update_state(
                     existing_lower.add(item.lower())
             print(f"[CharState] Suspended on capture: {portable_removed}")
 
-    # Freed / escaped transition → promote any remaining suspended items
-    # (belt-and-suspenders: also catches items extractor may have readded to suspended)
+    # Belt-and-suspenders freed restoration: catches any items the extractor
+    # may have left in suspended_accessories (rare; pre-flight already cleared
+    # the main case, but extractor could re-add items).
     if updated.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
         existing_acc_lower = {x.lower() for x in updated.accessories}
-        promoted: list[str] = []
+        extra_promoted: list[str] = []
         for item in updated.suspended_accessories:
             if item.lower() not in existing_acc_lower:
                 updated.accessories.append(item)
                 existing_acc_lower.add(item.lower())
-                promoted.append(item)
+                extra_promoted.append(item)
         updated.suspended_accessories = []
-        if promoted:
-            print(f"[CharState] Restored from suspension on escape: {promoted}")
+        if extra_promoted:
+            print(f"[CharState] Belt-and-suspenders restored post-delta: {extra_promoted}")
         else:
             print(f"[CharState] Cleared suspended_accessories on escape (already in accessories).")
-    # ── End suspension / restoration ──────────────────────────────────────
+    # ── End suspension / restoration ─────────────────────────────────────────
 
     _states[channel_id] = updated
     _db.set_character_state(channel_id, _state_to_dict(updated))
