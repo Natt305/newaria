@@ -232,6 +232,7 @@ _OUTFIT_SENTENCE_RE: re.Pattern = re.compile(
         "belt", "strap", "harness",
         "gloves", "boots", "shoes", "heels", "sneakers",
         "scarf", "tie",
+        "hat", "cap", "beret", "fedora", "bonnet", "helmet", "visor",
     ], key=len, reverse=True))  # longer tokens first to avoid partial matches
     + r")\b",
     re.I,

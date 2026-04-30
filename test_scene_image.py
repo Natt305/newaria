@@ -17,7 +17,10 @@ Run: python test_scene_image.py
 import sys
 sys.path.insert(0, ".")
 
-from scene_image import _WEAPON_PERSISTENT_RE, _FREED_SCENE_RE, _detect_captive_scene
+from scene_image import (
+    _WEAPON_PERSISTENT_RE, _FREED_SCENE_RE, _detect_captive_scene,
+    _OUTFIT_SENTENCE_RE, _strip_outfit_from_looks,
+)
 
 PASS = "\033[32mPASS\033[0m"
 FAIL = "\033[31mFAIL\033[0m"
@@ -306,6 +309,78 @@ def test_captive_scene_yields_on_genuine_freedom():
         )
 
 
+def test_headwear_matched_by_outfit_sentence_re():
+    """Headwear terms added in Task #14 must be caught by _OUTFIT_SENTENCE_RE."""
+    headwear_sentences = [
+        "A black hat completes her look.",
+        "Her signature cowboy hat sits atop her curly hair.",
+        "She sports a red cap on her head.",
+        "A wide-brimmed beret rests on her head.",
+        "Her vintage fedora gives her a mysterious air.",
+        "A white bonnet frames her face.",
+        "She wears a motorcycle helmet.",
+        "A tactical visor shades her eyes.",
+    ]
+    for sent in headwear_sentences:
+        check(
+            f"headwear caught: {sent[:60]!r}",
+            bool(_OUTFIT_SENTENCE_RE.search(sent)),
+            "_OUTFIT_SENTENCE_RE did not match — headwear would leak into erotic prompt",
+        )
+
+
+def test_headwear_stripped_from_looks_by_strip_outfit():
+    """_strip_outfit_from_looks removes hat sentences during scene-state override."""
+    hat_only_looks = (
+        "She has long auburn hair and green eyes. "
+        "A black cowboy hat sits atop her head. "
+        "Her skin is lightly tanned."
+    )
+    result = _strip_outfit_from_looks(hat_only_looks, fallback_to_empty=True)
+    check(
+        "hat sentence removed from looks",
+        "hat" not in result.lower(),
+        f"hat still present in stripped result: {result!r}",
+    )
+    check(
+        "hair/eyes retained after hat strip",
+        "auburn hair" in result and "green eyes" in result,
+        f"identity traits lost: {result!r}",
+    )
+
+
+def test_hat_with_collar_collar_rescued():
+    """A sentence mentioning hat AND collar: hat sentence dropped, collar phrase rescued."""
+    mixed = "She wears a black hat and a leather collar around her neck."
+    result = _strip_outfit_from_looks(mixed, fallback_to_empty=True)
+    check(
+        "hat+collar sentence: hat keyword absent from result",
+        "hat" not in result.lower(),
+        f"hat still present: {result!r}",
+    )
+    check(
+        "hat+collar sentence: collar phrase rescued",
+        "collar" in result.lower(),
+        f"collar not rescued: {result!r}",
+    )
+
+
+def test_non_headwear_outfit_words_still_caught():
+    """Existing outfit terms (shirt, boots, etc.) are still caught after the addition."""
+    existing_terms = [
+        ("shirt", "She wears a white shirt."),
+        ("boots", "She has tall leather boots."),
+        ("gloves", "Black gloves cover her hands."),
+        ("scarf", "A red scarf wraps her neck."),
+    ]
+    for term, sent in existing_terms:
+        check(
+            f"existing term still caught: {term!r}",
+            bool(_OUTFIT_SENTENCE_RE.search(sent)),
+            f"regression: {term!r} no longer matched",
+        )
+
+
 # ── Run all tests ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -335,6 +410,18 @@ if __name__ == "__main__":
 
     print("\n── Captive yields on genuine freedom ─────────────────────────────────")
     test_captive_scene_yields_on_genuine_freedom()
+
+    print("\n── Headwear matched by _OUTFIT_SENTENCE_RE ───────────────────────────")
+    test_headwear_matched_by_outfit_sentence_re()
+
+    print("\n── Headwear stripped from looks text ─────────────────────────────────")
+    test_headwear_stripped_from_looks_by_strip_outfit()
+
+    print("\n── Hat+collar: collar rescued, hat stripped ───────────────────────────")
+    test_hat_with_collar_collar_rescued()
+
+    print("\n── Existing outfit terms regression check ────────────────────────────")
+    test_non_headwear_outfit_words_still_caught()
 
     total = len(_results)
     passed = sum(1 for _, ok, _ in _results if ok)
