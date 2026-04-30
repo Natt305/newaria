@@ -1521,8 +1521,10 @@ _RELATIVE_CLAUSE_RE = re.compile(
 _WORD_LIMIT = 40
 # Weapon-suppression suffix always appended after cleanup; reserve its word count
 # so the final prompt (content + suffix) stays at or under _WORD_LIMIT total.
+# Word count is measured from the suffix text itself, excluding the leading ", "
+# connector so it accurately reflects the words that will appear in the output.
 _WEAPON_SUFFIX = ", unarmed, no weapons, no holsters"
-_WEAPON_SUFFIX_WORDS = len(_WEAPON_SUFFIX.split())  # 5 words
+_WEAPON_SUFFIX_WORDS = len(_WEAPON_SUFFIX.lstrip(", ").split())  # 5 words: unarmed no weapons no holsters
 _CONTENT_WORD_BUDGET = _WORD_LIMIT - _WEAPON_SUFFIX_WORDS  # 35 words for scene content
 
 
@@ -1791,20 +1793,22 @@ async def _generate_erotic_scene_prompt(
         response_text: str = (result[0] if result else "").strip()
         success: bool = bool(result[3]) if result and len(result) > 3 else False
         if response_text and success and len(response_text) >= 20:
-            # 1. Enforce brevity: strip relative clauses and semicolons, then
-            #    hard-truncate to _CONTENT_WORD_BUDGET (= _WORD_LIMIT minus the
-            #    weapon-suffix word count) so the fully assembled prompt stays
-            #    within _WORD_LIMIT after the suffix is appended below.
+            # 1. Strip relative clauses, normalise semicolons, initial truncate.
             response_text = _enforce_prompt_brevity(
                 response_text, word_budget=_CONTENT_WORD_BUDGET
             )
             # 2. Fix spatially impossible position + sex-act combinations
-            #    (e.g. "standing behind" + face-fuck).
+            #    (e.g. "standing behind" + face-fuck). This may expand text by
+            #    a couple of words ("behind" → "in front of").
             response_text = _sanitize_spatial_conflicts(response_text)
-            # 3. Append weapon-suppression tags so that any weapon Qwen might
-            #    infer from a reference photo is overridden by an explicit
-            #    directive. Uses the shared _WEAPON_SUFFIX constant so word
-            #    accounting stays consistent with _CONTENT_WORD_BUDGET.
+            # 3. Final truncation pass to enforce the content budget strictly
+            #    after any expansion from the spatial fix above.
+            response_text = _enforce_prompt_brevity(
+                response_text, word_budget=_CONTENT_WORD_BUDGET
+            )
+            # 4. Append weapon-suppression tags. Uses _WEAPON_SUFFIX so word
+            #    accounting stays consistent with _CONTENT_WORD_BUDGET, and the
+            #    final prompt is guaranteed ≤ _WORD_LIMIT words.
             response_text = response_text.rstrip(" ,") + _WEAPON_SUFFIX
             print(
                 f"[SceneImage] erotic prompt generated ({len(response_text)} chars): "
