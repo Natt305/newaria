@@ -1247,9 +1247,8 @@ def _build_multi_edit_workflow_qwen(
 
     # When weapon suppression is active (extra_negative non-empty, erotic scenes
     # only), prepend the rejection directive at the very front of the positive
-    # prompt so it occupies the highest-attention token positions — countering
-    # the appearance lock, which also sits near the front and tells the model to
-    # replicate the reference photo (including any weapon it shows).
+    # prompt so it occupies the highest-attention token positions — the earliest
+    # tokens receive the strongest attention weight from the encoder.
     _weapon_prefix = "no gun, no weapon, no holster, empty hands, " if extra_negative else ""
     # Keep the positive prompt short: slot identity + scene description +
     # anatomy quality.  The appearance lock, text-only suffix, and feminine
