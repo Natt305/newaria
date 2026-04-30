@@ -1519,15 +1519,23 @@ _RELATIVE_CLAUSE_RE = re.compile(
 )
 
 _WORD_LIMIT = 40
+# Weapon-suppression suffix always appended after cleanup; reserve its word count
+# so the final prompt (content + suffix) stays at or under _WORD_LIMIT total.
+_WEAPON_SUFFIX = ", unarmed, no weapons, no holsters"
+_WEAPON_SUFFIX_WORDS = len(_WEAPON_SUFFIX.split())  # 5 words
+_CONTENT_WORD_BUDGET = _WORD_LIMIT - _WEAPON_SUFFIX_WORDS  # 35 words for scene content
 
 
-def _enforce_prompt_brevity(prompt: str) -> str:
+def _enforce_prompt_brevity(prompt: str, word_budget: int = _WORD_LIMIT) -> str:
     """Post-process the LLM-generated erotic scene prompt to enforce flat-tag style.
 
     1. Replace semicolons with commas.
     2. Strip relative clauses ('who is/was …', 'as he/she …') from any tag.
-    3. Hard-truncate to _WORD_LIMIT words by dropping whole trailing comma-separated
+    3. Hard-truncate to word_budget words by dropping whole trailing comma-separated
        tags rather than cutting mid-tag (so the result never ends on a partial phrase).
+
+    Call with word_budget=_CONTENT_WORD_BUDGET before appending the weapon-suppression
+    suffix so the fully assembled prompt stays within _WORD_LIMIT total.
     """
     # 1. Semicolons → commas
     cleaned = prompt.replace(";", ",")
@@ -1541,7 +1549,7 @@ def _enforce_prompt_brevity(prompt: str) -> str:
     if cleaned != before:
         print("[SceneImage] brevity: stripped relative clause(s) from erotic prompt")
 
-    # 3. Hard word-count truncation — keep whole comma-separated tags up to the limit
+    # 3. Hard word-count truncation — keep whole comma-separated tags up to the budget
     words_so_far = 0
     kept_tags: list[str] = []
     for tag in cleaned.split(","):
@@ -1549,7 +1557,7 @@ def _enforce_prompt_brevity(prompt: str) -> str:
         if not tag_stripped:
             continue
         tag_words = len(tag_stripped.split())
-        if words_so_far + tag_words > _WORD_LIMIT:
+        if words_so_far + tag_words > word_budget:
             break
         kept_tags.append(tag_stripped)
         words_so_far += tag_words
@@ -1558,7 +1566,8 @@ def _enforce_prompt_brevity(prompt: str) -> str:
     if truncated != cleaned.strip(" ,"):
         print(
             f"[SceneImage] brevity: truncated erotic prompt from "
-            f"{len(cleaned.split())} words → {words_so_far} words"
+            f"{len(cleaned.split())} words → {words_so_far} words "
+            f"(budget={word_budget})"
         )
     return truncated
 
@@ -1782,16 +1791,21 @@ async def _generate_erotic_scene_prompt(
         response_text: str = (result[0] if result else "").strip()
         success: bool = bool(result[3]) if result and len(result) > 3 else False
         if response_text and success and len(response_text) >= 20:
-            # 1. Enforce brevity: strip relative clauses, replace semicolons,
-            #    and hard-truncate to the word limit before anything else.
-            response_text = _enforce_prompt_brevity(response_text)
+            # 1. Enforce brevity: strip relative clauses and semicolons, then
+            #    hard-truncate to _CONTENT_WORD_BUDGET (= _WORD_LIMIT minus the
+            #    weapon-suffix word count) so the fully assembled prompt stays
+            #    within _WORD_LIMIT after the suffix is appended below.
+            response_text = _enforce_prompt_brevity(
+                response_text, word_budget=_CONTENT_WORD_BUDGET
+            )
             # 2. Fix spatially impossible position + sex-act combinations
             #    (e.g. "standing behind" + face-fuck).
             response_text = _sanitize_spatial_conflicts(response_text)
-            # 3. Unconditionally append weapon-suppression tags so that any weapon
-            #    Qwen might infer from the character's reference photo is overridden
-            #    by an explicit "unarmed" directive in the text prompt.
-            response_text = response_text.rstrip(" ,") + ", unarmed, no weapons, no holsters"
+            # 3. Append weapon-suppression tags so that any weapon Qwen might
+            #    infer from a reference photo is overridden by an explicit
+            #    directive. Uses the shared _WEAPON_SUFFIX constant so word
+            #    accounting stays consistent with _CONTENT_WORD_BUDGET.
+            response_text = response_text.rstrip(" ,") + _WEAPON_SUFFIX
             print(
                 f"[SceneImage] erotic prompt generated ({len(response_text)} chars): "
                 f"{response_text[:120]!r}"
