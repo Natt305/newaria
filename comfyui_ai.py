@@ -1251,7 +1251,14 @@ def _build_multi_edit_workflow_qwen(
     # the appearance lock, which also sits near the front and tells the model to
     # replicate the reference photo (including any weapon it shows).
     _weapon_prefix = "no gun, no weapon, no holster, empty hands, " if extra_negative else ""
-    enhanced_prompt = _weapon_prefix + _slot_prefix + _appearance_lock + _text_only_suffix + prompt + _ANATOMY_SUFFIX + _feminine_pos
+    # Keep the positive prompt short: slot identity + scene description +
+    # anatomy quality.  The appearance lock, text-only suffix, and feminine
+    # suffix are computed and logged above (and returned in metadata) but NOT
+    # injected here — Qwen is a vision-language model and already receives all
+    # identity/style/appearance information through the reference images.
+    # Overloading the text encoder with 800+ chars of prose instructions
+    # competes with the scene description and degrades output quality.
+    enhanced_prompt = _weapon_prefix + _slot_prefix + prompt + _ANATOMY_SUFFIX
 
     # Build the negative text. Order is taken directly from the user's
     # gold-standard reference workflow JSON node 11:
