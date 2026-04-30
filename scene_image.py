@@ -1501,23 +1501,28 @@ async def _generate_erotic_scene_prompt(
         prose_parts.append(filtered_seed.strip())
     prose_text = "\n\n".join(prose_parts)
 
-    # If filtering removed everything, there is nothing safe to send to the LLM.
-    # Never fall back to raw seed here — it would reintroduce weapon/clothing
-    # content that the filter was explicitly designed to suppress.
-    # Use _assemble_scene_prompt (rule-based, no LLM call) as the safe fallback.
-    if not prose_text.strip():
-        print(
-            "[SceneImage] erotic prompt: all prose/seed sentences filtered out "
-            "— falling back to _assemble_scene_prompt"
-        )
-        return _assemble_scene_prompt(
-            seed=seed,
-            prose_context=prose_context,
+    # Helper used by all fallback paths in this function.
+    # Always passes the FILTERED text (never raw) to _assemble_scene_prompt and
+    # always appends weapon-suppression tags so the fallback path gives the same
+    # safety guarantees as the successful LLM path.
+    def _safe_assemble_fallback() -> str:
+        assembled = _assemble_scene_prompt(
+            seed=filtered_seed,
+            prose_context=filtered_prose if filtered_prose.strip() else None,
             roster_names=roster_names,
             roster_appearances=roster_appearances,
             bot_name=bot_name,
             player_display_name=player_display_name,
         )
+        return assembled.rstrip(" ,") + ", unarmed, no weapons, no holsters"
+
+    # If filtering removed everything, there is nothing safe to send to the LLM.
+    if not prose_text.strip():
+        print(
+            "[SceneImage] erotic prompt: all prose/seed sentences filtered out "
+            "— falling back to _assemble_scene_prompt"
+        )
+        return _safe_assemble_fallback()
 
     system_prompt = (
         "You are an expert image-prompt writer for an explicit adult AI image generator.\n"
@@ -1597,14 +1602,7 @@ async def _generate_erotic_scene_prompt(
             f"{type(exc).__name__}: {exc} — falling back to _assemble_scene_prompt"
         )
 
-    return _assemble_scene_prompt(
-        seed=seed,
-        prose_context=prose_context,
-        roster_names=roster_names,
-        roster_appearances=roster_appearances,
-        bot_name=bot_name,
-        player_display_name=player_display_name,
-    )
+    return _safe_assemble_fallback()
 
 
 # ── Prompt derivation ─────────────────────────────────────────────────────────
