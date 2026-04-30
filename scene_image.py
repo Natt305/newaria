@@ -107,11 +107,20 @@ _SCENE_CLOTHING_STATE_PATTERNS: list[tuple[re.Pattern, str]] = [
 # handled by the standard rule-based path; only clear sexual activity triggers
 # the structured LLM prompt path.
 _EROTIC_SCENE_PATTERNS: list[re.Pattern] = [
-    # Explicit male genitalia (EN)
+    # ── Male genitalia (EN) ────────────────────────────────────────────────────
     re.compile(r"\b(?:cock|dick|shaft|penis|phallus)\b", re.I),
-    # Explicit female genitalia (EN)
+    re.compile(r"\b(?:balls|ballsack|testicl(?:e|es)|scrotum|perineum)\b", re.I),
+    re.compile(r"\bhard(?:on|[\-\s]on)\b", re.I),
+    re.compile(r"\berection\b", re.I),
+
+    # ── Female genitalia (EN) ─────────────────────────────────────────────────
     re.compile(r"\b(?:pussy|vagina|vulva|cunt)\b", re.I),
     re.compile(r"\bclit(?:oris)?\b", re.I),
+    re.compile(r"\b(?:labia|mound|sex\s+lips)\b", re.I),
+
+    # ── Breasts in sexual context (EN) ───────────────────────────────────────
+    # Full standalone slang terms that are unambiguous in adult RP prose.
+    re.compile(r"\b(?:tits?|titties?|boobs?)\b", re.I),
     # Nipple only in clear erotic-action context (not just a nude pose mention).
     # Matches "lick/suck/pinch/bite/rub her nipple" and similar.
     re.compile(
@@ -128,31 +137,69 @@ _EROTIC_SCENE_PATTERNS: list[re.Pattern] = [
         r"bite?|biting|rub(?:s|bed|bing)?|teas(?:e|ed|ing)?|pull(?:s|ed|ing)?)\b",
         re.I,
     ),
-    # Direct sexual act verbs / nouns (EN)
+
+    # ── Anal content (EN) ────────────────────────────────────────────────────
+    # Require a sexual qualifier after "anal" to avoid "anal retentive" etc.
+    re.compile(r"\banal\s+(?:sex|play|penetrat\w*|finger\w*|bead\w*|plug\w*|intercourse)\b", re.I),
+    re.compile(r"\b(?:asshole|arsehole|anus|rim(?:ming|med|job)?)\b", re.I),
+    re.compile(r"\bbutt\s*(?:plug|fuck(?:ed|ing)?|sex)\b", re.I),
+
+    # ── Direct sexual act verbs / nouns (EN) ─────────────────────────────────
     re.compile(r"\bpenetrat(?:e|es|ed|ing|ion)\b", re.I),
     re.compile(r"\bfuck(?:s|ed|ing|er)?\b", re.I),
     re.compile(r"\b(?:sexual\s+)?intercourse\b", re.I),
     re.compile(r"\bcopulat(?:e|es|ed|ing|ion)\b", re.I),
-    re.compile(r"\b(?:blow\s*job|oral\s+sex|cunnilingus|fellatio|handjob)\b", re.I),
+    re.compile(r"\b(?:blow\s*job|oral\s+sex|cunnilingus|fellatio|handjob|hand\s+job)\b", re.I),
+    re.compile(r"\bfingering\b|\bfingered\s+(?:her|him|them)\b", re.I),
+    re.compile(r"\bmasturbat(?:e|es|ed|ing|ion)\b", re.I),
+    re.compile(r"\bejaculat(?:e|es|ed|ing|ion)\b", re.I),
+    re.compile(r"\bstroke?(?:s|d|ing)?\s+(?:his|her|their)\s+(?:cock|dick|shaft|penis)\b", re.I),
     # Explicit sexual activity phrases — mirrors _SCENE_CLOTHING_STATE_PATTERNS
     # entries that already imply sex but need the structured prompt treatment.
     re.compile(r"\bhav(?:e|ing|had)\s+sex\b", re.I),
     re.compile(r"\bmaking\s+love\b", re.I),
-    # Sexual reactions / states (EN)
+    re.compile(r"\bsleep(?:s|ing)?\s+with\s+(?:him|her|them)\b", re.I),
+
+    # ── Sexual reactions / fluids (EN) ───────────────────────────────────────
     re.compile(r"\borgasm(?:s|ed|ing)?\b", re.I),
     re.compile(r"\bcumm?(?:s|ed|ing)?\b", re.I),
-    re.compile(r"\berection\b", re.I),
-    # Unambiguous sexual positions / actions (EN)
+    re.compile(r"\bclimax(?:ed|ing)?\b", re.I),
+    re.compile(r"\bsquirt(?:s|ed|ing)?\b", re.I),
+    re.compile(r"\bcumshot\b|\bcreampie\b|\bfacial\s+(?:on|from|across)\b", re.I),
+
+    # ── Sex toys / accessories (EN) ──────────────────────────────────────────
+    re.compile(r"\b(?:dildo|vibrator|strap[\-\s]?on|cock\s*ring|sex\s+toy)\b", re.I),
+
+    # ── Sexual positions (EN) ────────────────────────────────────────────────
+    re.compile(r"\b(?:doggy[\-\s]?style|cowgirl|reverse\s+cowgirl|sixty[\-\s]?nine)\b", re.I),
+    re.compile(r"\bmissionary\s+position\b", re.I),
+
+    # ── Unambiguous sexual actions / movements (EN) ──────────────────────────
     re.compile(r"\bspread(?:s|ing)?\s+(?:her|his|their)\s+legs\b", re.I),
     re.compile(r"\bthrust(?:s|ed|ing)?\s+(?:into|inside|against|deep)\b", re.I),
-    # CJK explicit content
-    re.compile(r"插入|抽送|抽插"),
-    re.compile(r"高潮|射精|潮吹"),
-    re.compile(r"雞巴|鸡巴|陰莖|阴茎|肉棒"),
-    re.compile(r"陰道|阴道|陰部|阴部|私處|私处"),
-    re.compile(r"乳頭|乳头|乳尖"),
-    re.compile(r"性交|做愛|做爱|交合"),
-    re.compile(r"口交|舔逼|舔陰|舔阴"),
+    re.compile(r"\briding\s+(?:him|her|them)\b", re.I),
+    re.compile(r"\bgrinding\s+(?:against|on|onto)\s+(?:him|her|them|his|her|their)\b", re.I),
+    re.compile(r"\bentered?\s+(?:her|him)\b", re.I),
+    re.compile(r"\bpound(?:s|ed|ing)\s+(?:her|him|them|into|against)\b", re.I),
+    re.compile(r"\bbouncing\s+on\s+(?:his|her|their)\b", re.I),
+
+    # ── CJK explicit content ─────────────────────────────────────────────────
+    # Male anatomy
+    re.compile(r"雞巴|鸡巴|陰莖|阴茎|肉棒|屌|鳩|老二|肉根|肉棍"),
+    # Female anatomy
+    re.compile(r"陰道|阴道|陰部|阴部|私處|私处|陰蒂|阴蒂|花蒂|鮑魚|鲍鱼|淫穴|肉穴|蜜穴|濕穴"),
+    # Anal
+    re.compile(r"肛交|肛門|肛门|菊花"),
+    # Breasts / nipples
+    re.compile(r"乳頭|乳头|乳尖|奶頭|奶头|奶尖|乳暈|乳晕"),
+    # Sexual acts
+    re.compile(r"性交|做愛|做爱|交合|插入|抽送|抽插|後入|后入|騎乘|骑乘"),
+    re.compile(r"口交|舔逼|舔陰|舔阴|口爆|吞精|顏射|颜射"),
+    re.compile(r"手淫|自慰|打飛機|打飞机|打手槍|打手枪|自摸|指交"),
+    # Reactions / states
+    re.compile(r"高潮|射精|潮吹|愛液|爱液|淫液|潮濕|濕透"),
+    # Explicit fuck verbs (requires pronoun suffix to avoid 操作/幹嘛 false positives)
+    re.compile(r"操她|操他|操妳|幹她|幹他|幹妳|干她|干他"),
 ]
 
 
