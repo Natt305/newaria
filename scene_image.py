@@ -281,13 +281,14 @@ _FREED_SCENE_RE: re.Pattern = re.compile(
     r"escap(?:ed?|es)\s+(?:the\s+)?(?:dungeon|cell|cage|prison|captivity|custody|captors?)\b|"
     # Breaking free — specific enough already
     r"broke?\s+free\b|broken\s+free\b|broke?\s+out\s+of\b|"
-    # Freed/released — require explicit "set free" or "freed" auxiliary to avoid bare "was free"
+    # Freed/released — require explicit captivity context to avoid false positives
+    # ("she felt free", "he released an arrow", "the bird was freed" must NOT fire).
     r"(?:was|were|been|got|gets?|getting)\s+set\s+free\b|"
-    r"(?:was|were|been|got|gets?|getting)\s+freed\b|"
+    r"(?:was|were|been|got|gets?|getting)\s+(?:finally\s+|just\s+|at\s+last\s+)?freed\s+from\b|"
     r"set\s+(?:her|him|them|you|me)\s+free\b|"
-    r"finally\s+free\b|"
-    r"(?:was|were|been)\s+released\s+from\b|"
-    r"(?:was|were|been)\s+liberat(?:ed?|ing)\b|"
+    r"finally\s+free\s+from\s+(?:captivity|prison|jail|custody|captors?|bonds?|chains|shackles|dungeon|cell|cage|confinement|imprisonment)\b|"
+    r"(?:was|were|been)\s+(?:finally\s+|just\s+|at\s+last\s+)?released\s+from\b|"
+    r"(?:was|were|been)\s+(?:finally\s+|just\s+|at\s+last\s+)?liberat(?:ed?)\s+from\b|"
     # Weapon / belonging explicitly returned or retrieved
     r"return(?:ed)?\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|"
     r"equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
