@@ -553,10 +553,17 @@ async def update_state(
     # Must run BEFORE the extractor so freed turns (e.g. "rearmed her",
     # "returned her gun") that carry no generic appearance keywords still
     # promote suspended_accessories reliably.
+    # Take one "before" snapshot now — used as history anchor for the whole exchange.
+    # If pre-flight fires AND extractor also runs, this single snapshot is reused
+    # so the entire exchange produces one history entry (not two same-turn entries).
+    original_snap = _copy.copy(current)
+    original_snap.accessories           = list(current.accessories)
+    original_snap.restraints            = list(current.restraints)
+    original_snap.wounds                = list(current.wounds)
+    original_snap.marks                 = list(current.marks)
+    original_snap.suspended_accessories = list(current.suspended_accessories)
+
     if has_freed:
-        before_snap = _copy.copy(current)
-        before_snap.accessories           = list(current.accessories)           # deep-copy for accurate history diff
-        before_snap.suspended_accessories = list(current.suspended_accessories)
         existing_acc_lower = {x.lower() for x in current.accessories}
         promoted = []
         for item in current.suspended_accessories:
@@ -571,10 +578,12 @@ async def update_state(
         _states[channel_id] = current
         _db.set_character_state(channel_id, _state_to_dict(current))
         _db.set_character_turn_counter(channel_id, turn)
-        _record_history(channel_id, turn, before_snap, current)
         if not will_extract:
-            return current   # restoration done; no extractor needed
-        # Re-fetch post-restoration state for the extractor
+            # Restoration is the only change this exchange — record history now.
+            _record_history(channel_id, turn, original_snap, current)
+            return current
+        # Extractor will also run; defer history recording so we produce a single
+        # combined entry covering both restoration and the extractor delta.
         current = get_state(channel_id)
         print(f"[CharState] ch={channel_id} turn={turn} — post-restoration, calling extractor…")
     else:
@@ -583,7 +592,10 @@ async def update_state(
 
     delta = await _extract_state_delta(user_text, bot_reply, current, bot_name, chat_fn)
     if not delta:
-        return current   # freed restoration (if any) already handled in pre-flight
+        # Freed restoration (if any) already persisted above; record combined history.
+        if has_freed:
+            _record_history(channel_id, turn, original_snap, get_state(channel_id))
+        return get_state(channel_id)
 
     # Log non-null / non-empty changes for ops visibility
     meaningful = {
@@ -591,20 +603,20 @@ async def update_state(
         if v not in (None, [], "")
     }
     if not meaningful:
-        return current   # freed restoration (if any) already handled in pre-flight
+        # Freed restoration (if any) already persisted; record combined history.
+        if has_freed:
+            _record_history(channel_id, turn, original_snap, get_state(channel_id))
+        return get_state(channel_id)
 
     print(f"[CharState] Applying delta: {meaningful}")
-    before_snapshot = _copy.copy(current)
-    before_snapshot.accessories           = list(current.accessories)
-    before_snapshot.restraints            = list(current.restraints)
-    before_snapshot.wounds                = list(current.wounds)
-    before_snapshot.marks                 = list(current.marks)
-    before_snapshot.suspended_accessories = list(current.suspended_accessories)
+    # `delta_snap` tracks accessories AFTER restoration (pre-delta) so captive
+    # suspension logic correctly identifies which items the extractor removed.
+    delta_snap_acc = list(current.accessories)
     updated = _apply_delta(current, delta, turn)
 
     # ── Suspension / restoration logic (post-delta) ──────────────────────────
     # Captive transition → suspend portable items that were removed this turn
-    removed_accessories = set(before_snapshot.accessories) - set(updated.accessories)
+    removed_accessories = set(delta_snap_acc) - set(updated.accessories)
     if removed_accessories and _CAPTIVE_TRANSITION_RE.search(exchange_text):
         portable_removed = [
             item for item in removed_accessories
@@ -639,5 +651,7 @@ async def update_state(
     _states[channel_id] = updated
     _db.set_character_state(channel_id, _state_to_dict(updated))
     _db.set_character_turn_counter(channel_id, turn)
-    _record_history(channel_id, turn, before_snapshot, updated)
+    # Use original_snap as the history "before" so the full exchange (pre-flight
+    # + delta) is captured in a single history entry with consistent turn N.
+    _record_history(channel_id, turn, original_snap, updated)
     return updated
