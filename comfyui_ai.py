@@ -382,6 +382,36 @@ def _to_png(img_bytes: bytes) -> Optional[bytes]:
         return buf.getvalue()
     except Exception as exc:
         print(f"[ComfyUI] PNG conversion failed ({exc}) — uploading as-is.")
+
+
+def _crop_upper_body(img_bytes: bytes, keep_fraction: float = 0.60) -> Optional[bytes]:
+    """Crop reference image to the top ``keep_fraction`` of its height.
+
+    Used for weapon suppression in erotic-scene generations: characters whose
+    reference photo shows them holding a weapon at waist/hip level have the
+    weapon in the bottom 35-40% of the frame.  Cropping to the top 60% keeps
+    face, hair, and upper torso (all identity-relevant regions) while removing
+    the weapon source before the Qwen VL encoder ever sees it.
+
+    The cropped image is then passed through the normal letterbox or smart-crop
+    pipeline, which fills the remaining canvas with neutral padding — the model
+    sees a clean identity reference with no weapon.
+
+    Returns PNG bytes of the cropped image, or None if PIL is unavailable.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        crop_height = max(1, int(img.height * keep_fraction))
+        cropped = img.crop((0, 0, img.width, crop_height))
+        buf = io.BytesIO()
+        cropped.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as exc:
+        print(f"[ComfyUI] weapon-suppress crop failed ({exc}) — uploading as-is.")
         return None
 
 
@@ -1760,6 +1790,20 @@ def _run_generate_qwen(
     uploaded: List[str] = []
     uploaded_subjects: List[str] = []
     for (ref_bytes, _ref_mime), _subj in zip(qwen_input_refs, qwen_input_subjects):
+        # When weapon suppression is active, crop the reference photo to its
+        # top 60% before any other preprocessing.  Waist/hip-held weapons
+        # occupy the bottom ~35-40% of most portrait shots; removing them here
+        # means the Qwen VL encoder never sees the weapon — a more reliable
+        # approach than any text-based positive/negative suppression.
+        if _WEAPON_SUPPRESS_SENTINEL in prompt:
+            _cropped = _crop_upper_body(ref_bytes)
+            if _cropped:
+                _slot_idx = len(uploaded) + 1  # 1-based slot number
+                print(
+                    f"[ComfyUI] Qwen: weapon-suppress crop applied to reference "
+                    f"image {_slot_idx} (kept top 60%)."
+                )
+                ref_bytes = _cropped
         png_bytes = _to_png(ref_bytes) or ref_bytes
         name = _upload_image(base_url, png_bytes, requests_mod)
         if name:
