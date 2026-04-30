@@ -1408,12 +1408,36 @@ async def _generate_erotic_scene_prompt(
     )
 
     try:
-        result = await groq_ai.chat(
-            [{"role": "user", "content": prose_text}],
-            system_prompt=system_prompt,
-        )
+        # Use a utility-safe call path so backend-specific overlays intended
+        # for user-facing roleplay (language enforcement, persona directives,
+        # narration-style injection) do not bleed into this short utility call.
+        # For LM Studio we call the module directly with enforce_user_lang=False;
+        # for Groq / Ollama the standard module call is already utility-safe.
+        _active_backend = os.environ.get("AI_BACKEND", "groq").strip().lower()
+        if _active_backend == "lmstudio":
+            import lmstudio_ai as _lms
+            result = await _lms.chat(
+                [{"role": "user", "content": prose_text}],
+                system_prompt=system_prompt,
+                enforce_user_lang=False,
+                max_tokens=200,
+            )
+        elif _active_backend == "ollama":
+            import ollama_ai as _ollama
+            result = await _ollama.chat(
+                [{"role": "user", "content": prose_text}],
+                system_prompt=system_prompt,
+            )
+        else:
+            import groq_ai as _groq
+            result = await _groq.chat(
+                [{"role": "user", "content": prose_text}],
+                system_prompt=system_prompt,
+            )
+
         response_text: str = (result[0] if result else "").strip()
-        if response_text and len(response_text) >= 20:
+        success: bool = bool(result[3]) if result and len(result) > 3 else False
+        if response_text and success and len(response_text) >= 20:
             print(
                 f"[SceneImage] erotic prompt generated ({len(response_text)} chars): "
                 f"{response_text[:120]!r}"
@@ -1421,7 +1445,7 @@ async def _generate_erotic_scene_prompt(
             return response_text
         print(
             f"[SceneImage] erotic prompt: LLM returned unusable response "
-            f"({len(response_text)} chars) — falling back to _assemble_scene_prompt"
+            f"(success={success}, len={len(response_text)}) — falling back to _assemble_scene_prompt"
         )
     except Exception as exc:
         print(
