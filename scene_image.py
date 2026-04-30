@@ -2320,30 +2320,40 @@ async def run_scene_image(
 
                 # Strip weapon sentences from looks text when the scene is captive
                 # (she was disarmed / taken to a dungeon) but not fully undressed.
+                # NOTE: no fallback to original text — if all sentences contain
+                # weapon references, _display_looks becomes empty and Qwen uses
+                # the reference photos for identity (same as the multi-ref path).
+                # Falling back to original would reintroduce weapon leakage.
                 _display_looks = _looks_text
                 if _captive_triggered and not _state_triggered:
                     _sents = re.split(r"(?<=[.!?])\s+", _display_looks.strip())
                     _display_looks = " ".join(
                         s for s in _sents if not _WEAPON_PERSISTENT_RE.search(s)
-                    ).strip() or _display_looks
+                    ).strip()
 
                 _captive_note = (
                     f"CAPTIVE SCENE ({_captive_label}) — do NOT render weapons or "
                     f"carried items; scene context removes them. "
                 ) if _captive_triggered and not _state_triggered else ""
-                enriched = (
-                    _captive_note
-                    + enriched
-                    + ". Character identity (must be preserved from reference photos): "
-                    + _display_looks
-                )
+                if _display_looks:
+                    enriched = (
+                        _captive_note
+                        + enriched
+                        + ". Character identity (must be preserved from reference photos): "
+                        + _display_looks
+                    )
+                else:
+                    # All looks sentences were weapon-related and were filtered —
+                    # use captive note only; Qwen reads identity from reference photos.
+                    enriched = _captive_note + enriched
                 if _persistent_str:
                     enriched = enriched + " " + _persistent_str
                 _looks_appended = True
                 print(
                     f"[SceneImage] Appended {len(_display_looks)}-char looks identity suffix "
                     f"post-LLM (QWEN_APPEND_LOOKS=on, single-ref). "
-                    f"Captive filter: {_captive_triggered}. "
+                    f"Captive filter: {_captive_triggered} "
+                    f"({'all weapon sentences stripped' if not _display_looks else 'some stripped'}). "
                     f"Persistent items: {_persistent_items or 'none'}."
                 )
 
