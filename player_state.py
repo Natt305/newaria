@@ -286,47 +286,14 @@ def _needs_update(user_text: str, bot_reply: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Suspension / restoration regexes (mirrors character_state.py)
+# Suspension / restoration regexes — shared with character_state.py.
+# Defined centrally in _state_regexes.py; imported here to avoid drift.
 # ---------------------------------------------------------------------------
 
-_CAPTIVE_TRANSITION_RE: re.Pattern = re.compile(
-    r"\b(?:captur(?:ed?|ing)|imprison(?:ed|ing)?|dungeon|cell|cage|prison|"
-    r"taken\s+(?:prisoner|captive)|disarm(?:ed|ing)?|kidnapp(?:ed|ing)?|"
-    r"confiscat(?:ed?|ing)|enslav(?:ed|ing)?|locked\s+(?:up|in|away)|"
-    r"stripped?\s+of\s+(?:his|her|their)\s+(?:weapon|gun|pistol|equipment|belonging))\b",
-    re.I,
-)
-
-_FREED_TRANSITION_RE: re.Pattern = re.compile(
-    r"\b(?:"
-    r"escap(?:ed?|es|ing)\s+from\b|"
-    r"escap(?:ed?|es)\s+(?:the\s+)?(?:dungeon|cell|cage|prison|captivity|custody|captors?)\b|"
-    r"broke?\s+free\b|broken\s+free\b|broke?\s+out\s+of\b|"
-    r"(?:was|were|been|got|gets?|getting)\s+set\s+free\b|"
-    r"(?:was|were|been|got|gets?|getting)\s+freed\b|"
-    r"set\s+(?:her|him|them|you|me)\s+free\b|"
-    r"finally\s+free\b|"
-    r"(?:was|were|been)\s+released\s+from\b|"
-    r"(?:was|were|been)\s+liberat(?:ed?|ing)\b|"
-    r"return(?:ed)?\s+(?:her|his|their|your)\s+"
-    r"(?:weapon|gun|pistol|rifle|equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
-    r"(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|equipment|belonging|"
-    r"holster|knife|sword|blade|bag|gear)\s+(?:was|were)\s+(?:returned|given\s+back|handed\s+back)\b|"
-    r"retriev(?:ed?|ing)\s+(?:her|his|their|your)\s+"
-    r"(?:weapon|gun|pistol|rifle|equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
-    r"re-?arm(?:ed|ing)?\b|rearmed\b|"
-    r"got\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|equipment|belonging|"
-    r"holster|knife|sword|blade|bag|gear)\s+back\b|"
-    r"reclaim(?:ed?|ing)\s+(?:her|his|their|your)\b"
-    r")",
-    re.I,
-)
-
-_PORTABLE_ITEM_RE: re.Pattern = re.compile(
-    r"\b(?:holster|gun|pistol|revolver|rifle|shotgun|firearm|weapon|"
-    r"sword|blade|knife|dagger|saber|sabre|axe|bow|crossbow|baton|taser|"
-    r"bag|pouch|satchel|backpack|kit|device|gadget|tool)\b",
-    re.I,
+from _state_regexes import (
+    _CAPTIVE_TRANSITION_RE,
+    _FREED_TRANSITION_RE,
+    _PORTABLE_ITEM_RE,
 )
 
 
