@@ -1497,6 +1497,47 @@ def _filter_prose_for_erotic_prompt(text: str) -> tuple[str, int]:
     return " ".join(kept), dropped
 
 
+_ORAL_ACT_RE = re.compile(
+    r"\b(?:face.?fuck(?:s|ed|ing)?|blow\s*job|fellatio|cunnilingus"
+    r"|mouth\s+around|cock\s+in\s+(?:her|his|their)\s+mouth"
+    r"|(?:her|his|their)\s+mouth\s+(?:around|on|over|taking)"
+    r"|sucking\s+(?:his|her|their)\s+(?:cock|dick|shaft|penis)"
+    r"|gagging\s+on\s+(?:his|her|their|the)?\s*(?:cock|dick|shaft|penis|length)"
+    r"|deep(?:\s+in|\s+into)?\s+(?:her|his|their)\s+throat)\b",
+    re.I,
+)
+
+_STANDING_BEHIND_RE = re.compile(
+    r",?\s*\w[\w\s]{0,20}?\s+standing\s+behind\s+\w[\w\s]{0,30}?(?=,|$)",
+    re.I,
+)
+
+
+def _sanitize_spatial_conflicts(prompt: str) -> str:
+    """Fix physically impossible position + sex-act combinations in the prompt.
+
+    Oral sex (face-fuck, blow job, etc.) requires face-to-face positioning and
+    is impossible when the active partner is described as 'standing behind' the
+    receiver.  When both patterns are detected, the 'standing behind' fragment
+    is replaced with 'standing in front of' so the image model receives a
+    spatially coherent description.
+    """
+    if not _ORAL_ACT_RE.search(prompt):
+        return prompt
+
+    def _replace_behind(m: re.Match) -> str:
+        return m.group(0).replace("standing behind", "standing in front of")
+
+    fixed, n = _STANDING_BEHIND_RE.subn(_replace_behind, prompt)
+    if n:
+        fixed = re.sub(r",\s*,", ",", fixed)
+        print(
+            f"[SceneImage] spatial_conflict: corrected {n} 'standing behind' → "
+            f"'standing in front of' (conflicts with oral sex act in prompt)"
+        )
+    return fixed
+
+
 async def _generate_erotic_scene_prompt(
     seed: str,
     prose_context: Optional[str],
@@ -1586,6 +1627,11 @@ async def _generate_erotic_scene_prompt(
             f"dialogue/markdown from prose before LLM call"
         )
 
+    # Fix spatial contradictions in filtered inputs before sending to LLM,
+    # so the model is not misled by an impossible position in the source text.
+    filtered_prose = _sanitize_spatial_conflicts(filtered_prose)
+    filtered_seed = _sanitize_spatial_conflicts(filtered_seed)
+
     # Build the combined prose for the LLM user message.
     prose_parts: list[str] = []
     if filtered_prose.strip():
@@ -1659,6 +1705,9 @@ async def _generate_erotic_scene_prompt(
         "- NEVER mention weapons, holsters, or held objects.\n"
         "- Be anatomically precise about body positions and contact points; vague descriptions "
         "cause the image model to generate incorrect anatomy.\n"
+        "- SPATIAL LOGIC: Oral sex (face-fuck, blow job, mouth-on-cock) requires face-to-face "
+        "positioning — NEVER place the active partner 'standing behind' the receiver when describing "
+        "oral sex. Use 'standing in front of', 'kneeling before', or omit the relative position.\n"
         "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks.\n"
         "- Under 60 words; do not omit any required element.\n"
         "- Write in English regardless of the input language.\n"
@@ -1680,6 +1729,9 @@ async def _generate_erotic_scene_prompt(
         response_text: str = (result[0] if result else "").strip()
         success: bool = bool(result[3]) if result and len(result) > 3 else False
         if response_text and success and len(response_text) >= 20:
+            # Fix spatially impossible position + sex-act combinations
+            # (e.g. "standing behind" + face-fuck) before appending tags.
+            response_text = _sanitize_spatial_conflicts(response_text)
             # Unconditionally append weapon-suppression tags so that any weapon
             # Qwen might infer from the character's reference photo is overridden
             # by an explicit "unarmed" directive in the text prompt.
@@ -1966,6 +2018,20 @@ async def run_scene_image(
         char = database.get_character()
         bot_name = (char.get("name") or "").strip()
         looks = (char.get("looks") or "").strip()
+
+        # Resolve player display name: prefer the name they configured via
+        # /myprofile over the raw Discord display name / nickname.
+        if player_discord_id:
+            _pprofile = database.get_user_profile(player_discord_id)
+            if _pprofile:
+                _configured_name = (_pprofile.get("discord_name") or "").strip()
+                if _configured_name:
+                    if _configured_name != player_display_name:
+                        print(
+                            f"[SceneImage] player name: overriding Discord display name "
+                            f"{player_display_name!r} → profile name {_configured_name!r}"
+                        )
+                    player_display_name = _configured_name
 
         # 1. Prompt seed
         # When the model emitted `[SCENE: short cinematic description]`, the
