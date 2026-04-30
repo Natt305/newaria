@@ -2189,6 +2189,10 @@ async def run_scene_image(
             str(getattr(channel, "id", channel_id))
         )
         _char_state_debug = _char_state_obj.format_debug()
+        # Pre-build combined context so both the character and player blocks
+        # can use it for captive/freed detection without risking NameError when
+        # the character looks block is skipped (e.g. looks disabled or no refs).
+        _combined_ctx = seed + " " + enriched_base
         if (
             _append_looks_enabled()
             and backend == "comfyui"
@@ -2207,7 +2211,7 @@ async def run_scene_image(
 
             # ── Detect scene-state clothing override ──────────────────────────
             # Pass 1: keyword-based detection from the current exchange (Task #1).
-            _combined_ctx = seed + " " + enriched_base
+            # _combined_ctx is defined in the outer scope above.
             _state_triggered, _state_label = _detect_scene_clothing_override(_combined_ctx)
 
             # Pass 2: body_state cache trigger — fires even when NO nudity keyword

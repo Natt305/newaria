@@ -584,7 +584,28 @@ async def update_state(
         k: v for k, v in delta.items()
         if v not in (None, [], "")
     }
+
+    exchange_text = (user_text or "") + " " + (bot_reply or "")
+
     if not meaningful:
+        # Even when the extractor sees no visible appearance change, a freed/escape
+        # turn must still re-promote suspended_accessories deterministically.
+        if current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
+            before_snap = _copy.copy(current)
+            before_snap.suspended_accessories = list(current.suspended_accessories)
+            existing_acc_lower = {x.lower() for x in current.accessories}
+            promoted = []
+            for item in current.suspended_accessories:
+                if item.lower() not in existing_acc_lower:
+                    current.accessories.append(item)
+                    existing_acc_lower.add(item.lower())
+                    promoted.append(item)
+            current.suspended_accessories = []
+            if promoted:
+                print(f"[CharState] Restored from suspension on escape (no visual delta): {promoted}")
+            _states[channel_id] = current
+            _db.set_character_state(channel_id, _state_to_dict(current))
+            _record_history(channel_id, turn, before_snap, current)
         return current
 
     print(f"[CharState] Applying delta: {meaningful}")
@@ -597,9 +618,8 @@ async def update_state(
     updated = _apply_delta(current, delta, turn)
 
     # ── Suspension / restoration logic ────────────────────────────────────
-    # These are deterministic post-delta adjustments keyed on the exchange text
-    # so they don't require any LLM prompt changes.
-    exchange_text = (user_text or "") + " " + (bot_reply or "")
+    # exchange_text was computed above (before the meaningful check) and is
+    # reused here — no LLM prompt changes required; fully deterministic.
 
     # Captive transition → suspend portable items that were removed this turn
     removed_accessories = set(before_snapshot.accessories) - set(updated.accessories)
