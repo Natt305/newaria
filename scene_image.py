@@ -138,12 +138,6 @@ _EROTIC_SCENE_PATTERNS: list[re.Pattern] = [
         re.I,
     ),
 
-    # ── Anal content (EN) ────────────────────────────────────────────────────
-    # Require a sexual qualifier after "anal" to avoid "anal retentive" etc.
-    re.compile(r"\banal\s+(?:sex|play|penetrat\w*|finger\w*|bead\w*|plug\w*|intercourse)\b", re.I),
-    re.compile(r"\b(?:asshole|arsehole|anus|rim(?:ming|med|job)?)\b", re.I),
-    re.compile(r"\bbutt\s*(?:plug|fuck(?:ed|ing)?|sex)\b", re.I),
-
     # ── Direct sexual act verbs / nouns (EN) ─────────────────────────────────
     re.compile(r"\bpenetrat(?:e|es|ed|ing|ion)\b", re.I),
     re.compile(r"\bfuck(?:s|ed|ing|er)?\b", re.I),
@@ -188,8 +182,6 @@ _EROTIC_SCENE_PATTERNS: list[re.Pattern] = [
     re.compile(r"雞巴|鸡巴|陰莖|阴茎|肉棒|屌|鳩|老二|肉根|肉棍"),
     # Female anatomy
     re.compile(r"陰道|阴道|陰部|阴部|私處|私处|陰蒂|阴蒂|花蒂|鮑魚|鲍鱼|淫穴|肉穴|蜜穴|濕穴"),
-    # Anal
-    re.compile(r"肛交|肛門|肛门|菊花"),
     # Breasts / nipples
     re.compile(r"乳頭|乳头|乳尖|奶頭|奶头|奶尖|乳暈|乳晕"),
     # Sexual acts
