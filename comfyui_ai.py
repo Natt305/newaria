@@ -170,13 +170,13 @@ _MIRROR_AND_QUALITY_NEGATIVE = (
     "hands that go through mirror, wearables on wrong characters"
 )
 
-# Weapon-suppression negative — injected when the positive prompt already
-# contains the "unarmed, no weapons, no holsters" sentinel (added by
-# _generate_erotic_scene_prompt).  Node 11 (the negative encoder) receives
-# the SAME reference photos as Node 10, so listing weapon terms here tells
-# the Qwen VL encoder "suppress the weapon-shaped features you see in these
-# reference images" — a direct visual-level signal that complements the
-# text-side "unarmed" directive in the positive prompt.
+# Weapon-suppression negative — injected when the "unarmed, no weapons, no
+# holsters" sentinel (added by _generate_erotic_scene_prompt) is detected.
+# Node 11 (the negative encoder) receives the SAME reference photos as Node 10,
+# so listing weapon terms here tells the Qwen VL encoder "suppress the
+# weapon-shaped features you see in these reference images".  The sentinel is
+# stripped from the positive before it reaches the builders, so weapon tokens
+# appear only in the negative — they must NOT appear in the positive.
 # Not applied to non-erotic generations so action/combat scenes are unaffected.
 _WEAPON_SUPPRESS_NEGATIVE = (
     "gun, revolver, pistol, holster, weapon, firearm, rifle, shotgun, "
@@ -1076,8 +1076,9 @@ def _build_multi_edit_workflow_qwen(
     standard ``_negative_text`` before it is wired into node "11".  Pass
     ``_WEAPON_SUPPRESS_NEGATIVE`` here for erotic / weapon-suppressed scenes so
     that the Qwen VL encoder receives a direct visual-level "suppress the weapon
-    features in these reference images" signal — complementing the text-side
-    "unarmed" directive already present in the positive prompt.
+    features in these reference images" signal.  The sentinel is stripped from
+    the positive before reaching this builder, so weapon terms only appear in
+    the negative encoder.
 
     `uploaded_subjects` (aligned to `uploaded_image_names`) is used to inject a
     brief per-slot identity prefix (`"image 1 is Kelly Gray. image 2 is Natt. "`)
@@ -1873,11 +1874,10 @@ def _run_generate_qwen(
     # appends the sentinel to the scene prompt.  When found:
     #   1. Inject weapon terms into the *negative* encoder — this is sufficient
     #      to suppress weapons visually; the negative does not prime the model.
-    #   2. Strip the sentinel (and the _weapon_prefix that the builders would
-    #      prepend) from the positive prompt.  Weapon tokens in the POSITIVE
-    #      prime the diffusion model to render weapons — explicitly naming a
-    #      weapon, even with "no", increases its presence.  Removing them from
-    #      the positive while keeping them in the negative is the correct split.
+    #   2. Strip the sentinel from the positive prompt before the builders see
+    #      it.  Weapon tokens in the POSITIVE prime the diffusion model to
+    #      render weapons — explicitly naming a weapon, even with "no", increases
+    #      its presence.  Keeping them in the negative only is the correct split.
     # Note: the upload loop above already ran its crop check before this strip,
     # so the reference-photo crop (Task #14) still fires as intended.
     _extra_neg = ""
