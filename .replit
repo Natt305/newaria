@@ -54,4 +54,4 @@ LMSTUDIO_MODEL = "qwen3.5-9b-uncensored-hauhaucs-aggressive"
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 180000
+timeoutMs = 30000

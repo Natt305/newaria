@@ -1168,6 +1168,17 @@ _PROSE_DIALOGUE_STRIP_RE = re.compile(
     r'|\u300e[^\u300f\n]{0,300}\u300f',
 )
 
+# Strip asterisk/bold RP action markers before the LLM call in the erotic path.
+# Three passes (longest match first so nested **"..."** is caught before *...*):
+#   **...**  — bold text / bold-wrapped onomatopoeia like **"Glllrk!"**
+#   *...*    — italic / asterisk-wrapped narrative action like *Her eyes widen*
+#   \*+      — orphaned asterisk(s) left behind after the two passes above
+_RP_MARKDOWN_RE = re.compile(
+    r'\*\*[^\n*]*\*\*'
+    r'|\*[^\n*]*\*'
+    r'|\*+',
+)
+
 # Remove STATIC appearance colour/style descriptors only — e.g. "blonde hair",
 # "blue eyes", "pale skin", "freckles".  Scene-caused dynamic states such as
 # "wet hair", "glistening skin", "steam" are intentionally NOT matched so they
@@ -1495,6 +1506,26 @@ async def _generate_erotic_scene_prompt(
             f"sentence(s) from prose ({n_prose} prose, {n_seed} seed)"
         )
 
+    # Second-pass cleaning: strip quoted dialogue and asterisk/bold RP markers
+    # so the LLM sees only plain narrative sentences — not onomatopoeia, not
+    # asterisk-wrapped action blocks, not quoted speech.
+    def _clean_prose_for_llm(text: str) -> str:
+        t = _PROSE_DIALOGUE_STRIP_RE.sub("", text)
+        t = _RP_MARKDOWN_RE.sub("", t)
+        t = re.sub(r"[ \t]{2,}", " ", t)
+        t = re.sub(r"\n{2,}", "\n", t)
+        return t.strip()
+
+    _before = len(filtered_prose) + len(filtered_seed)
+    filtered_prose = _clean_prose_for_llm(filtered_prose)
+    filtered_seed = _clean_prose_for_llm(filtered_seed)
+    _after = len(filtered_prose) + len(filtered_seed)
+    if _before - _after:
+        print(
+            f"[SceneImage] erotic prompt: stripped {_before - _after} char(s) of "
+            f"dialogue/markdown from prose before LLM call"
+        )
+
     # Build the combined prose for the LLM user message.
     prose_parts: list[str] = []
     if filtered_prose.strip():
@@ -1535,38 +1566,42 @@ async def _generate_erotic_scene_prompt(
         "skin tone, body shape, height, makeup, tattoos, or any other visual trait. "
         "Refer to each character by their exact name only.\n"
         "\n"
-        "YOUR TASK: Convert the roleplay prose below into one precise, explicit English "
-        "image prompt. Structure the output as a comma-separated sequence covering ALL "
-        "of these elements in order:\n"
+        "YOUR TASK: The prose below may span multiple events. "
+        "Pick ONE frozen moment — the single frame of peak intensity — and describe ONLY that instant.\n"
+        "\n"
+        "Output a SINGLE LINE of comma-separated tags covering these elements:\n"
         "  1. Location / setting\n"
-        "  2. Exact scene action — name each character explicitly, describe body positions "
-        "and physical contact points precisely using 'CharacterName's [body part]' form "
+        "  2. Exact body positions and physical contact — name each character explicitly, "
+        "use 'CharacterName's [body part]' form "
         "(e.g. 'Kelly Gray kneeling, Kelly Gray's mouth around man's cock')\n"
-        "  3. Clothing state for each character — use ONLY one of: fully nude / topless / "
-        "clothed / partially clothed. Never name garments, fabrics, or accessories.\n"
+        "  3. Clothing state for each character — ONLY: fully nude / topless / clothed / partially clothed\n"
         "  4. Facial expression for each named character\n"
         "  5. Camera framing — close-up / medium shot / wide shot\n"
-        "  6. Restraints / bondage — if the prose describes ropes, cuffs, chains, or any "
-        "binding, state the restraint type and which limbs are bound "
-        "(e.g. 'Kelly Gray's wrists tied behind back, ankles bound'). "
+        "  6. Restraints (if present) — name the bound character and their bound limbs "
+        "(e.g. 'Kelly Gray's wrists tied behind back, Kelly Gray's ankles bound'). "
+        "ONLY the character explicitly described as bound in the prose wears restraints — "
+        "never attribute ropes, cuffs, or bindings to any other character. "
         "Omit this element only if no restraints appear in the prose.\n"
         "\n"
         "STRICT RULES:\n"
+        "- OUTPUT FORMAT: ONE single line, comma-separated only. "
+        "NO newlines, NO blank lines, NO per-character section headers "
+        "(never write 'Kelly Gray: fully nude' — write 'Kelly Gray fully nude'), "
+        "NO asterisks, NO markdown, NO semicolons.\n"
+        "- ONE MOMENT: Describe only the single frozen frame — do NOT summarise "
+        "multiple events, before/after states, or sequential actions.\n"
         "- Every body part must carry the character's exact name in possessive form — "
-        "write 'Kelly Gray's mouth' not 'her mouth' or just 'mouth'. "
-        "Dropping ownership is as wrong as using a pronoun.\n"
-        "- If restraints appear in the prose, you MUST include them — they affect body position.\n"
+        "write 'Kelly Gray's mouth' not 'her mouth' or just 'mouth'.\n"
+        "- If restraints appear in the prose, you MUST include them — they affect body position. "
+        "Restraints belong ONLY to the explicitly bound character — never on anyone else.\n"
         "- Clothing state: ONLY 'fully nude', 'topless', 'clothed', or 'partially clothed'. "
-        "NEVER name specific garments or fabrics (e.g. no corset, stockings, boots).\n"
-        "- NEVER mention weapons, holsters, or held objects. "
-        "Ignore any weapon or clothing description in the prose.\n"
-        "- Restraints (ropes, cuffs, chains, straps used as bindings) are NOT props — "
-        "they affect body position and must always be described.\n"
+        "NEVER name specific garments or fabrics.\n"
+        "- NEVER mention weapons, holsters, or held objects.\n"
         "- Be anatomically precise about body positions and contact points; vague descriptions "
-        "cause the image model to generate incorrect anatomy\n"
-        "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks\n"
-        "- Under 120 words; do not omit any required element\n"
-        "- Write in English regardless of the input language\n"
+        "cause the image model to generate incorrect anatomy.\n"
+        "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks.\n"
+        "- Under 70 words; do not omit any required element.\n"
+        "- Write in English regardless of the input language.\n"
     )
 
     try:
