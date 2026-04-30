@@ -9,11 +9,12 @@ Coverage:
   F. No restoration when freed text absent
   G. Scene-image freed reinjection (_FREED_SCENE_RE + suspended_accessories)
   H. PlayerState parallel parity
+  I. Async integration: update_state with mocked extractor and DB
 
 Run with: python3 test_suspended_accessories.py
 """
 
-import sys, copy
+import sys, copy, asyncio, unittest.mock as mock
 sys.path.insert(0, ".")
 
 import character_state as cs_mod
@@ -237,6 +238,174 @@ def test_player_state_regexes():
     assert not ps_mod._PORTABLE_ITEM_RE.search("collar")
 
 
+# ── I. Async integration tests ────────────────────────────────────────────────
+
+async def _run_update_state_integration(
+    initial_acc: list,
+    initial_susp: list,
+    exchange: tuple,  # (user_text, bot_reply)
+    extractor_returns,  # dict or None (mocked extractor result)
+) -> cs_mod.CharacterState:
+    """Exercise update_state with mocked DB and extractor, return final state."""
+    ch = "test-channel"
+    user_text, bot_reply = exchange
+
+    # Seed the in-memory state cache directly
+    cs_mod._states[ch] = cs_mod.CharacterState(
+        accessories=list(initial_acc),
+        suspended_accessories=list(initial_susp),
+    )
+    cs_mod._turn_counters[ch] = 0
+
+    # Mock extractor and DB so no real network/DB calls are made
+    async def fake_extractor(*_a, **_kw):
+        return extractor_returns
+
+    with (
+        mock.patch.object(cs_mod, "_extract_state_delta", side_effect=fake_extractor),
+        mock.patch.object(cs_mod._db, "set_character_state"),
+        mock.patch.object(cs_mod._db, "set_character_turn_counter"),
+        mock.patch.object(cs_mod, "_record_history"),
+    ):
+        result = await cs_mod.update_state(
+            channel_id=ch,
+            user_text=user_text,
+            bot_reply=bot_reply,
+            bot_name="Aria",
+            chat_fn=None,
+        )
+    return result
+
+
+def test_integration_preflight_freed_no_extractor_match():
+    """Pre-flight must restore suspended items even when extractor returns {}.
+
+    The freed text 'They rearmed her' does NOT match _needs_update keywords,
+    so in the old (broken) implementation the extractor would never run and
+    restoration would be silently skipped.
+    """
+    user_text = "Good work. Stand down."
+    bot_reply = "They rearmed her and escorted her to the exit."
+    assert cs_mod._FREED_TRANSITION_RE.search(user_text + " " + bot_reply), \
+        "freed regex must match the exchange"
+
+    result = asyncio.get_event_loop().run_until_complete(
+        _run_update_state_integration(
+            initial_acc=["bracelet"],
+            initial_susp=["revolver", "holster"],
+            exchange=(user_text, bot_reply),
+            extractor_returns=None,   # extractor never called / returns nothing
+        )
+    )
+
+    assert "revolver" in result.accessories, "revolver must be restored"
+    assert "holster" in result.accessories, "holster must be restored"
+    assert "bracelet" in result.accessories, "bracelet must be preserved"
+    assert result.suspended_accessories == [], "suspended list must be cleared"
+
+
+def test_integration_capture_then_freed_full_cycle():
+    """Full cycle simulation:
+    1. Capture turn: extractor removes revolver → should move it to suspended
+    2. Freed turn: extractor returns {} → pre-flight restores revolver
+    """
+    import asyncio
+
+    async def run():
+        ch = "test-cycle"
+        cs_mod._states[ch] = cs_mod.CharacterState(accessories=["revolver", "bracelet"])
+        cs_mod._turn_counters[ch] = 0
+
+        # --- Turn 1: capture ---
+        capture_extractor_delta = {"accessories_removed": ["revolver"]}
+
+        async def capture_extractor(*_a, **_kw):
+            return capture_extractor_delta
+
+        with (
+            mock.patch.object(cs_mod, "_extract_state_delta", side_effect=capture_extractor),
+            mock.patch.object(cs_mod._db, "set_character_state"),
+            mock.patch.object(cs_mod._db, "set_character_turn_counter"),
+            mock.patch.object(cs_mod, "_record_history"),
+        ):
+            state1 = await cs_mod.update_state(
+                ch, "Put your hands up!", "She was captured and disarmed.",
+                "Guard", None
+            )
+
+        # After capture: revolver in suspended
+        assert "revolver" not in state1.accessories or "revolver" in state1.suspended_accessories, \
+            "revolver should be suspended or removed from active accessories"
+
+        # --- Turn 2: freed (extractor returns nothing) ---
+        cs_mod._states[ch] = cs_mod.CharacterState(
+            accessories=list(state1.accessories),
+            suspended_accessories=list(state1.suspended_accessories),
+        )
+
+        async def freed_extractor(*_a, **_kw):
+            return None   # extractor has nothing to report
+
+        with (
+            mock.patch.object(cs_mod, "_extract_state_delta", side_effect=freed_extractor),
+            mock.patch.object(cs_mod._db, "set_character_state"),
+            mock.patch.object(cs_mod._db, "set_character_turn_counter"),
+            mock.patch.object(cs_mod, "_record_history"),
+        ):
+            state2 = await cs_mod.update_state(
+                ch, "Stand down.", "They rearmed her and let her go.",
+                "Guard", None
+            )
+
+        assert "revolver" in state2.accessories, "revolver must be restored after freed turn"
+        assert state2.suspended_accessories == [], "suspended list must be empty"
+
+    asyncio.get_event_loop().run_until_complete(run())
+
+
+def test_integration_single_turn_increment():
+    """When both pre-flight AND extractor run in the same exchange, the turn
+    counter must only advance once (one exchange = one turn)."""
+    ch = "test-turn-count"
+    cs_mod._states[ch] = cs_mod.CharacterState(
+        accessories=["bracelet"],
+        suspended_accessories=["revolver"],
+    )
+    cs_mod._turn_counters[ch] = 5   # start at turn 5
+
+    user_text = "They returned her equipment."
+    bot_reply = "She was handed back her belongings and rearmed."
+
+    # Both freed regex and needs_update should fire
+    assert cs_mod._FREED_TRANSITION_RE.search(user_text + " " + bot_reply)
+
+    # Track how many times _next_turn is actually called
+    real_next_turn = cs_mod._next_turn
+    calls = []
+    def counting_next_turn(*a, **kw):
+        result = real_next_turn(*a, **kw)
+        calls.append(result)
+        return result
+
+    async def run():
+        async def fake_extractor(*_a, **_kw):
+            return {"outfit": "tactical vest"}   # meaningful delta
+
+        with (
+            mock.patch.object(cs_mod, "_extract_state_delta", side_effect=fake_extractor),
+            mock.patch.object(cs_mod._db, "set_character_state"),
+            mock.patch.object(cs_mod._db, "set_character_turn_counter"),
+            mock.patch.object(cs_mod, "_record_history"),
+            mock.patch.object(cs_mod, "_next_turn", side_effect=counting_next_turn),
+        ):
+            await cs_mod.update_state(ch, user_text, bot_reply, "Aria", None)
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert len(calls) == 1, (
+        f"_next_turn must be called exactly once per exchange, got {len(calls)} calls: {calls}"
+    )
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -248,7 +417,9 @@ if __name__ == "__main__":
             print(f"  PASS  {fn.__name__}")
             passed += 1
         except Exception as exc:
+            import traceback
             print(f"  FAIL  {fn.__name__}: {exc}")
+            traceback.print_exc()
             failed += 1
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)

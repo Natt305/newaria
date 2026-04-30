@@ -552,11 +552,23 @@ async def update_state(
     current = get_state(channel_id, discord_id)
     k = _key(channel_id, discord_id)
 
+    # Determine upfront whether any work will be done so _next_turn is called
+    # exactly once per exchange (one turn per user-bot exchange, not per step).
+    has_freed = bool(
+        current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text)
+    )
+    will_extract = _needs_update(user_text, bot_reply)
+
+    if not has_freed and not will_extract:
+        return current
+
+    turn = _next_turn(channel_id, discord_id)   # single turn increment for the whole exchange
+
     # ── Pre-flight: deterministic freed restoration ──────────────────────────
-    # Must run BEFORE _needs_update so freed-text turns that carry no generic
-    # appearance keywords still promote suspended_accessories reliably.
-    if current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
-        turn = _next_turn(channel_id, discord_id)
+    # Must run BEFORE the extractor so freed turns (e.g. "rearmed her",
+    # "returned her gun") that carry no generic appearance keywords still
+    # promote suspended_accessories reliably.
+    if has_freed:
         before_snap = _copy.copy(current)
         before_snap.accessories           = list(current.accessories)           # deep-copy for accurate history diff
         before_snap.suspended_accessories = list(current.suspended_accessories)
@@ -575,18 +587,12 @@ async def update_state(
         _db.set_player_state(channel_id, discord_id, _state_to_dict(current))
         _db.set_player_turn_counter(channel_id, discord_id, turn)
         _record_history(channel_id, discord_id, turn, before_snap, current)
-        if not _needs_update(user_text, bot_reply):
-            return current   # no extractor needed; restoration already persisted
-        # Fall through to extractor — may have additional appearance changes.
-        # Re-fetch so extractor sees the post-restoration state.
+        if not will_extract:
+            return current   # restoration done; no extractor needed
+        # Re-fetch post-restoration state for the extractor
         current = get_state(channel_id, discord_id)
-        turn = _next_turn(channel_id, discord_id)
         print(f"[PlayerState] ch={channel_id} user={discord_id} turn={turn} — post-restoration, calling extractor…")
-    elif not _needs_update(user_text, bot_reply):
-        return current
     else:
-        current = get_state(channel_id, discord_id)
-        turn = _next_turn(channel_id, discord_id)
         print(f"[PlayerState] ch={channel_id} user={discord_id} turn={turn} — pre-filter triggered, calling extractor…")
     # ── End pre-flight ───────────────────────────────────────────────────────
 
