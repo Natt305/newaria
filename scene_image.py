@@ -2261,6 +2261,34 @@ async def run_scene_image(
                         + ". "
                     ) if _persistent_items else ""
 
+            # ── Freed scene: reinstate suspended accessories in the image ─────
+            # When the scene describes an escape or rearming AND the character
+            # has suspended accessories (confiscated during a prior captive turn),
+            # add them back to persistent_items now so they appear in this image
+            # immediately — one turn ahead of the state-update that formally
+            # promotes them back to active accessories.
+            # Note: _detect_captive_scene already returns False when freed/escape
+            # signals are present, so _captive_triggered is False here when this
+            # block fires, and no weapon items were stripped above.
+            if _FREED_SCENE_RE.search(_combined_ctx) and _char_state_obj.suspended_accessories:
+                _susp_items = _char_state_obj.suspended_accessories
+                print(
+                    f"[SceneImage] Freed scene — reinstating suspended accessories "
+                    f"in image prompt: {_susp_items}"
+                )
+                _existing_lower = {x.lower() for x in _persistent_items}
+                _new_persistent = list(_persistent_items)
+                for _susp_item in _susp_items:
+                    if _susp_item.lower() not in _existing_lower:
+                        _new_persistent.append(_susp_item)
+                        _existing_lower.add(_susp_item.lower())
+                _persistent_items = _new_persistent
+                _persistent_str = (
+                    "PERSISTENT STATE (always visible, even in this scene): "
+                    + "; ".join(_persistent_items)
+                    + ". "
+                ) if _persistent_items else ""
+
             # ── Load static looks text ────────────────────────────────────────
             try:
                 _char = database.get_character() or {}
@@ -2453,6 +2481,26 @@ async def run_scene_image(
                             + "; ".join(_ppersistent)
                             + "."
                         ) if _ppersistent else ""
+
+                # ── Freed scene: reinstate player suspended accessories ───────
+                if _FREED_SCENE_RE.search(_combined_ctx) and _pstate.suspended_accessories:
+                    _psusp_items = _pstate.suspended_accessories
+                    print(
+                        f"[SceneImage] Freed scene — reinstating player suspended accessories "
+                        f"in image prompt: {_psusp_items}"
+                    )
+                    _pexisting_lower = {x.lower() for x in _ppersistent}
+                    _new_ppersistent = list(_ppersistent)
+                    for _psusp_item in _psusp_items:
+                        if _psusp_item.lower() not in _pexisting_lower:
+                            _new_ppersistent.append(_psusp_item)
+                            _pexisting_lower.add(_psusp_item.lower())
+                    _ppersistent = _new_ppersistent
+                    _ppersistent_str = (
+                        "PLAYER PERSISTENT STATE (always visible): "
+                        + "; ".join(_ppersistent)
+                        + "."
+                    ) if _ppersistent else ""
 
                 if _pin_seed:
                     if _pstate.is_undressed():

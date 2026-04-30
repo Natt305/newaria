@@ -516,6 +516,34 @@ training dominates. `terse` suppresses the hint entirely.
 
 The workflow `Start application` runs `python3 launcher.py`.
 
+## Appearance State System
+
+Both `character_state.py` and `player_state.py` maintain a runtime appearance state for the bot character and the human player respectively. State is keyed by channel (character) or channel + Discord user ID (player) and persisted in the `state_json` column of `history.db` (JSON blob — no schema migration needed when adding new fields).
+
+### State fields (`CharacterState` / `PlayerState`)
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `outfit` | str | Current clothing description |
+| `body_state` | str | `clothed` / `undressed` / `naked` / `towel` / … |
+| `accessories` | list[str] | Actively worn/carried items — always injected into scene images |
+| `restraints` | list[str] | Bindings — survive all scene overrides |
+| `wounds` | list[str] | Injuries — survive all scene overrides |
+| `marks` | list[str] | Lasting marks (scars, tattoos) — survive all scene overrides |
+| `suspended_accessories` | list[str] | **Items parked during a captive/disarmed event** — NOT shown in images; auto-restored on escape/freedom |
+
+### `suspended_accessories` — captive suspension and restoration
+
+When a turn contains captive/disarm keywords (dungeon, captured, disarmed, kidnapped, locked away, etc.) **and** the LLM removes one or more portable items (weapons, bags, tools) from `accessories` via the delta, those items are moved to `suspended_accessories` instead of being permanently deleted. This guarantees they survive even when the LLM has forgotten them in a later turn.
+
+When a turn contains escape/freedom keywords (escaped from, broke free, was freed, weapon returned, rearmed, etc.) **and** `suspended_accessories` is non-empty, all suspended items are automatically promoted back to `accessories` and the suspension list is cleared.
+
+Both operations are deterministic (regex-based, no LLM prompt changes). The LLM extractor is informed of `suspended_accessories` via `_state_summary()` so it can optionally re-add items via `accessories_added` on escape turns as belt-and-suspenders.
+
+`scene_image.py` also injects suspended accessories directly into the persistent-items block for the **current** image when a freed/escape event is detected — so the character's weapon reappears in the scene image immediately, one turn before the state-update formally promotes it.
+
+**Portable item filter** (what gets suspended vs not): `holster`, `gun`, `pistol`, `revolver`, `rifle`, `shotgun`, `firearm`, `weapon`, `sword`, `blade`, `knife`, `dagger`, `saber`, `axe`, `bow`, `crossbow`, `baton`, `taser`, `bag`, `pouch`, `satchel`, `backpack`, `kit`, `device`, `gadget`, `tool`. Worn/attached items (collar, cuffs, rope, necklace, bracelet) are never suspended.
+
 ## Known Bugs Fixed
 
 - **`search_knowledge()` always returned empty results** — fixed to split query into words.

@@ -44,10 +44,18 @@ class CharacterState:
     restraints:  list[str] = field(default_factory=list)
     wounds:      list[str] = field(default_factory=list)
     marks:       list[str] = field(default_factory=list)
+    # Items removed from accessories because of a captive/disarmed event.
+    # Stored so they can be reliably restored when the character escapes or is freed,
+    # even if the LLM no longer has the weapon in its context window.
+    # NOT shown in images until the character is freed (then auto-promoted back to accessories).
+    suspended_accessories: list[str] = field(default_factory=list)
     updated_at: int = 0           # monotone turn counter for diagnostics
 
     def is_empty(self) -> bool:
-        """Return True when no runtime state has been accumulated."""
+        """Return True when no runtime visible state has been accumulated.
+
+        suspended_accessories is metadata — it does not affect emptiness.
+        """
         return (
             not self.outfit
             and self.body_state == "clothed"
@@ -63,6 +71,7 @@ class CharacterState:
         Accessories, restraints, wounds, and marks persist even through
         nude/shower scenes — a collar stays on while showering, bound wrists
         are still visible in an intimate scene, bandages don't vanish.
+        Suspended accessories are NOT included — they are absent until restored.
         """
         items: list[str] = []
         items.extend(self.accessories)
@@ -82,7 +91,8 @@ class CharacterState:
         return (
             f"outfit={self.outfit!r} body={self.body_state!r} "
             f"acc={self.accessories} restraints={self.restraints} "
-            f"wounds={self.wounds} marks={self.marks} turn={self.updated_at}"
+            f"wounds={self.wounds} marks={self.marks} "
+            f"suspended={self.suspended_accessories} turn={self.updated_at}"
         )
 
 
@@ -105,12 +115,13 @@ _HISTORY_MAX: int = 10  # max entries kept per channel
 
 def _state_to_dict(state: CharacterState) -> dict:
     return {
-        "outfit":      state.outfit,
-        "body_state":  state.body_state,
-        "accessories": state.accessories,
-        "restraints":  state.restraints,
-        "wounds":      state.wounds,
-        "marks":       state.marks,
+        "outfit":                state.outfit,
+        "body_state":            state.body_state,
+        "accessories":           state.accessories,
+        "restraints":            state.restraints,
+        "wounds":                state.wounds,
+        "marks":                 state.marks,
+        "suspended_accessories": state.suspended_accessories,
     }
 
 
@@ -122,6 +133,7 @@ def _state_from_dict(d: dict) -> CharacterState:
         restraints=list(d.get("restraints") or []),
         wounds=list(d.get("wounds") or []),
         marks=list(d.get("marks") or []),
+        suspended_accessories=list(d.get("suspended_accessories") or []),
     )
 
 
@@ -192,7 +204,7 @@ def _diff_states(before: CharacterState, after: CharacterState) -> list[str]:
         changes.append(f"outfit: {before.outfit!r} → {after.outfit!r}")
     if before.body_state != after.body_state:
         changes.append(f"body_state: {before.body_state!r} → {after.body_state!r}")
-    for attr in ("accessories", "restraints", "wounds", "marks"):
+    for attr in ("accessories", "restraints", "wounds", "marks", "suspended_accessories"):
         before_set = set(getattr(before, attr))
         after_set = set(getattr(after, attr))
         added = after_set - before_set
@@ -273,6 +285,58 @@ def _needs_update(user_text: str, bot_reply: str) -> bool:
     """Return True if the exchange might contain appearance changes."""
     combined = (user_text or "") + " " + (bot_reply or "")
     return bool(_NEEDS_UPDATE_RE.search(combined))
+
+
+# ---------------------------------------------------------------------------
+# Suspension / restoration regexes
+# ---------------------------------------------------------------------------
+
+# Detects captive/disarm transitions — signals that portable accessories
+# removed this turn should be suspended rather than permanently deleted.
+_CAPTIVE_TRANSITION_RE: re.Pattern = re.compile(
+    r"\b(?:captur(?:ed?|ing)|imprison(?:ed|ing)?|dungeon|cell|cage|prison|"
+    r"taken\s+(?:prisoner|captive)|disarm(?:ed|ing)?|kidnapp(?:ed|ing)?|"
+    r"confiscat(?:ed?|ing)|enslav(?:ed|ing)?|locked\s+(?:up|in|away)|"
+    r"stripped?\s+of\s+(?:her|his|their)\s+(?:weapon|gun|pistol|equipment|belonging))\b",
+    re.I,
+)
+
+# Detects freed/escape transitions — signals that suspended accessories
+# should be promoted back to active accessories.
+# Mirrors _FREED_SCENE_RE in scene_image.py (kept in sync manually).
+_FREED_TRANSITION_RE: re.Pattern = re.compile(
+    r"\b(?:"
+    r"escap(?:ed?|es|ing)\s+from\b|"
+    r"escap(?:ed?|es)\s+(?:the\s+)?(?:dungeon|cell|cage|prison|captivity|custody|captors?)\b|"
+    r"broke?\s+free\b|broken\s+free\b|broke?\s+out\s+of\b|"
+    r"(?:was|were|been|got|gets?|getting)\s+set\s+free\b|"
+    r"(?:was|were|been|got|gets?|getting)\s+freed\b|"
+    r"set\s+(?:her|him|them|you|me)\s+free\b|"
+    r"finally\s+free\b|"
+    r"(?:was|were|been)\s+released\s+from\b|"
+    r"(?:was|were|been)\s+liberat(?:ed?|ing)\b|"
+    r"return(?:ed)?\s+(?:her|his|their|your)\s+"
+    r"(?:weapon|gun|pistol|rifle|equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
+    r"(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|equipment|belonging|"
+    r"holster|knife|sword|blade|bag|gear)\s+(?:was|were)\s+(?:returned|given\s+back|handed\s+back)\b|"
+    r"retriev(?:ed?|ing)\s+(?:her|his|their|your)\s+"
+    r"(?:weapon|gun|pistol|rifle|equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
+    r"re-?arm(?:ed|ing)?\b|rearmed\b|"
+    r"got\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|equipment|belonging|"
+    r"holster|knife|sword|blade|bag|gear)\s+back\b|"
+    r"reclaim(?:ed?|ing)\s+(?:her|his|their|your)\b"
+    r")",
+    re.I,
+)
+
+# Matches portable/carried items (weapons, bags, tools) that are suspended on
+# capture and restored on escape — NOT worn/attached items like collars or cuffs.
+_PORTABLE_ITEM_RE: re.Pattern = re.compile(
+    r"\b(?:holster|gun|pistol|revolver|rifle|shotgun|firearm|weapon|"
+    r"sword|blade|knife|dagger|saber|sabre|axe|bow|crossbow|baton|taser|"
+    r"bag|pouch|satchel|backpack|kit|device|gadget|tool)\b",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +440,12 @@ def _state_summary(state: CharacterState) -> str:
         f"wounds={state.wounds}",
         f"marks={state.marks}",
     ]
+    if state.suspended_accessories:
+        parts.append(
+            f"suspended_accessories={state.suspended_accessories} "
+            f"(confiscated during capture — NOT on body now; "
+            f"use accessories_added to restore ONLY if she has clearly escaped or been rearmed)"
+        )
     return ", ".join(parts)
 
 
@@ -519,11 +589,49 @@ async def update_state(
 
     print(f"[CharState] Applying delta: {meaningful}")
     before_snapshot = _copy.copy(current)
-    before_snapshot.accessories = list(current.accessories)
-    before_snapshot.restraints = list(current.restraints)
-    before_snapshot.wounds = list(current.wounds)
-    before_snapshot.marks = list(current.marks)
+    before_snapshot.accessories           = list(current.accessories)
+    before_snapshot.restraints            = list(current.restraints)
+    before_snapshot.wounds                = list(current.wounds)
+    before_snapshot.marks                 = list(current.marks)
+    before_snapshot.suspended_accessories = list(current.suspended_accessories)
     updated = _apply_delta(current, delta, turn)
+
+    # ── Suspension / restoration logic ────────────────────────────────────
+    # These are deterministic post-delta adjustments keyed on the exchange text
+    # so they don't require any LLM prompt changes.
+    exchange_text = (user_text or "") + " " + (bot_reply or "")
+
+    # Captive transition → suspend portable items that were removed this turn
+    removed_accessories = set(before_snapshot.accessories) - set(updated.accessories)
+    if removed_accessories and _CAPTIVE_TRANSITION_RE.search(exchange_text):
+        portable_removed = [
+            item for item in removed_accessories
+            if _PORTABLE_ITEM_RE.search(item)
+        ]
+        if portable_removed:
+            existing_lower = {x.lower() for x in updated.suspended_accessories}
+            for item in portable_removed:
+                if item.lower() not in existing_lower:
+                    updated.suspended_accessories.append(item)
+                    existing_lower.add(item.lower())
+            print(f"[CharState] Suspended on capture: {portable_removed}")
+
+    # Freed / escaped transition → promote suspended items back to accessories
+    if updated.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
+        existing_acc_lower = {x.lower() for x in updated.accessories}
+        promoted: list[str] = []
+        for item in updated.suspended_accessories:
+            if item.lower() not in existing_acc_lower:
+                updated.accessories.append(item)
+                existing_acc_lower.add(item.lower())
+                promoted.append(item)
+        updated.suspended_accessories = []
+        if promoted:
+            print(f"[CharState] Restored from suspension on escape: {promoted}")
+        else:
+            print(f"[CharState] Cleared suspended_accessories on escape (already in accessories).")
+    # ── End suspension / restoration ──────────────────────────────────────
+
     _states[channel_id] = updated
     _db.set_character_state(channel_id, _state_to_dict(updated))
     _db.set_character_turn_counter(channel_id, turn)
