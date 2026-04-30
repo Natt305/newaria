@@ -934,6 +934,7 @@ def _build_txt2img_workflow_qwen(
     seed: int,
     sampler_name: str,
     scheduler_name: str,
+    extra_negative: str = "",
 ) -> dict:
     """Qwen-Image-Edit-Rapid GGUF txt2img graph.
 
@@ -941,16 +942,23 @@ def _build_txt2img_workflow_qwen(
         UnetLoaderGGUF                            → MODEL
         CLIPLoaderGGUF (type=qwen_image)          → CLIP
         VAELoader                                 → VAE
-        CLIPTextEncode (positive + empty negative)
+        CLIPTextEncode (positive + optional negative)
         EmptySD3LatentImage                       → LATENT (16-channel)
         KSampler (CFG=1.0, configurable sampler/scheduler/steps)
         VAEDecode → SaveImage
 
-    Negative is intentionally an empty string — the model is distilled to
+    Negative defaults to an empty string — the model is distilled to
     CFG=1.0 so any negative is multiplied by zero anyway, and matching the
     reference Qwen-Rapid-AIO.json keeps behaviour predictable.
+
+    ``extra_negative``, when non-empty, is placed directly into the negative
+    CLIPTextEncode node (node "5").  Pass ``_WEAPON_SUPPRESS_NEGATIVE`` here
+    for erotic / weapon-suppressed scenes where the sentinel is detected, so
+    the negative carries the weapon-suppression terms even on the zero-reference
+    fallback path.
     """
     enhanced_prompt = prompt + _ANATOMY_SUFFIX
+    negative_text = extra_negative if extra_negative else ""
     return {
         "1": {
             "class_type": "UnetLoaderGGUF",
@@ -970,7 +978,7 @@ def _build_txt2img_workflow_qwen(
         },
         "5": {
             "class_type": "CLIPTextEncode",
-            "inputs": {"clip": ["2", 0], "text": ""},
+            "inputs": {"clip": ["2", 0], "text": negative_text},
         },
         "6": {
             "class_type": "EmptySD3LatentImage",
@@ -1055,6 +1063,7 @@ def _build_multi_edit_workflow_qwen(
         return _build_txt2img_workflow_qwen(
             prompt, gguf_path, vae_name, clip_gguf_name,
             steps, width, height, seed, sampler_name, scheduler_name,
+            extra_negative=extra_negative,
         )
     # In edit-mode (≥1 ref) prepend a style-policy instruction selected via
     # the QWEN_STYLE_POLICY env var (default: match_reference). The Qwen-
@@ -1850,6 +1859,7 @@ def _run_generate_qwen(
             prompt, qwen_gguf, qwen_vae, qwen_clip,
             qwen_steps, qwen_width, qwen_height, seed,
             qwen_sampler, qwen_scheduler,
+            extra_negative=_extra_neg,
         )
         print(f"[ComfyUI] Qwen txt2img workflow ({qwen_width}x{qwen_height}).")
 
