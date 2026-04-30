@@ -1168,16 +1168,17 @@ _PROSE_DIALOGUE_STRIP_RE = re.compile(
     r'|\u300e[^\u300f\n]{0,300}\u300f',
 )
 
-# Strip asterisk/bold RP action markers before the LLM call in the erotic path.
-# Three passes (longest match first so nested **"..."** is caught before *...*):
-#   **...**  — bold text / bold-wrapped onomatopoeia like **"Glllrk!"**
-#   *...*    — italic / asterisk-wrapped narrative action like *Her eyes widen*
-#   \*+      — orphaned asterisk(s) left behind after the two passes above
-_RP_MARKDOWN_RE = re.compile(
-    r'\*\*[^\n*]*\*\*'
-    r'|\*[^\n*]*\*'
-    r'|\*+',
-)
+# Unwrap asterisk/bold RP action markers before the LLM call in the erotic path.
+# The INNER TEXT is kept; only the marker characters are removed.
+# This preserves narrative like "*Her eyes widen, wrists tied behind her back*"
+# while still stripping the markdown formatting that confuses the LLM.
+# Three patterns applied in order (longest marker first):
+#   _RP_BOLD_UNWRAP_RE  — **inner text** → inner text
+#   _RP_ITALIC_UNWRAP_RE — *inner text* → inner text
+#   _RP_STRAY_STAR_RE   — orphaned * characters → removed
+_RP_BOLD_UNWRAP_RE = re.compile(r'\*\*([^\n*]*)\*\*')
+_RP_ITALIC_UNWRAP_RE = re.compile(r'\*([^\n*]*)\*')
+_RP_STRAY_STAR_RE = re.compile(r'\*+')
 
 # Remove STATIC appearance colour/style descriptors only — e.g. "blonde hair",
 # "blue eyes", "pale skin", "freckles".  Scene-caused dynamic states such as
@@ -1506,12 +1507,21 @@ async def _generate_erotic_scene_prompt(
             f"sentence(s) from prose ({n_prose} prose, {n_seed} seed)"
         )
 
-    # Second-pass cleaning: strip quoted dialogue and asterisk/bold RP markers
-    # so the LLM sees only plain narrative sentences — not onomatopoeia, not
-    # asterisk-wrapped action blocks, not quoted speech.
+    # Second-pass cleaning: strip quoted dialogue and unwrap asterisk/bold RP
+    # markers so the LLM sees only plain narrative sentences.
+    # Quoted dialogue ("Mmmphhhh!", "Glllrk!") is removed entirely — it is
+    # onomatopoeia with no positional value.  Asterisk/bold markers are UNWRAPPED:
+    # the inner text is preserved so narrative action inside *...*  (body positions,
+    # restraint descriptions, expressions) is not discarded.
     def _clean_prose_for_llm(text: str) -> str:
+        # Remove quoted dialogue / onomatopoeia (content has no positional value)
         t = _PROSE_DIALOGUE_STRIP_RE.sub("", text)
-        t = _RP_MARKDOWN_RE.sub("", t)
+        # Unwrap **bold** markers — keep inner narrative text
+        t = _RP_BOLD_UNWRAP_RE.sub(r'\1', t)
+        # Unwrap *italic/action* markers — keep inner narrative text
+        t = _RP_ITALIC_UNWRAP_RE.sub(r'\1', t)
+        # Remove any remaining orphaned asterisks
+        t = _RP_STRAY_STAR_RE.sub("", t)
         t = re.sub(r"[ \t]{2,}", " ", t)
         t = re.sub(r"\n{2,}", "\n", t)
         return t.strip()
@@ -1600,7 +1610,7 @@ async def _generate_erotic_scene_prompt(
         "- Be anatomically precise about body positions and contact points; vague descriptions "
         "cause the image model to generate incorrect anatomy.\n"
         "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks.\n"
-        "- Under 70 words; do not omit any required element.\n"
+        "- Under 60 words; do not omit any required element.\n"
         "- Write in English regardless of the input language.\n"
     )
 
