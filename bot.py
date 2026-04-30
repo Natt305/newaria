@@ -443,23 +443,35 @@ def _invalidate_kb_title_index() -> None:
     _kb_image_title_index = None
 
 
-def _format_current_state_for_prompt(state) -> str:
+def _format_current_state_for_prompt(state, name: str = "she") -> str:
     """Format the character's current physical state into a system-prompt block.
 
     Returns an empty string when the state is empty (no RP started yet) so the
     block is silently omitted on cold-start turns.
+
+    When the character is restrained (captive/bound), an explicit "absent items"
+    line is added so the LLM cannot use past-memory weapon mentions as present-
+    tense facts — even if the extractor hasn't yet updated the accessories list.
     """
     if state.is_empty():
         return ""
     parts: list[str] = []
     if state.outfit:
-        parts.append(f"• Outfit she is currently wearing: {state.outfit}")
+        parts.append(f"• Outfit {name} is currently wearing: {state.outfit}")
     if state.body_state and state.body_state != "clothed":
         parts.append(f"• Body state: {state.body_state}")
     if state.accessories:
-        parts.append(f"• Accessories physically on her body right now: {'; '.join(state.accessories)}")
+        parts.append(f"• Accessories physically on {name}: {'; '.join(state.accessories)}")
     if state.restraints:
-        parts.append(f"• Restraints currently on her: {'; '.join(state.restraints)}")
+        parts.append(f"• Restraints currently on {name}: {'; '.join(state.restraints)}")
+        # Explicit absent-item instruction: when restrained/captive, weapons and
+        # carried tools cannot be on her person — state this explicitly so the LLM
+        # does not treat memory-mentions of carried weapons as present-tense fact.
+        parts.append(
+            f"• Carried/portable items (weapons, holsters, firearms, knives, tools, bags): "
+            f"ABSENT — {name} is restrained/captive and does NOT have these, "
+            f"regardless of what past memories say"
+        )
     if state.wounds:
         parts.append(f"• Wounds / injuries: {'; '.join(state.wounds)}")
     if state.marks:
@@ -469,7 +481,39 @@ def _format_current_state_for_prompt(state) -> str:
     return "\n".join(parts)
 
 
-def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "", player_context: str = "", current_state_context: str = "") -> str:
+def _format_player_state_for_prompt(state, player_name: str = "the player") -> str:
+    """Format the player's current physical state into a system-prompt block.
+
+    Mirrors _format_current_state_for_prompt but uses player-appropriate phrasing.
+    Returns an empty string when state is empty so the block is silently omitted.
+    """
+    if state.is_empty():
+        return ""
+    pronoun = player_name
+    parts: list[str] = []
+    if state.outfit:
+        parts.append(f"• Outfit {pronoun} is currently wearing: {state.outfit}")
+    if state.body_state and state.body_state != "clothed":
+        parts.append(f"• Body state: {state.body_state}")
+    if state.accessories:
+        parts.append(f"• Accessories physically on {pronoun}: {'; '.join(state.accessories)}")
+    if state.restraints:
+        parts.append(f"• Restraints currently on {pronoun}: {'; '.join(state.restraints)}")
+        parts.append(
+            f"• Carried/portable items (weapons, holsters, firearms, knives, tools, bags): "
+            f"ABSENT — {pronoun} is restrained/captive and does NOT have these, "
+            f"regardless of what past memories say"
+        )
+    if state.wounds:
+        parts.append(f"• Wounds / injuries: {'; '.join(state.wounds)}")
+    if state.marks:
+        parts.append(f"• Lasting marks: {'; '.join(state.marks)}")
+    if not parts:
+        return ""
+    return "\n".join(parts)
+
+
+def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "", player_context: str = "", current_state_context: str = "", player_state_context: str = "") -> str:
     prompt = (
         f"You are {name}. {background}\n\n"
         f"You are NOT an AI — you ARE {name}, a real person with your own personality. Never break character.\n"
@@ -522,6 +566,13 @@ def build_system_prompt(name: str, background: str, personality: str = "", looks
             "This OVERRIDES anything in past memories about outfit, accessories, or items carried. "
             "If an item is not listed here, she does NOT have it on her person right now, regardless of what past memories say.]\n"
             f"{current_state_context}\n"
+        )
+    if player_state_context:
+        prompt += (
+            "\n[PLAYER CURRENT PHYSICAL STATE — what is physically true for the player RIGHT NOW. "
+            "This OVERRIDES anything in past memories about the player's outfit, accessories, or carried items. "
+            "If an item is not listed here, the player does NOT have it on their person right now, regardless of what past memories say.]\n"
+            f"{player_state_context}\n"
         )
     if kb_context:
         prompt += (
@@ -1218,7 +1269,17 @@ async def process_chat(
 
     # Build current-state context: authoritative physical truth that overrides memories
     _char_state_now = character_state.get_state(channel_id)
-    _current_state_ctx = _format_current_state_for_prompt(_char_state_now)
+    _current_state_ctx = _format_current_state_for_prompt(_char_state_now, name="she")
+
+    # Build player current-state context (parallel authority block for the player)
+    _player_name_for_state = (
+        (_player_profile.get("discord_name") or "").strip()
+        if _player_profile else ""
+    ) or (author.display_name if author else "the player")
+    _player_state_now = _player_state_mod.get_state(channel_id, str(author.id))
+    _player_state_ctx = _format_player_state_for_prompt(
+        _player_state_now, player_name=_player_name_for_state
+    )
 
     # Build system prompt with memory + KB context + visual KB matches
     system_prompt = build_system_prompt(
@@ -1229,6 +1290,7 @@ async def process_chat(
         character_images_context=build_character_images_context(),
         player_context=_player_context,
         current_state_context=_current_state_ctx,
+        player_state_context=_player_state_ctx,
     )
     history = get_channel_context(channel_id)
 

@@ -261,7 +261,13 @@ _CAPTIVE_SCENE_RE: re.Pattern = re.compile(
     r"taken\s+(?:prisoner|captive|to\s+(?:a\s+)?(?:dungeon|cell|prison))|"
     r"chained\s+(?:up|to\s+the)|bound\s+(?:and|to)|"
     r"disarm(?:ed|ing)?|confiscat(?:ed?|ing)|stripped?\s+of\s+(?:her|his|their)\s+"
-    r"(?:weapon|gun|pistol|equipment|belonging|belonging))\b",
+    r"(?:weapon|gun|pistol|equipment|belonging)|"
+    # Erotic/submission/restraint scene keywords — also imply weapons absent
+    r"leash(?:ed)?|on\s+(?:a|her|his|their)\s+leash|led\s+(?:by|on)\s+(?:a\s+)?leash|"
+    r"on\s+(?:her|his|their)\s+knees|kneeling\s+before|kneel(?:ing)?\s+(?:at|before)|"
+    r"submiss(?:ive|ion)|erotic\s+(?:scene|submission|captivity|enslavement)|"
+    r"collar(?:ed)\s+and\s+led|stripped?\s+(?:naked|bare|nude)\s+and\s+(?:bound|chained)|"
+    r"forced\s+to\s+(?:kneel|submit|obey))\b",
     re.I,
 )
 
