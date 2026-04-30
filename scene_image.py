@@ -41,6 +41,7 @@ import image_dispatch
 import ai_backend as groq_ai
 import character_state
 import player_state as _player_state_mod
+from _state_regexes import _FREED_SCENE_RE
 
 
 CINEMATIC_SUFFIX = (
@@ -268,39 +269,6 @@ _CAPTIVE_SCENE_RE: re.Pattern = re.compile(
     r"submiss(?:ive|ion)|erotic\s+(?:scene|submission|captivity|enslavement)|"
     r"collar(?:ed)\s+and\s+led|stripped?\s+(?:naked|bare|nude)\s+and\s+(?:bound|chained)|"
     r"forced\s+to\s+(?:kneel|submit|obey))\b",
-    re.I,
-)
-
-# Detects a "freed / escaped / re-armed" scene — overrides _CAPTIVE_SCENE_RE so that
-# weapons are NOT suppressed when the character has just escaped, been released, or
-# retrieved their belongings.  Must fire before the captive check is applied.
-_FREED_SCENE_RE: re.Pattern = re.compile(
-    r"\b(?:"
-    # Escape — must be directional ("escaped from") or target a captivity noun
-    r"escap(?:ed?|es|ing)\s+from\b|"
-    r"escap(?:ed?|es)\s+(?:the\s+)?(?:dungeon|cell|cage|prison|captivity|custody|captors?)\b|"
-    # Breaking free — specific enough already
-    r"broke?\s+free\b|broken\s+free\b|broke?\s+out\s+of\b|"
-    # Freed/released — require explicit captivity context to avoid false positives
-    # ("she felt free", "he released an arrow", "the bird was freed" must NOT fire).
-    r"(?:was|were|been|got|gets?|getting)\s+set\s+free\b|"
-    r"(?:was|were|been|got|gets?|getting)\s+(?:finally\s+|just\s+|at\s+last\s+)?freed\s+from\b|"
-    r"set\s+(?:her|him|them|you|me)\s+free\b|"
-    r"finally\s+free\s+from\s+(?:captivity|prison|jail|custody|captors?|bonds?|chains|shackles|dungeon|cell|cage|confinement|imprisonment)\b|"
-    r"(?:was|were|been)\s+(?:finally\s+|just\s+|at\s+last\s+)?released\s+from\b|"
-    r"(?:was|were|been)\s+(?:finally\s+|just\s+|at\s+last\s+)?liberat(?:ed?)\s+from\b|"
-    # Weapon / belonging explicitly returned or retrieved
-    r"return(?:ed)?\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|"
-    r"equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
-    r"(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|equipment|belonging|"
-    r"holster|knife|sword|blade|bag|gear)\s+(?:was|were)\s+(?:returned|given\s+back|handed\s+back)\b|"
-    r"retriev(?:ed?|ing)\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|"
-    r"equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
-    r"re-?arm(?:ed|ing)?\b|rearmed\b|"
-    r"got\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|equipment|belonging|"
-    r"holster|knife|sword|blade|bag|gear)\s+back\b|"
-    r"reclaim(?:ed?|ing)\s+(?:her|his|their|your)\b"
-    r")",
     re.I,
 )
 
