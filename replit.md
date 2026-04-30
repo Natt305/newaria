@@ -67,7 +67,8 @@ Set these in `tokens.txt` **or** as Replit Secrets (Secrets take priority):
 |-----|----------|---------|
 | `DISCORD_BOT_TOKEN` | ✅ | Bot login |
 | `AI_BACKEND` | Optional | `groq` (default) or `ollama` |
-| `GROQ_API_KEY` | If using Groq | Text chat & vision |
+| `GROQ_API_KEY` | If using Groq | Text chat & vision (key pool slot 1) |
+| `GROQ_API_KEY_2` … `GROQ_API_KEY_20` | Optional | Additional Groq API keys (key pool slots 2–20). All keys are tried for each model tier before falling back to a lower-quality model — so adding more keys delays tier downgrade rather than reducing it. Keys are deduplicated; duplicates are silently ignored. |
 | `OLLAMA_BASE_URL` | If using Ollama | Ollama server URL (default: `http://localhost:11434`) |
 | `OLLAMA_MODEL` | If using Ollama | Chat model (default: `gemma3:12b`) |
 | `OLLAMA_VISION_MODEL` | If using Ollama | Vision model (default: `gemma3:12b`) |

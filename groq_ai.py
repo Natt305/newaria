@@ -16,9 +16,17 @@ from reply_format import (
     generate_suggestions as _shared_generate_suggestions,
 )
 
-# ── Per-day exhaustion tracking ───────────────────────────────────────────────
-# Maps model_name -> Unix timestamp when it was marked exhausted.
-# A model is considered exhausted until the next midnight UTC after that point.
+# ── Per-key, per-model exhaustion tracking ────────────────────────────────────
+# Key fingerprint = last 8 chars of the API key string (safe for logs).
+# _key_daily_exhausted: (key_fp, model) → Unix timestamp when daily limit hit.
+#   Key+model is skipped until next midnight UTC.
+# _key_rate_limited_until: (key_fp, model) → Unix timestamp until which a
+#   short-duration rate limit (per-minute 429) blocks this key+model pair.
+_key_daily_exhausted: dict[tuple[str, str], float] = {}
+_key_rate_limited_until: dict[tuple[str, str], float] = {}
+
+# Legacy alias kept so any external code that calls _daily_exhausted directly
+# still compiles — it is no longer populated internally.
 _daily_exhausted: dict[str, float] = {}
 
 # ── Refusal-detection for enhance_image_prompt ────────────────────────────────
@@ -47,14 +55,42 @@ _REFUSAL_PHRASES: tuple[str, ...] = (
     "cannot access the image",
 )
 
-def _mark_daily_exhausted(model: str) -> None:
-    """Record that this model hit its daily token limit."""
-    _daily_exhausted[model] = time.time()
-    print(f"[Groq] {model} hit daily token limit — skipping until midnight UTC.")
+def _key_fp(key: str) -> str:
+    """Return a safe log-friendly fingerprint for an API key (last 8 chars)."""
+    return key[-8:] if len(key) >= 8 else key
 
-def _is_daily_exhausted(model: str) -> bool:
-    """Return True if the model is still within its daily-exhaustion window."""
-    ts = _daily_exhausted.get(model)
+
+def log_key_pool_status() -> None:
+    """Print a one-line summary of the configured Groq key pool to stdout.
+
+    Called at startup so the operator can verify how many keys are loaded
+    without ever printing the actual key values.
+    """
+    keys = _get_key_pool()
+    if not keys:
+        print("[Groq] Key pool: NO keys configured — Groq backend unavailable.")
+        return
+    names: list[str] = []
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        names.append("GROQ_API_KEY")
+    for i in range(2, 21):
+        if os.environ.get(f"GROQ_API_KEY_{i}", "").strip():
+            names.append(f"GROQ_API_KEY_{i}")
+    print(f"[Groq] Key pool: {len(keys)} key(s) loaded ({', '.join(names)})")
+
+
+def _mark_key_daily_exhausted(key: str, model: str) -> None:
+    """Record that this key+model pair hit its daily token limit."""
+    fp = _key_fp(key)
+    _key_daily_exhausted[(fp, model)] = time.time()
+    print(f"[Groq] key=…{fp} / {model} hit daily token limit — skipping until midnight UTC.")
+
+
+def _is_key_daily_exhausted(key: str, model: str) -> bool:
+    """Return True if this key+model pair is still within its daily-exhaustion window."""
+    fp = _key_fp(key)
+    pair = (fp, model)
+    ts = _key_daily_exhausted.get(pair)
     if ts is None:
         return False
     exhausted_at = datetime.fromtimestamp(ts, tz=timezone.utc)
@@ -62,9 +98,44 @@ def _is_daily_exhausted(model: str) -> bool:
         hour=0, minute=0, second=0, microsecond=0
     )
     if datetime.now(timezone.utc) >= next_midnight:
-        del _daily_exhausted[model]   # expired — remove so it's tried again
+        del _key_daily_exhausted[pair]
         return False
     return True
+
+
+def _mark_key_rate_limited(key: str, model: str, seconds: int = 60) -> None:
+    """Mark this key+model pair as short-rate-limited for `seconds` seconds."""
+    fp = _key_fp(key)
+    _key_rate_limited_until[(fp, model)] = time.time() + seconds
+    print(f"[Groq] key=…{fp} / {model} rate-limited — cooling off {seconds}s, trying next key.")
+
+
+def _is_key_rate_limited(key: str, model: str) -> bool:
+    """Return True if this key+model pair is still in its short rate-limit window."""
+    fp = _key_fp(key)
+    pair = (fp, model)
+    until = _key_rate_limited_until.get(pair)
+    if until is None:
+        return False
+    if time.time() >= until:
+        del _key_rate_limited_until[pair]
+        return False
+    return True
+
+
+def _mark_daily_exhausted(model: str) -> None:
+    """Legacy wrapper — marks the first key in the pool as daily-exhausted for model."""
+    keys = _get_key_pool()
+    key = keys[0] if keys else "__legacy__"
+    _mark_key_daily_exhausted(key, model)
+
+
+def _is_daily_exhausted(model: str) -> bool:
+    """Legacy wrapper — True if the first key in the pool is daily-exhausted for model."""
+    keys = _get_key_pool()
+    key = keys[0] if keys else "__legacy__"
+    return _is_key_daily_exhausted(key, model)
+
 
 def _is_daily_limit_error(err: str) -> bool:
     """Return True if the error string indicates a daily/total quota, not a per-minute spike."""
@@ -419,19 +490,41 @@ async def extract_memories(exchange: str, bot_name: str) -> list:
     return []
 
 
-_groq_client: Optional[AsyncGroq] = None
-_groq_client_key: str = ""
+# ── Key pool + client cache ───────────────────────────────────────────────────
+_groq_clients: dict[str, AsyncGroq] = {}
+
+
+def _get_key_pool() -> list[str]:
+    """Return all configured Groq API keys, in priority order.
+
+    Reads GROQ_API_KEY (slot 1) then GROQ_API_KEY_2 … GROQ_API_KEY_20.
+    Deduplicates while preserving order. Returns an empty list when no
+    keys are set — callers should treat this as "Groq unavailable".
+    """
+    keys: list[str] = []
+    base = os.environ.get("GROQ_API_KEY", "").strip()
+    if base:
+        keys.append(base)
+    for i in range(2, 21):
+        k = os.environ.get(f"GROQ_API_KEY_{i}", "").strip()
+        if k and k not in keys:
+            keys.append(k)
+    return keys
+
+
+def _client_for_key(key: str) -> AsyncGroq:
+    """Return a cached AsyncGroq client for the given API key."""
+    if key not in _groq_clients:
+        _groq_clients[key] = AsyncGroq(api_key=key)
+    return _groq_clients[key]
 
 
 def _client() -> Optional[AsyncGroq]:
-    global _groq_client, _groq_client_key
-    key = os.environ.get("GROQ_API_KEY", "")
-    if not key:
+    """Return a client for the first key in the pool (used by simple helpers)."""
+    keys = _get_key_pool()
+    if not keys:
         return None
-    if _groq_client is None or key != _groq_client_key:
-        _groq_client = AsyncGroq(api_key=key)
-        _groq_client_key = key
-    return _groq_client
+    return _client_for_key(keys[0])
 
 
 async def understand_image(
@@ -441,11 +534,12 @@ async def understand_image(
 ) -> Optional[str]:
     """Analyze an image using Groq vision models.
 
-    Tries each candidate in VISION_MODELS until one works.
+    Tries each vision model in order; for each model, cycles through all
+    keys in the pool before moving to the next model.
     Returns the description string on success, or None on total failure.
     """
-    client = _client()
-    if not client:
+    keys = _get_key_pool()
+    if not keys:
         print("[Groq Vision] No API key — skipping image analysis")
         return None
 
@@ -456,31 +550,45 @@ async def understand_image(
     vision_order = [configured_vision] + [m for m in VISION_MODELS if m != configured_vision]
 
     for model in vision_order:
-        try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "image_url", "image_url": {"url": data_url}},
-                            {"type": "text", "text": question},
-                        ],
-                    }
-                ],
-                temperature=0.5,
-                max_tokens=1024,
-            )
-            text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
-            if text:
-                print(f"[Groq Vision] Success with model: {model}")
-                return text
-            print(f"[Groq Vision] Empty response from {model}, trying next...")
-        except Exception as e:
-            err = str(e)
-            print(f"[Groq Vision] {model} failed: {err}")
-            # Always try the next candidate regardless of error type
-            continue
+        for key in keys:
+            if _is_key_daily_exhausted(key, model):
+                continue
+            if _is_key_rate_limited(key, model):
+                continue
+            client = _client_for_key(key)
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": data_url}},
+                                {"type": "text", "text": question},
+                            ],
+                        }
+                    ],
+                    temperature=0.5,
+                    max_tokens=1024,
+                )
+                text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
+                if text:
+                    print(f"[Groq Vision] Success — model={model} key=…{_key_fp(key)}")
+                    return text
+                print(f"[Groq Vision] Empty response from {model} key=…{_key_fp(key)}, trying next…")
+            except Exception as e:
+                err = str(e).lower()
+                if "rate limit" in err or "429" in err:
+                    if _is_daily_limit_error(err):
+                        _mark_key_daily_exhausted(key, model)
+                    else:
+                        _mark_key_rate_limited(key, model, seconds=60)
+                    continue
+                if "model" in err and ("not found" in err or "deprecated" in err or "invalid" in err):
+                    print(f"[Groq Vision] {model} unavailable for all keys — skipping model")
+                    break
+                print(f"[Groq Vision] {model} key=…{_key_fp(key)} failed: {e}")
+                continue
 
     print("[Groq Vision] All vision model candidates exhausted — image analysis unavailable")
     return None
@@ -569,8 +677,11 @@ async def enhance_image_prompt(
     if has_images and not character_context and not subject_references and not subject_supplements:
         configured_vision = _default_vision_model()
         all_vision = [configured_vision] + [m for m in VISION_MODELS if m != configured_vision]
-        if all(_is_daily_exhausted(m) for m in all_vision):
-            print("[Groq] All vision models exhausted and no text context — skipping enhancement, using raw prompt")
+        _enh_keys = _get_key_pool()
+        if _enh_keys and all(
+            _is_key_daily_exhausted(k, m) for m in all_vision for k in _enh_keys
+        ):
+            print("[Groq] All vision models exhausted on all keys and no text context — skipping enhancement, using raw prompt")
             return raw_prompt
 
     # Strip any ART STYLE section from stored character descriptions before using
@@ -1239,8 +1350,8 @@ async def chat(
     or suggestion generation.
     If image_prompt is set, the caller should generate an image with Cloudflare.
     """
-    client = _client()
-    if not client:
+    keys = _get_key_pool()
+    if not keys:
         return "Groq API key is not configured. Please set GROQ_API_KEY.", None, False, False
 
     groq_messages = []
@@ -1275,13 +1386,8 @@ async def chat(
     else:
         models_to_try = [model] + [m for m in FALLBACK_MODELS if m != model]
 
-    # Skip models that already hit their daily token limit today
-    available = [m for m in models_to_try if not _is_daily_exhausted(m)]
-    if len(available) < len(models_to_try):
-        skipped = [m for m in models_to_try if _is_daily_exhausted(m)]
-        print(f"[Groq] Skipping daily-exhausted models: {skipped}")
-    models_to_try = available
-
+    # Two-level loop: model (outer) × key (inner).
+    # All keys are exhausted on a model before moving to the next tier model.
     for attempt_model in models_to_try:
         # Use text-only messages when falling back from vision to a text model so we
         # don't send multimodal content (image_url parts) to a model that can't handle it.
@@ -1289,98 +1395,104 @@ async def chat(
         msgs_for_attempt = groq_messages if (not context_images or is_vision_model) else groq_messages_text
         if context_images and not is_vision_model:
             print(f"[Groq] Falling back to text model {attempt_model} — stripping image_url parts from messages")
-        try:
-            create_kwargs = {
-                "model": attempt_model,
-                "messages": msgs_for_attempt,
-                "temperature": 0.8,
-                "max_tokens": max_tokens,
-            }
-            if response_format is not None:
-                create_kwargs["response_format"] = response_format
-                print(
-                    f"[Groq] response_format active ({response_format.get('type', '?')}) on {attempt_model}"
-                )
-            response = await client.chat.completions.create(**create_kwargs)
-            text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
 
-            # Primary: bot used the [IMAGE: ...] marker → generate silently
-            marker_match = _IMAGE_MARKER_RE.search(text)
-            if marker_match:
-                img_prompt = marker_match.group(1).strip()
-                # Strip the marker (and any surrounding whitespace) from the text
-                clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
-                print(f"[Groq] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
-                # If nothing meaningful remains, return no text (fully silent)
-                return (clean_text or None), img_prompt, True, True
-
-            # Fallback: bot said it can't generate — route to image generator anyway
-            # Do NOT call enhance_image_prompt here; the caller (bot.py) handles it
-            # so it can also inject character context when needed.
-            if response_declines_image(text, messages=messages):
-                img_prompt = user_wants_image(messages)
-                if img_prompt:
-                    print(f"[Groq] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
-                    return None, img_prompt, False, True
-
-            return text, None, False, True
-
-        except Exception as e:
-            err = str(e).lower()
-            # Structured-output capability check: if the route or the model
-            # rejects the response_format field, drop it for the rest of the
-            # process so the bot stops bouncing on the same error, then retry
-            # the SAME model once without the field. Subsequent calls observe
-            # the disabled flag in `_json_mode_enabled()`.
-            if (
-                response_format is not None
-                and ("response_format" in err or "json_object" in err or "json mode" in err)
-            ):
-                global _JSON_MODE_DISABLED
-                _JSON_MODE_DISABLED = True
-                print(
-                    f"[Groq] response_format unsupported on {attempt_model} — auto-disabling "
-                    "JSON mode for this process and retrying without it"
-                )
-                response_format = None
-                try:
-                    response = await client.chat.completions.create(
-                        model=attempt_model,
-                        messages=msgs_for_attempt,
-                        temperature=0.8,
-                        max_tokens=max_tokens,
+        _model_unavailable = False  # set to True when the model itself is gone (break inner)
+        for key in keys:
+            if _is_key_daily_exhausted(key, attempt_model):
+                continue
+            if _is_key_rate_limited(key, attempt_model):
+                continue
+            client = _client_for_key(key)
+            try:
+                create_kwargs = {
+                    "model": attempt_model,
+                    "messages": msgs_for_attempt,
+                    "temperature": 0.8,
+                    "max_tokens": max_tokens,
+                }
+                if response_format is not None:
+                    create_kwargs["response_format"] = response_format
+                    print(
+                        f"[Groq] response_format active ({response_format.get('type', '?')}) "
+                        f"on {attempt_model} key=…{_key_fp(key)}"
                     )
-                    text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
-                    marker_match = _IMAGE_MARKER_RE.search(text)
-                    if marker_match:
-                        img_prompt = marker_match.group(1).strip()
-                        clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
-                        print(f"[Groq] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
-                        return (clean_text or None), img_prompt, True, True
-                    if response_declines_image(text, messages=messages):
-                        img_prompt = user_wants_image(messages)
-                        if img_prompt:
-                            print(f"[Groq] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
-                            return None, img_prompt, False, True
-                    return text, None, False, True
-                except Exception as inner:
-                    print(f"[Groq] Retry without response_format on {attempt_model} failed: {inner}")
-                    continue
-            if "model" in err and ("not found" in err or "deprecated" in err or "invalid" in err):
-                print(f"[Groq] Model {attempt_model} unavailable, trying next...")
-                continue
-            if "rate limit" in err or "429" in err:
-                if _is_daily_limit_error(err):
-                    _mark_daily_exhausted(attempt_model)
-                else:
-                    print(f"[Groq] Rate limited on {attempt_model}, trying next...")
-                    await asyncio.sleep(2)
-                continue
-            print(f"[Groq] Error with {attempt_model}: {e}")
-            continue
+                response = await client.chat.completions.create(**create_kwargs)
+                text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
 
-    # All Groq models exhausted — attempt Ollama as a last resort
-    print("[Groq] All models failed. Falling back to Ollama...")
+                # Primary: bot used the [IMAGE: ...] marker → generate silently
+                marker_match = _IMAGE_MARKER_RE.search(text)
+                if marker_match:
+                    img_prompt = marker_match.group(1).strip()
+                    clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
+                    print(f"[Groq] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
+                    return (clean_text or None), img_prompt, True, True
+
+                # Fallback: bot said it can't generate — route to image generator anyway
+                if response_declines_image(text, messages=messages):
+                    img_prompt = user_wants_image(messages)
+                    if img_prompt:
+                        print(f"[Groq] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
+                        return None, img_prompt, False, True
+
+                return text, None, False, True
+
+            except Exception as e:
+                err = str(e).lower()
+                # Structured-output capability check: if the route or the model
+                # rejects the response_format field, drop it for the rest of the
+                # process so the bot stops bouncing on the same error, then retry
+                # the SAME key+model once without the field.
+                if (
+                    response_format is not None
+                    and ("response_format" in err or "json_object" in err or "json mode" in err)
+                ):
+                    global _JSON_MODE_DISABLED
+                    _JSON_MODE_DISABLED = True
+                    print(
+                        f"[Groq] response_format unsupported on {attempt_model} — auto-disabling "
+                        "JSON mode for this process and retrying without it"
+                    )
+                    response_format = None
+                    try:
+                        response = await client.chat.completions.create(
+                            model=attempt_model,
+                            messages=msgs_for_attempt,
+                            temperature=0.8,
+                            max_tokens=max_tokens,
+                        )
+                        text = _THINK_RE.sub("", response.choices[0].message.content or "").strip()
+                        marker_match = _IMAGE_MARKER_RE.search(text)
+                        if marker_match:
+                            img_prompt = marker_match.group(1).strip()
+                            clean_text = _IMAGE_MARKER_RE.sub("", text).strip()
+                            print(f"[Groq] Image prompt from marker (already enhanced): {img_prompt[:80]!r}")
+                            return (clean_text or None), img_prompt, True, True
+                        if response_declines_image(text, messages=messages):
+                            img_prompt = user_wants_image(messages)
+                            if img_prompt:
+                                print(f"[Groq] Image prompt from fallback (raw, needs enhancement): {img_prompt[:80]!r}")
+                                return None, img_prompt, False, True
+                        return text, None, False, True
+                    except Exception as inner:
+                        print(f"[Groq] Retry without response_format on {attempt_model} key=…{_key_fp(key)} failed: {inner}")
+                        continue
+                if "model" in err and ("not found" in err or "deprecated" in err or "invalid" in err):
+                    print(f"[Groq] Model {attempt_model} unavailable for all keys — skipping model")
+                    _model_unavailable = True
+                    break
+                if "rate limit" in err or "429" in err:
+                    if _is_daily_limit_error(err):
+                        _mark_key_daily_exhausted(key, attempt_model)
+                    else:
+                        _mark_key_rate_limited(key, attempt_model, seconds=60)
+                    continue
+                print(f"[Groq] Error with {attempt_model} key=…{_key_fp(key)}: {e}")
+                continue
+        # _model_unavailable is only used to break out of the key loop above;
+        # in either case we fall through to the next model in models_to_try.
+
+    # All Groq model+key combinations exhausted — attempt Ollama as a last resort
+    print("[Groq] All model+key combinations failed. Falling back to Ollama...")
     try:
         import ollama_ai
         return await ollama_ai.chat(

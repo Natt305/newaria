@@ -106,7 +106,10 @@ def main():
             print("[AI] Tip: set LMSTUDIO_USE_JSON_SCHEMA=on to enable constrained JSON decoding for "
                   "suggestions & memory extraction (forces schema-valid output at the sampler level).")
     else:
-        if not os.environ.get("GROQ_API_KEY"):
+        import groq_ai as _groq_ai_mod
+        _groq_ai_mod.log_key_pool_status()
+        _groq_keys = _groq_ai_mod._get_key_pool()
+        if not _groq_keys:
             print("[Warning] GROQ_API_KEY is not set. Text chat will be unavailable.")
         else:
             chat_model   = os.environ.get("GROQ_MODEL", "").strip() or "llama-3.3-70b-versatile"
