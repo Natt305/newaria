@@ -50,6 +50,7 @@ async def chat(
     model: Optional[str] = None,
     context_images: Optional[list] = None,
     character_name: str = "",
+    enforce_user_lang: bool = True,
 ) -> tuple[str, Optional[str], bool, bool, bool, Optional[str]]:
     """Returns (response_text, image_prompt_or_None, prompt_from_marker,
     success, wants_scene_image, scene_prompt_or_None).
@@ -64,6 +65,11 @@ async def chat(
     it verbatim as the image-prompt seed instead of deriving from the bot's
     reply prose. None means the caller falls back to the prose-derived path
     (also the case for bare `[SCENE]`).
+
+    enforce_user_lang: when False, suppresses LM Studio's language-matching
+    overlay (useful for utility callers that need a plain English response
+    regardless of the RP conversation language). Ignored by Groq / Ollama
+    backends which do not apply that overlay.
     """
     kwargs = {"system_prompt": system_prompt}
     if model:
@@ -76,6 +82,10 @@ async def chat(
     # Groq / Ollama paths see no signature change.
     if character_name and _backend() == "lmstudio":
         kwargs["character_name"] = character_name
+    # enforce_user_lang=False is a utility-call flag understood only by the
+    # LM Studio backend. Do not forward it to Groq / Ollama (no-op there).
+    if not enforce_user_lang and _backend() == "lmstudio":
+        kwargs["enforce_user_lang"] = False
     result = await _mod().chat(messages, **kwargs)
     # Normalise to 6-tuple so callers don't have to know which backend
     # is active. LM Studio already returns 6; Groq / Ollama still return 4

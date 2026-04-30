@@ -112,19 +112,37 @@ _EROTIC_SCENE_PATTERNS: list[re.Pattern] = [
     # Explicit female genitalia (EN)
     re.compile(r"\b(?:pussy|vagina|vulva|cunt)\b", re.I),
     re.compile(r"\bclit(?:oris)?\b", re.I),
-    re.compile(r"\bnippl(?:e|es)\b", re.I),
+    # Nipple only in clear erotic-action context (not just a nude pose mention).
+    # Matches "lick/suck/pinch/bite/rub her nipple" and similar.
+    re.compile(
+        r"\b(?:lick(?:s|ed|ing)?|suck(?:s|ed|ing)?|pinch(?:es|ed|ing)?|"
+        r"bite?|biting|rub(?:s|bed|bing)?|teas(?:e|ed|ing)?|pull(?:s|ed|ing)?)\b"
+        r"[^.!?\n]{0,30}"
+        r"\bnippl(?:e|es)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bnippl(?:e|es)\b"
+        r"[^.!?\n]{0,30}"
+        r"\b(?:lick(?:s|ed|ing)?|suck(?:s|ed|ing)?|pinch(?:es|ed|ing)?|"
+        r"bite?|biting|rub(?:s|bed|bing)?|teas(?:e|ed|ing)?|pull(?:s|ed|ing)?)\b",
+        re.I,
+    ),
     # Direct sexual act verbs / nouns (EN)
     re.compile(r"\bpenetrat(?:e|es|ed|ing|ion)\b", re.I),
     re.compile(r"\bfuck(?:s|ed|ing|er)?\b", re.I),
     re.compile(r"\b(?:sexual\s+)?intercourse\b", re.I),
     re.compile(r"\bcopulat(?:e|es|ed|ing|ion)\b", re.I),
     re.compile(r"\b(?:blow\s*job|oral\s+sex|cunnilingus|fellatio|handjob)\b", re.I),
+    # Explicit sexual activity phrases — mirrors _SCENE_CLOTHING_STATE_PATTERNS
+    # entries that already imply sex but need the structured prompt treatment.
+    re.compile(r"\bhav(?:e|ing|had)\s+sex\b", re.I),
+    re.compile(r"\bmaking\s+love\b", re.I),
     # Sexual reactions / states (EN)
     re.compile(r"\borgasm(?:s|ed|ing)?\b", re.I),
     re.compile(r"\bcumm?(?:s|ed|ing)?\b", re.I),
     re.compile(r"\berection\b", re.I),
     # Unambiguous sexual positions / actions (EN)
-    re.compile(r"\bstraddle?(?:s|d|ing)?\b", re.I),
     re.compile(r"\bspread(?:s|ing)?\s+(?:her|his|their)\s+legs\b", re.I),
     re.compile(r"\bthrust(?:s|ed|ing)?\s+(?:into|inside|against|deep)\b", re.I),
     # CJK explicit content
@@ -1408,32 +1426,17 @@ async def _generate_erotic_scene_prompt(
     )
 
     try:
-        # Use a utility-safe call path so backend-specific overlays intended
-        # for user-facing roleplay (language enforcement, persona directives,
-        # narration-style injection) do not bleed into this short utility call.
-        # For LM Studio we call the module directly with enforce_user_lang=False;
-        # for Groq / Ollama the standard module call is already utility-safe.
-        _active_backend = os.environ.get("AI_BACKEND", "groq").strip().lower()
-        if _active_backend == "lmstudio":
-            import lmstudio_ai as _lms
-            result = await _lms.chat(
-                [{"role": "user", "content": prose_text}],
-                system_prompt=system_prompt,
-                enforce_user_lang=False,
-                max_tokens=200,
-            )
-        elif _active_backend == "ollama":
-            import ollama_ai as _ollama
-            result = await _ollama.chat(
-                [{"role": "user", "content": prose_text}],
-                system_prompt=system_prompt,
-            )
-        else:
-            import groq_ai as _groq
-            result = await _groq.chat(
-                [{"role": "user", "content": prose_text}],
-                system_prompt=system_prompt,
-            )
+        # enforce_user_lang=False suppresses LM Studio's language-matching
+        # overlay so this utility call always returns English prompt text
+        # regardless of the RP conversation language. The flag is forwarded
+        # only when the active backend is LM Studio; for Groq / Ollama it is
+        # a no-op (ai_backend.chat filters it out). All three backends route
+        # through the ai_backend router so normalisation is centralised.
+        result = await groq_ai.chat(
+            [{"role": "user", "content": prose_text}],
+            system_prompt=system_prompt,
+            enforce_user_lang=False,
+        )
 
         response_text: str = (result[0] if result else "").strip()
         success: bool = bool(result[3]) if result and len(result) > 3 else False
