@@ -79,11 +79,40 @@ def log_key_pool_status() -> None:
     print(f"[Groq] Key pool: {len(keys)} key(s) loaded ({', '.join(names)})")
 
 
+def prune_stale_key_records() -> None:
+    """Remove expired entries from the rate-limit and daily-exhaustion dicts.
+
+    Normally these are cleaned up lazily when a key is checked before a chat
+    attempt.  However, if a key recovers while other keys are handling all
+    load, the stale entry would linger indefinitely and show as limited in
+    diagnostics.  Call this function to eagerly discard any record whose
+    expiry window has already passed.
+    """
+    now = time.time()
+    now_utc = datetime.now(timezone.utc)
+
+    for pair in list(_key_rate_limited_until):
+        if _key_rate_limited_until[pair] <= now:
+            del _key_rate_limited_until[pair]
+
+    for pair in list(_key_daily_exhausted):
+        exhausted_ts = _key_daily_exhausted[pair]
+        exhausted_at = datetime.fromtimestamp(exhausted_ts, tz=timezone.utc)
+        resets_at = (exhausted_at + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        if now_utc >= resets_at:
+            del _key_daily_exhausted[pair]
+
+
 def get_pool_status() -> dict:
     """Return a structured snapshot of the current Groq key-pool state.
 
     Suitable for display in a /diaggroq Discord command.  Never returns raw
     key values — only fingerprints (last 8 chars).
+
+    Stale rate-limit and daily-exhaustion records are pruned before building
+    the snapshot so the returned data always reflects current reality.
 
     Returns a dict with:
       pool_size         int   — number of configured keys
@@ -92,6 +121,8 @@ def get_pool_status() -> dict:
       rate_limited      list  — [{fp, model, until_ts, seconds_left}]
       daily_exhausted   list  — [{fp, model, exhausted_at_ts, resets_at_ts}]
     """
+    prune_stale_key_records()
+
     keys = _get_key_pool()
     now = time.time()
 
@@ -111,13 +142,12 @@ def get_pool_status() -> dict:
         resets_at = (exhausted_at + timedelta(days=1)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        if datetime.now(timezone.utc) < resets_at:
-            daily_exhausted.append({
-                "fp": fp,
-                "model": model,
-                "exhausted_at_ts": exhausted_ts,
-                "resets_at_ts": resets_at.timestamp(),
-            })
+        daily_exhausted.append({
+            "fp": fp,
+            "model": model,
+            "exhausted_at_ts": exhausted_ts,
+            "resets_at_ts": resets_at.timestamp(),
+        })
 
     return {
         "pool_size": len(keys),
