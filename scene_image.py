@@ -160,9 +160,12 @@ def _is_erotic_scene(text: str) -> bool:
     """Return True when *text* contains unambiguous explicit sexual content.
 
     Checked against the combined prose context + seed before calling
-    ``_generate_erotic_scene_prompt``.  Does NOT overlap with
-    ``_SCENE_CLOTHING_STATE_PATTERNS`` — undressed / bathing / sleeping scenes
-    use the standard rule-based path.
+    ``_generate_erotic_scene_prompt``.  A subset of patterns mirrors entries in
+    ``_SCENE_CLOTHING_STATE_PATTERNS`` (e.g. ``having sex``, ``making love``) to
+    ensure those explicit-sex phrases enter the structured LLM path, not just
+    the clothing-state handler.  Undressed / bathing / sleeping scenes that
+    appear in ``_SCENE_CLOTHING_STATE_PATTERNS`` but NOT here continue to use
+    the standard rule-based path.
     """
     if not text:
         return False
@@ -1366,6 +1369,12 @@ async def _generate_erotic_scene_prompt(
     ``roster_names`` must be the same list used to label Qwen's reference image
     slots (``llm_ref_labels`` at the call site) so character names in the
     generated prompt map unambiguously to the correct per-subject encoder slot.
+    ``player_display_name`` is appended only when absent from ``roster_names``
+    (i.e. the player has no uploaded reference slot).  In that case the LLM
+    still names them explicitly so Qwen can place them in the scene, accepting
+    that Qwen must generate their appearance from priors rather than a photo.
+    Callers that pre-populate a player reference slot in Qwen should include
+    the matching label in ``roster_names`` to avoid duplication.
 
     Falls back to ``_assemble_scene_prompt`` on any error or unusably short LLM
     response.
