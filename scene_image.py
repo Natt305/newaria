@@ -252,6 +252,19 @@ _WEAPON_PERSISTENT_RE: re.Pattern = re.compile(
     re.I,
 )
 
+# Matches hats, outerwear, and clothing accessories that should be suppressed
+# from the persistent-items list during erotic/nude scenes (_state_triggered).
+# Restraint accessories (collar, cuffs, leash, chain, harness, choker, rope)
+# are intentionally NOT included — they survive all scene overrides.
+# Only fires when _state_triggered is True; captive-only scenes leave these intact.
+_CLOTHING_ACCESSORY_PERSISTENT_RE: re.Pattern = re.compile(
+    r"\b(?:hat|cap|beret|fedora|bonnet|visor|helmet|beanie|stetson|trilby|bowler|"
+    r"coat|overcoat|jacket|parka|blazer|"
+    r"gloves?|mittens?|"
+    r"scarf|shawl)\b",
+    re.I,
+)
+
 # Detects captive / restrained / dungeon scene context — used to suppress carried items
 # (weapons, tools) that are logically absent when the character is captive or bound,
 # even when the nudity/undressed clothing override has NOT fired.
@@ -2235,6 +2248,34 @@ async def run_scene_image(
                         + ". "
                     ) if _persistent_items else ""
 
+            # ── Filter clothing accessories during erotic/nude scenes ──────────
+            # Outerwear and headwear (hat, coat, gloves, scarf, etc.) must not
+            # appear in erotic image prompts even when stored in the persistent-
+            # items list.  Unlike weapon filtering, this ONLY fires when the
+            # nudity/undressed override is active (_state_triggered); a captive-
+            # only scene (dungeon, bound, disarmed but clothed) leaves these items
+            # intact.  Restraint accessories (collar, cuffs, leash, chain) are NOT
+            # matched by _CLOTHING_ACCESSORY_PERSISTENT_RE and always survive.
+            if _state_triggered and _persistent_items:
+                _clothing_items = [
+                    item for item in _persistent_items
+                    if _CLOTHING_ACCESSORY_PERSISTENT_RE.search(item)
+                ]
+                if _clothing_items:
+                    print(
+                        f"[SceneImage] Clothing-accessory filter active "
+                        f"({_state_label!r}): removing {_clothing_items}"
+                    )
+                    _persistent_items = [
+                        item for item in _persistent_items
+                        if not _CLOTHING_ACCESSORY_PERSISTENT_RE.search(item)
+                    ]
+                    _persistent_str = (
+                        "PERSISTENT STATE (always visible, even in this scene): "
+                        + "; ".join(_persistent_items)
+                        + ". "
+                    ) if _persistent_items else ""
+
             # ── Freed scene: reinstate suspended accessories in the image ─────
             # When the scene describes an escape or rearming AND the character
             # has suspended accessories (confiscated during a prior captive turn),
@@ -2449,6 +2490,30 @@ async def run_scene_image(
                         _ppersistent = [
                             item for item in _ppersistent
                             if not _WEAPON_PERSISTENT_RE.search(item)
+                        ]
+                        _ppersistent_str = (
+                            "PLAYER PERSISTENT STATE (always visible): "
+                            + "; ".join(_ppersistent)
+                            + "."
+                        ) if _ppersistent else ""
+
+                # ── Player clothing-accessory filter (erotic/nude only) ───────
+                # Mirror the bot-character clothing filter: strip hats, outerwear,
+                # gloves, scarves, etc. from the player's persistent items when the
+                # player is undressed.  Captive-only (not undressed) leaves them.
+                if _player_undressed and _ppersistent:
+                    _pclothing_items = [
+                        item for item in _ppersistent
+                        if _CLOTHING_ACCESSORY_PERSISTENT_RE.search(item)
+                    ]
+                    if _pclothing_items:
+                        print(
+                            f"[SceneImage] Player clothing-accessory filter: "
+                            f"removing {_pclothing_items} (undressed)"
+                        )
+                        _ppersistent = [
+                            item for item in _ppersistent
+                            if not _CLOTHING_ACCESSORY_PERSISTENT_RE.search(item)
                         ]
                         _ppersistent_str = (
                             "PLAYER PERSISTENT STATE (always visible): "

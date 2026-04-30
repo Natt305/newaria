@@ -18,7 +18,8 @@ import sys
 sys.path.insert(0, ".")
 
 from scene_image import (
-    _WEAPON_PERSISTENT_RE, _FREED_SCENE_RE, _detect_captive_scene,
+    _WEAPON_PERSISTENT_RE, _CLOTHING_ACCESSORY_PERSISTENT_RE,
+    _FREED_SCENE_RE, _detect_captive_scene,
     _OUTFIT_SENTENCE_RE, _strip_outfit_from_looks,
 )
 
@@ -381,6 +382,156 @@ def test_non_headwear_outfit_words_still_caught():
         )
 
 
+# ── _CLOTHING_ACCESSORY_PERSISTENT_RE — clothing accessory filter tests ────────
+
+CLOTHING_ACCESSORY_ITEMS = [
+    "hat",
+    "black hat",
+    "cowboy hat",
+    "baseball cap",
+    "cap",
+    "beret",
+    "red beret",
+    "fedora",
+    "vintage fedora",
+    "bonnet",
+    "visor",
+    "tactical visor",
+    "helmet",
+    "motorcycle helmet",
+    "beanie",
+    "stetson",
+    "trilby",
+    "bowler",
+    "coat",
+    "long coat",
+    "overcoat",
+    "jacket",
+    "leather jacket",
+    "parka",
+    "blazer",
+    "gloves",
+    "glove",
+    "black gloves",
+    "mittens",
+    "mitten",
+    "scarf",
+    "red scarf",
+    "shawl",
+]
+
+CLOTHING_ACCESSORY_SAFE_ITEMS = [
+    "leather collar",
+    "collar",
+    "ankle cuffs",
+    "wrist cuffs",
+    "cuffs",
+    "leash",
+    "chain",
+    "ankle chain",
+    "thin gold chain",
+    "rope",
+    "silk rope bracelet",
+    "harness",
+    "choker",
+    "bandages",
+    "strap",
+]
+
+
+def test_clothing_accessories_matched():
+    """Every hat/outerwear/accessory item must be caught by _CLOTHING_ACCESSORY_PERSISTENT_RE."""
+    for item in CLOTHING_ACCESSORY_ITEMS:
+        matched = bool(_CLOTHING_ACCESSORY_PERSISTENT_RE.search(item))
+        check(
+            f"CLOTHING matched: {item!r}",
+            matched,
+            "expected a match but got none — item would leak into erotic prompt",
+        )
+
+
+def test_restraint_accessories_not_matched_by_clothing_re():
+    """Restraint accessories must NOT be caught by _CLOTHING_ACCESSORY_PERSISTENT_RE."""
+    for item in CLOTHING_ACCESSORY_SAFE_ITEMS:
+        matched = bool(_CLOTHING_ACCESSORY_PERSISTENT_RE.search(item))
+        check(
+            f"RESTRAINT safe from clothing RE: {item!r}",
+            not matched,
+            "unexpected match — restraint item would be incorrectly stripped during erotic scene",
+        )
+
+
+def test_clothing_filter_strips_hat_in_erotic_scene():
+    """Simulate _state_triggered erotic scene: hat is stripped, collar survives."""
+    persistent_items = [
+        "leather collar",
+        "black cowboy hat",
+        "ankle cuffs",
+        "red scarf",
+        "thin silver chain",
+    ]
+
+    expected_kept = {"leather collar", "ankle cuffs", "thin silver chain"}
+    expected_removed = {"black cowboy hat", "red scarf"}
+
+    filtered = [item for item in persistent_items if not _CLOTHING_ACCESSORY_PERSISTENT_RE.search(item)]
+    removed = [item for item in persistent_items if _CLOTHING_ACCESSORY_PERSISTENT_RE.search(item)]
+
+    for item in expected_kept:
+        check(
+            f"erotic scene kept: {item!r}",
+            item in filtered,
+            "item was unexpectedly removed",
+        )
+    for item in expected_removed:
+        check(
+            f"erotic scene removed: {item!r}",
+            item in removed,
+            "item was not removed — clothing would appear in erotic prompt",
+        )
+
+
+def test_clothing_filter_not_applied_in_captive_only_scene():
+    """In a captive-only (non-nude) scene, hats in accessories must NOT be stripped.
+
+    The clothing filter only fires when _state_triggered (nude/undressed) is True.
+    A captive-only scene with _state_triggered=False must leave clothing items intact.
+    This test documents the expected policy: no _CLOTHING_ACCESSORY_PERSISTENT_RE
+    filtering when only _captive_triggered is True.
+    """
+    persistent_items = [
+        "leather collar",
+        "black cowboy hat",
+        "ankle cuffs",
+    ]
+
+    # Simulate captive-only: only _WEAPON_PERSISTENT_RE is applied (not clothing RE)
+    after_weapon_filter = [item for item in persistent_items if not _WEAPON_PERSISTENT_RE.search(item)]
+
+    check(
+        "captive-only: hat retained (clothing filter not applied)",
+        "black cowboy hat" in after_weapon_filter,
+        "hat was stripped in captive-only path — clothing filter should not fire here",
+    )
+    check(
+        "captive-only: collar retained",
+        "leather collar" in after_weapon_filter,
+        "collar was incorrectly stripped",
+    )
+
+
+def test_collar_always_survives_clothing_re():
+    """Collar must survive _CLOTHING_ACCESSORY_PERSISTENT_RE in all scene types."""
+    restraint_items = ["collar", "leather collar", "leash", "ankle cuffs", "wrist cuffs", "chain"]
+    for item in restraint_items:
+        matched = bool(_CLOTHING_ACCESSORY_PERSISTENT_RE.search(item))
+        check(
+            f"collar/restraint always survives clothing RE: {item!r}",
+            not matched,
+            "restraint item matched clothing RE — would be incorrectly stripped",
+        )
+
+
 # ── Run all tests ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -422,6 +573,21 @@ if __name__ == "__main__":
 
     print("\n── Existing outfit terms regression check ────────────────────────────")
     test_non_headwear_outfit_words_still_caught()
+
+    print("\n── Clothing accessories matched by _CLOTHING_ACCESSORY_PERSISTENT_RE ─")
+    test_clothing_accessories_matched()
+
+    print("\n── Restraint accessories safe from clothing RE ───────────────────────")
+    test_restraint_accessories_not_matched_by_clothing_re()
+
+    print("\n── Clothing filter strips hat in erotic scene ────────────────────────")
+    test_clothing_filter_strips_hat_in_erotic_scene()
+
+    print("\n── Clothing filter NOT applied in captive-only scene ─────────────────")
+    test_clothing_filter_not_applied_in_captive_only_scene()
+
+    print("\n── Collar always survives clothing RE ────────────────────────────────")
+    test_collar_always_survives_clothing_re()
 
     total = len(_results)
     passed = sum(1 for _, ok, _ in _results if ok)
