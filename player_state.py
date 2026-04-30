@@ -327,6 +327,22 @@ CRITICAL RULES:
    - "collared and led to a cell" → keep collar (worn); add restraint if newly applied
    Only apply this rule when captivity/disarming is CLEARLY described — do NOT remove
    items for a passing mention of a dungeon as background scenery.
+9. FREED / ESCAPED / RE-ARMED — implied restoration of carried items:
+   When the text clearly implies {player_name} has ESCAPED, been FREED, RELEASED, had
+   their BELONGINGS RETURNED, or is explicitly RE-ARMED, re-add previously carried
+   accessories that were logically removed during capture or disarming.
+   "Previously carried" = weapons (gun, revolver, pistol, rifle, shotgun, knife, sword,
+   blade, dagger, holster, axe, taser, baton), bags, pouches, tools, and tech-devices.
+   Only re-add an item if the current accessories list does NOT already contain it and
+   the prior state or context implies it was carried before capture.
+   Examples:
+   - "{player_name} escaped from the dungeon" / "{player_name} broke free" and had a weapon before → re-add it
+   - "they returned {player_name}'s belongings" / "{player_name}'s gun was handed back" → re-add the weapon
+   - "{player_name} retrieved their holster and pistol" → re-add gun and holster
+   - "{player_name} was released and rearmed" → re-add previously held weapons
+   - "{player_name} slipped away and recovered their weapon" → re-add weapon
+   Only apply this rule when freedom/rearming is CLEARLY described — do NOT add items
+   for a passing mention of escape as background or hypothetical.
 
 Current state (for reference — do not repeat unless it changed):
 {current_state}

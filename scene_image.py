@@ -271,6 +271,38 @@ _CAPTIVE_SCENE_RE: re.Pattern = re.compile(
     re.I,
 )
 
+# Detects a "freed / escaped / re-armed" scene — overrides _CAPTIVE_SCENE_RE so that
+# weapons are NOT suppressed when the character has just escaped, been released, or
+# retrieved their belongings.  Must fire before the captive check is applied.
+_FREED_SCENE_RE: re.Pattern = re.compile(
+    r"\b(?:"
+    # Escape — must be directional ("escaped from") or target a captivity noun
+    r"escap(?:ed?|es|ing)\s+from\b|"
+    r"escap(?:ed?|es)\s+(?:the\s+)?(?:dungeon|cell|cage|prison|captivity|custody|captors?)\b|"
+    # Breaking free — specific enough already
+    r"broke?\s+free\b|broken\s+free\b|broke?\s+out\s+of\b|"
+    # Freed/released — require explicit "set free" or "freed" auxiliary to avoid bare "was free"
+    r"(?:was|were|been|got|gets?|getting)\s+set\s+free\b|"
+    r"(?:was|were|been|got|gets?|getting)\s+freed\b|"
+    r"set\s+(?:her|him|them|you|me)\s+free\b|"
+    r"finally\s+free\b|"
+    r"(?:was|were|been)\s+released\s+from\b|"
+    r"(?:was|were|been)\s+liberat(?:ed?|ing)\b|"
+    # Weapon / belonging explicitly returned or retrieved
+    r"return(?:ed)?\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|"
+    r"equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
+    r"(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|equipment|belonging|"
+    r"holster|knife|sword|blade|bag|gear)\s+(?:was|were)\s+(?:returned|given\s+back|handed\s+back)\b|"
+    r"retriev(?:ed?|ing)\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|"
+    r"equipment|belonging|holster|knife|sword|blade|bag|gear)\b|"
+    r"re-?arm(?:ed|ing)?\b|rearmed\b|"
+    r"got\s+(?:her|his|their|your)\s+(?:weapon|gun|pistol|rifle|equipment|belonging|"
+    r"holster|knife|sword|blade|bag|gear)\s+back\b|"
+    r"reclaim(?:ed?|ing)\s+(?:her|his|their|your)\b"
+    r")",
+    re.I,
+)
+
 
 def _detect_captive_scene(text: str) -> tuple[bool, str]:
     """Return (triggered, label) when the text implies a captive or restrained scene.
@@ -281,7 +313,14 @@ def _detect_captive_scene(text: str) -> tuple[bool, str]:
     persistent-items string sent to the image model, since those items are logically
     absent when the character is captive/disarmed.  Worn/attached items (collar,
     restraints, bandages, marks) are NOT suppressed.
+
+    Does NOT fire when a freed/escape signal is present — a character who has just
+    escaped or had their belongings returned should keep their carried items visible.
     """
+    # If the text contains a clear freedom/escape/rearmed signal, do not suppress
+    # weapons — the character is no longer captive.
+    if _FREED_SCENE_RE.search(text):
+        return False, ""
     m = _CAPTIVE_SCENE_RE.search(text)
     if m:
         return True, m.group(0).lower()

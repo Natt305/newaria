@@ -332,6 +332,22 @@ CRITICAL RULES:
    - "she surrendered her gun and was locked up" → remove gun from accessories_removed
    Only apply this rule when captivity/disarming is CLEARLY described — do NOT remove
    items for a passing mention of a dungeon as background scenery.
+8. FREED / ESCAPED / RE-ARMED — implied restoration of carried items:
+   When the text clearly implies {bot_name} has ESCAPED, been FREED, RELEASED, had
+   their BELONGINGS RETURNED, or is explicitly RE-ARMED, re-add previously carried
+   accessories that were logically removed during capture or disarming.
+   "Previously carried" = weapons (gun, revolver, pistol, rifle, shotgun, knife, sword,
+   blade, dagger, holster, axe, taser, baton), bags, pouches, tools, and tech-devices.
+   Only re-add an item if the current accessories list does NOT already contain it and
+   the prior state or context implies it was carried before capture.
+   Examples:
+   - "she escaped from the dungeon" / "she broke free" and had a revolver before → re-add revolver
+   - "they returned her belongings" / "her gun was handed back" → re-add the weapon
+   - "she retrieved her holster and pistol" → re-add gun and holster
+   - "she was released and rearmed" → re-add previously held weapons
+   - "she slipped away undetected and recovered her weapon" → re-add weapon
+   Only apply this rule when freedom/rearming is CLEARLY described — do NOT add items
+   for a passing mention of escape as background or hypothetical.
 
 Current state (for reference — do not repeat unless it changed):
 {current_state}
