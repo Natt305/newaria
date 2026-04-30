@@ -170,6 +170,24 @@ _MIRROR_AND_QUALITY_NEGATIVE = (
     "hands that go through mirror, wearables on wrong characters"
 )
 
+# Weapon-suppression negative — injected when the positive prompt already
+# contains the "unarmed, no weapons, no holsters" sentinel (added by
+# _generate_erotic_scene_prompt).  Node 11 (the negative encoder) receives
+# the SAME reference photos as Node 10, so listing weapon terms here tells
+# the Qwen VL encoder "suppress the weapon-shaped features you see in these
+# reference images" — a direct visual-level signal that complements the
+# text-side "unarmed" directive in the positive prompt.
+# Not applied to non-erotic generations so action/combat scenes are unaffected.
+_WEAPON_SUPPRESS_NEGATIVE = (
+    "gun, revolver, pistol, holster, weapon, firearm, rifle, shotgun, "
+    "sword, blade, knife, dagger, held weapon, weapon in hand, "
+    "armed, carrying weapon, holding gun, holding weapon"
+)
+
+# Sentinel string appended by _generate_erotic_scene_prompt (scene_image.py).
+# Used by _run_generate_qwen to detect that weapon suppression is requested.
+_WEAPON_SUPPRESS_SENTINEL = "unarmed, no weapons, no holsters"
+
 
 # Style-policy text selected by QWEN_STYLE_POLICY (default match_reference).
 # match_reference = replicate ref style; flat_anime = legacy override; off = none.
@@ -998,6 +1016,7 @@ def _build_multi_edit_workflow_qwen(
     uploaded_image_names: List[str],
     uploaded_subjects: Optional[List[str]] = None,
     subject_appearances: Optional[Dict[str, str]] = None,
+    extra_negative: str = "",
 ) -> dict:
     """Qwen-Image-Edit-Rapid GGUF multi-reference edit-mode graph (2–4 refs).
 
@@ -1012,6 +1031,13 @@ def _build_multi_edit_workflow_qwen(
     The negative carries the anatomy/feminine-build negative text when QWEN_CFG > 1.0
     (the default is 1.5, activating the negative branch). At CFG=1.0 the negative
     branch is mathematically zeroed and node "11" receives an empty prompt.
+
+    ``extra_negative``, when non-empty, is appended (comma-separated) to the
+    standard ``_negative_text`` before it is wired into node "11".  Pass
+    ``_WEAPON_SUPPRESS_NEGATIVE`` here for erotic / weapon-suppressed scenes so
+    that the Qwen VL encoder receives a direct visual-level "suppress the weapon
+    features in these reference images" signal — complementing the text-side
+    "unarmed" directive already present in the positive prompt.
 
     `uploaded_subjects` (aligned to `uploaded_image_names`) is used to inject a
     brief per-slot identity prefix (`"image 1 is Kelly Gray. image 2 is Natt. "`)
@@ -1196,6 +1222,8 @@ def _build_multi_edit_workflow_qwen(
         ]
     else:
         _negative_parts = [_ANATOMY_NEGATIVE, _MIRROR_AND_QUALITY_NEGATIVE]
+    if extra_negative:
+        _negative_parts.append(extra_negative)
     _negative_text = ", ".join(p for p in _negative_parts if p)
 
     # KSampler CFG — default 1.5 activates negative guidance. At CFG=1.0 the
@@ -1350,6 +1378,7 @@ def _build_edit_workflow_qwen(
     uploaded_image_name: str,
     uploaded_subjects: Optional[List[str]] = None,
     subject_appearances: Optional[Dict[str, str]] = None,
+    extra_negative: str = "",
 ) -> dict:
     """Qwen-Image-Edit-Rapid GGUF single-reference edit-mode graph.
 
@@ -1362,7 +1391,7 @@ def _build_edit_workflow_qwen(
 
     `uploaded_subjects` and `subject_appearances` are forwarded to the multi-
     edit builder so that even single-ref generations emit the per-slot
-    identity prefix into the prompt.
+    identity prefix into the prompt.  `extra_negative` is forwarded unchanged.
     """
     return _build_multi_edit_workflow_qwen(
         prompt, gguf_path, vae_name, clip_gguf_name,
@@ -1370,6 +1399,7 @@ def _build_edit_workflow_qwen(
         [uploaded_image_name],
         uploaded_subjects=uploaded_subjects,
         subject_appearances=subject_appearances,
+        extra_negative=extra_negative,
     )
 
 
@@ -1780,6 +1810,19 @@ def _run_generate_qwen(
     else:
         _target_latent_tag = "not wired (unknown)"
 
+    # Detect weapon-suppress intent: the erotic-scene path (scene_image.py)
+    # already appends the sentinel to the positive prompt.  When found, also
+    # inject weapon terms into the *negative* prompt so the Qwen VL encoder
+    # receives a direct visual-level "suppress the weapon in the reference
+    # photos" gradient — complementing the text-side "unarmed" directive.
+    _extra_neg = ""
+    if _WEAPON_SUPPRESS_SENTINEL in prompt:
+        _extra_neg = _WEAPON_SUPPRESS_NEGATIVE
+        print(
+            "[ComfyUI] Qwen: weapon-suppress sentinel detected — "
+            "injecting weapon negative into node 11."
+        )
+
     if len(uploaded) == 1:
         workflow = _build_edit_workflow_qwen(
             prompt, qwen_gguf, qwen_vae, qwen_clip,
@@ -1787,6 +1830,7 @@ def _run_generate_qwen(
             qwen_sampler, qwen_scheduler, uploaded[0],
             uploaded_subjects=uploaded_subjects,
             subject_appearances=subject_appearances,
+            extra_negative=_extra_neg,
         )
         print(f"[ComfyUI] Qwen edit-mode workflow with 1 reference image "
               f"(target_latent: {_target_latent_tag}).")
@@ -1797,6 +1841,7 @@ def _run_generate_qwen(
             qwen_sampler, qwen_scheduler, uploaded,
             uploaded_subjects=uploaded_subjects,
             subject_appearances=subject_appearances,
+            extra_negative=_extra_neg,
         )
         print(f"[ComfyUI] Qwen multi-edit workflow with {len(uploaded)} "
               f"reference image(s) (target_latent: {_target_latent_tag}).")
