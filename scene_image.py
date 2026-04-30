@@ -1741,7 +1741,7 @@ async def _generate_erotic_scene_prompt(
         "  2. Body pose and contact — ONE short independent tag per character or contact point. "
         "Use 'CharacterName verb' or 'CharacterName's body-part + action' form. "
         "Each tag must stand completely alone. "
-        "GOOD: 'Kelly Gray kneeling, Kelly Gray's mouth on cock' "
+        "GOOD: 'Kelly Gray kneeling, Kelly Gray's mouth on Natt's cock' "
         "BAD: 'Kelly Gray kneeling on all fours on top of Natt who is standing'\n"
         "  3. Clothing state per character — ONLY: fully nude / topless / clothed / partially clothed\n"
         "  4. Sensory/reaction detail per character — expressive multi-word tags are encouraged here: "
@@ -1760,11 +1760,13 @@ async def _generate_erotic_scene_prompt(
         "no 'on top of X who is…', no 'pressed against X as he…'. "
         "If a description needs a subordinate clause to make sense, split it into two flat tags instead.\n"
         "- OUTPUT FORMAT: ONE single line, comma-separated only. "
-        "NO newlines, NO semicolons, NO asterisks, NO markdown, NO section headers.\n"
+        "NO newlines, NO semicolons, NO asterisks, NO markdown, NO section headers, NO parentheses.\n"
         "- ONE MOMENT: Describe only the single frozen frame — do NOT summarise "
         "multiple events, before/after states, or sequential actions.\n"
         "- Every body part must carry the character's exact name in possessive form — "
-        "write 'Kelly Gray's mouth' not 'her mouth'.\n"
+        "write 'Kelly Gray's mouth' not 'her mouth'. "
+        "When one character's body part acts on another character's body part, BOTH must be named: "
+        "write 'Kelly Gray's mouth on Natt's cock', NEVER 'Kelly Gray's mouth on cock'.\n"
         "- Restraints belong ONLY to the explicitly bound character — never on anyone else.\n"
         "- Clothing state: ONLY 'fully nude', 'topless', 'clothed', or 'partially clothed'. "
         "NEVER name specific garments.\n"
@@ -1797,6 +1799,11 @@ async def _generate_erotic_scene_prompt(
             response_text = _enforce_prompt_brevity(
                 response_text, word_budget=_CONTENT_WORD_BUDGET
             )
+            # 1b. Remove any parenthetical groups the LLM may have produced
+            #     (e.g. "(Fully nude)", "(Close-up)") — these are not valid
+            #     comma-tag format and can confuse Qwen.
+            response_text = re.sub(r"\s*\([^)]*\)", "", response_text)
+            response_text = re.sub(r",\s*,", ",", response_text).strip(" ,")
             # 2. Fix spatially impossible position + sex-act combinations
             #    (e.g. "standing behind" + face-fuck). This may expand text by
             #    a couple of words ("behind" → "in front of").
