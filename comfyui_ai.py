@@ -947,15 +947,15 @@ def _build_txt2img_workflow_qwen(
         KSampler (CFG=1.0, configurable sampler/scheduler/steps)
         VAEDecode → SaveImage
 
-    Negative defaults to an empty string — the model is distilled to
-    CFG=1.0 so any negative is multiplied by zero anyway, and matching the
-    reference Qwen-Rapid-AIO.json keeps behaviour predictable.
+    The negative CLIPTextEncode node (node "5") defaults to an empty string
+    because the model is distilled to CFG=1.0, so any negative is multiplied
+    by zero under normal conditions.
 
-    ``extra_negative``, when non-empty, is placed directly into the negative
-    CLIPTextEncode node (node "5").  Pass ``_WEAPON_SUPPRESS_NEGATIVE`` here
-    for erotic / weapon-suppressed scenes where the sentinel is detected, so
-    the negative carries the weapon-suppression terms even on the zero-reference
-    fallback path.
+    ``extra_negative``, when non-empty, is placed directly into node "5" and
+    overrides that empty default.  Pass ``_WEAPON_SUPPRESS_NEGATIVE`` here
+    when the weapon-suppress sentinel is detected so that the negative prompt
+    carries the weapon-suppression terms even on the zero-reference (txt2img)
+    fallback path — in which case the negative will be non-empty.
     """
     enhanced_prompt = prompt + _ANATOMY_SUFFIX
     negative_text = extra_negative if extra_negative else ""
@@ -1829,7 +1829,7 @@ def _run_generate_qwen(
         _extra_neg = _WEAPON_SUPPRESS_NEGATIVE
         print(
             "[ComfyUI] Qwen: weapon-suppress sentinel detected — "
-            "injecting weapon negative into node 11."
+            "injecting weapon negative into negative prompt."
         )
 
     if len(uploaded) == 1:
