@@ -375,6 +375,7 @@ _DEFAULT_COMMAND_ROLES: Dict[str, Optional[str]] = {
     "generate":              None,
     "help":                  None,
     "diagcomfyui":           "__admin__",
+    "diaggroq":              "__admin__",
 }
 
 _SETTINGS_DEFAULTS = {

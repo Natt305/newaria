@@ -79,6 +79,55 @@ def log_key_pool_status() -> None:
     print(f"[Groq] Key pool: {len(keys)} key(s) loaded ({', '.join(names)})")
 
 
+def get_pool_status() -> dict:
+    """Return a structured snapshot of the current Groq key-pool state.
+
+    Suitable for display in a /diaggroq Discord command.  Never returns raw
+    key values — only fingerprints (last 8 chars).
+
+    Returns a dict with:
+      pool_size         int   — number of configured keys
+      chat_model        str   — effective GROQ_MODEL in use
+      vision_model      str   — effective GROQ_VISION_MODEL in use
+      rate_limited      list  — [{fp, model, until_ts, seconds_left}]
+      daily_exhausted   list  — [{fp, model, exhausted_at_ts, resets_at_ts}]
+    """
+    keys = _get_key_pool()
+    now = time.time()
+
+    rate_limited = []
+    for (fp, model), until_ts in list(_key_rate_limited_until.items()):
+        if until_ts > now:
+            rate_limited.append({
+                "fp": fp,
+                "model": model,
+                "until_ts": until_ts,
+                "seconds_left": int(until_ts - now),
+            })
+
+    daily_exhausted = []
+    for (fp, model), exhausted_ts in list(_key_daily_exhausted.items()):
+        exhausted_at = datetime.fromtimestamp(exhausted_ts, tz=timezone.utc)
+        resets_at = (exhausted_at + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        if datetime.now(timezone.utc) < resets_at:
+            daily_exhausted.append({
+                "fp": fp,
+                "model": model,
+                "exhausted_at_ts": exhausted_ts,
+                "resets_at_ts": resets_at.timestamp(),
+            })
+
+    return {
+        "pool_size": len(keys),
+        "chat_model": _default_model(),
+        "vision_model": _default_vision_model(),
+        "rate_limited": rate_limited,
+        "daily_exhausted": daily_exhausted,
+    }
+
+
 def _mark_key_daily_exhausted(key: str, model: str) -> None:
     """Record that this key+model pair hit its daily token limit."""
     fp = _key_fp(key)

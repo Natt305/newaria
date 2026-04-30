@@ -4884,6 +4884,73 @@ async def diagcomfyui_cmd(ctx):
     await ctx.reply(embed=embed, mention_author=False)
 
 
+@bot.hybrid_command(name="diaggroq", description="顯示 Groq 金鑰池狀態 (限速 / 每日用盡) (需管理員)")
+async def diaggroq_cmd(ctx):
+    """Show live Groq key-pool status: which key+model pairs are rate-limited
+    or daily-exhausted, current model settings, and pool size.
+
+    Never reveals actual key values — only the last-8-char fingerprint.
+    """
+    if not await check_command_role(ctx):
+        return
+
+    import groq_ai as _groq_ai_direct
+    from datetime import datetime, timezone
+
+    status = _groq_ai_direct.get_pool_status()
+    pool_size = status["pool_size"]
+    chat_model = status["chat_model"]
+    vision_model = status["vision_model"]
+    rate_limited = status["rate_limited"]
+    daily_exhausted = status["daily_exhausted"]
+
+    all_ok = not rate_limited and not daily_exhausted
+    color = discord.Color.green() if all_ok else discord.Color.orange()
+    title_marker = "✅" if all_ok else "⚠️"
+
+    embed = discord.Embed(
+        title=f"{title_marker} Groq 金鑰池診斷",
+        color=color,
+    )
+
+    embed.add_field(name="金鑰數量", value=str(pool_size) if pool_size else "⚠️ 0（未設定）", inline=True)
+    embed.add_field(name="GROQ_MODEL", value=f"`{chat_model}`", inline=True)
+    embed.add_field(name="GROQ_VISION_MODEL", value=f"`{vision_model}`", inline=True)
+
+    if rate_limited:
+        lines = []
+        for entry in sorted(rate_limited, key=lambda e: e["seconds_left"]):
+            lines.append(
+                f"⏱ `…{entry['fp']}` / `{entry['model']}` — 還剩 **{entry['seconds_left']}s**"
+            )
+        embed.add_field(
+            name=f"短期限速中 ({len(rate_limited)} 個)",
+            value="\n".join(lines)[:1024],
+            inline=False,
+        )
+    else:
+        embed.add_field(name="短期限速中", value="✅ 無", inline=False)
+
+    if daily_exhausted:
+        lines = []
+        for entry in sorted(daily_exhausted, key=lambda e: e["resets_at_ts"]):
+            resets_dt = datetime.fromtimestamp(entry["resets_at_ts"], tz=timezone.utc)
+            resets_str = resets_dt.strftime("%H:%M UTC")
+            lines.append(
+                f"🚫 `…{entry['fp']}` / `{entry['model']}` — 今日額度耗盡，{resets_str} 重置"
+            )
+        embed.add_field(
+            name=f"每日額度耗盡 ({len(daily_exhausted)} 個)",
+            value="\n".join(lines)[:1024],
+            inline=False,
+        )
+    else:
+        embed.add_field(name="每日額度耗盡", value="✅ 無", inline=False)
+
+    embed.set_footer(text="金鑰指紋為末 8 碼，不含完整金鑰值。")
+    await ctx.reply(embed=embed, mention_author=False)
+
+
 @bot.hybrid_command(name="setrole", description="指定哪個角色可以使用某個指令 (需管理員)")
 @app_commands.describe(command="指令名稱 (不含 /)", role="允許使用該指令的角色")
 async def setrole_cmd(ctx, command: str, role: discord.Role):
