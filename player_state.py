@@ -600,6 +600,7 @@ async def update_state(
                 print(f"[PlayerState] Restored from suspension on escape (no visual delta) for {discord_id}: {promoted}")
             _states[k] = current
             _db.set_player_state(channel_id, discord_id, _state_to_dict(current))
+            _db.set_player_turn_counter(channel_id, discord_id, turn)
             _record_history(channel_id, discord_id, turn, before_snap, current)
         return current
 

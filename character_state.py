@@ -625,6 +625,7 @@ async def update_state(
                 print(f"[CharState] Restored from suspension on escape (no visual delta): {promoted}")
             _states[channel_id] = current
             _db.set_character_state(channel_id, _state_to_dict(current))
+            _db.set_character_turn_counter(channel_id, turn)
             _record_history(channel_id, turn, before_snap, current)
         return current
 
