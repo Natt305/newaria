@@ -1245,10 +1245,10 @@ def _build_multi_edit_workflow_qwen(
     if _text_only_suffix:
         print(f"[ComfyUI] Qwen: text-only subject differentiation — {_text_only_suffix!r}")
 
-    # Keep the positive prompt to slot identity + scene description + anatomy
-    # quality only.  Weapon tokens must NOT appear in the positive — they prime
-    # the model to render weapons.  Weapon suppression is handled exclusively
-    # via the negative encoder (see _run_generate_qwen sentinel detection).
+    # Build the final positive: slot identity prefix + scene description +
+    # anatomy quality suffix.  For Qwen VL, the weapon prohibition (if active)
+    # is already appended to `prompt` by _run_generate_qwen before this builder
+    # is called — Qwen reads it as a natural-language directive and obeys it.
     enhanced_prompt = _slot_prefix + prompt + _ANATOMY_SUFFIX
 
     # Build the negative text. Order is taken directly from the user's
@@ -1872,14 +1872,17 @@ def _run_generate_qwen(
 
     # Detect weapon-suppress intent: the erotic-scene path (scene_image.py)
     # appends the sentinel to the scene prompt.  When found:
-    #   1. Inject weapon terms into the *negative* encoder — this is sufficient
-    #      to suppress weapons visually; the negative does not prime the model.
-    #   2. Strip the sentinel from the positive prompt before the builders see
-    #      it.  Weapon tokens in the POSITIVE prime the diffusion model to
-    #      render weapons — explicitly naming a weapon, even with "no", increases
-    #      its presence.  Keeping them in the negative only is the correct split.
+    #   1. Strip the sentinel from the positive prompt.
+    #   2. Append an explicit natural-language prohibition to the positive
+    #      prompt ("Do NOT render any weapons …").  Qwen is a VL instruction-
+    #      following model — it reads the prompt as directives, not token
+    #      weights, so a "Do NOT" prohibition is the most reliable suppression
+    #      channel.  The old "never put weapon words in the positive" rule
+    #      applies to SDXL/SD1.5 latent-diffusion, NOT to Qwen VL.
+    #   3. Inject weapon terms into the negative encoder as a secondary signal
+    #      (active only when QWEN_CFG > 1.0, the default is 1.5).
     # Note: the upload loop above already ran its crop check before this strip,
-    # so the reference-photo crop (Task #14) still fires as intended.
+    # so the reference-photo crop (top-60% reference crop) still fires.
     _extra_neg = ""
     if _WEAPON_SUPPRESS_SENTINEL in prompt:
         _extra_neg = _WEAPON_SUPPRESS_NEGATIVE
@@ -1891,9 +1894,20 @@ def _run_generate_qwen(
             .rstrip(",")
             .strip()
         )
+        # Qwen is a VL instruction-following model — explicit "Do NOT render X"
+        # directives in the POSITIVE prompt are the most reliable suppression
+        # channel because Qwen reads the prompt as natural language instructions,
+        # not token weights.  Classic latent-diffusion advice ("never put weapon
+        # words in the positive") does NOT apply here.  The negative is kept as
+        # a secondary signal, but without a positive prohibition the model still
+        # copies weapon shapes it sees in the reference photos.
+        prompt = prompt + (
+            " Do NOT render any weapons, guns, revolvers, pistols, holsters,"
+            " rifles, shotguns, or held firearms anywhere in this image."
+        )
         print(
             "[ComfyUI] Qwen: weapon-suppress sentinel detected — "
-            "injecting weapon negative; sentinel stripped from positive prompt."
+            "injecting weapon negative + positive prohibition; sentinel stripped."
         )
 
     if len(uploaded) == 1:
