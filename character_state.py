@@ -582,6 +582,7 @@ async def update_state(
     if current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
         turn = _next_turn(channel_id)
         before_snap = _copy.copy(current)
+        before_snap.accessories           = list(current.accessories)           # deep-copy for accurate history diff
         before_snap.suspended_accessories = list(current.suspended_accessories)
         existing_acc_lower = {x.lower() for x in current.accessories}
         promoted = []
@@ -591,6 +592,7 @@ async def update_state(
                 existing_acc_lower.add(item.lower())
                 promoted.append(item)
         current.suspended_accessories = []
+        current.updated_at = turn   # keep diagnostic monotonic even on restoration-only turns
         if promoted:
             print(f"[CharState] Pre-flight restored from suspension: {promoted}")
         _states[channel_id] = current
