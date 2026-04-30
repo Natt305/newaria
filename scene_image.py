@@ -1406,9 +1406,11 @@ def _filter_prose_for_erotic_prompt(text: str) -> tuple[str, int]:
       also contain a restraint/accessory term (``_ACCESSORY_KEYWORD_RE``).
 
     The second rule preserves restraint sentences such as "the ropes around her
-    arms hold fast" even when they incidentally contain an outfit keyword (e.g.
-    "the leather strap binds her wrists") — those describe body positions that
-    the image model must reproduce.
+    arms hold fast" or "leather cuffs bind her wrists" (keywords: rope, cuffs)
+    even when the sentence also matches _OUTFIT_SENTENCE_RE.  Note: "strap" and
+    "harness" are not in _ACCESSORY_KEYWORD_RE; sentences whose only restraint
+    indicator is one of those words will still be dropped.  See Task #5 to add
+    them.
 
     Returns ``(filtered_text, n_dropped)``.
     """
