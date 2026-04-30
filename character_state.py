@@ -568,6 +568,10 @@ async def update_state(
     3. Merges the delta into the stored state.
     Returns the (possibly unchanged) state.
     """
+    # exchange_text is needed for deterministic suspension/restoration logic which
+    # must run independently of the extractor (even if extractor returns nothing).
+    exchange_text = (user_text or "") + " " + (bot_reply or "")
+
     if not _needs_update(user_text, bot_reply):
         return get_state(channel_id)
 
@@ -577,6 +581,25 @@ async def update_state(
 
     delta = await _extract_state_delta(user_text, bot_reply, current, bot_name, chat_fn)
     if not delta:
+        # Extractor returned nothing — still apply deterministic freed restoration
+        # so escape turns reliably reinstate suspended accessories.
+        if current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
+            before_snap = _copy.copy(current)
+            before_snap.suspended_accessories = list(current.suspended_accessories)
+            existing_acc_lower = {x.lower() for x in current.accessories}
+            promoted = []
+            for item in current.suspended_accessories:
+                if item.lower() not in existing_acc_lower:
+                    current.accessories.append(item)
+                    existing_acc_lower.add(item.lower())
+                    promoted.append(item)
+            current.suspended_accessories = []
+            if promoted:
+                print(f"[CharState] Restored from suspension on escape (no extractor delta): {promoted}")
+            _states[channel_id] = current
+            _db.set_character_state(channel_id, _state_to_dict(current))
+            _db.set_character_turn_counter(channel_id, turn)
+            _record_history(channel_id, turn, before_snap, current)
         return current
 
     # Log non-null / non-empty changes for ops visibility
@@ -585,11 +608,8 @@ async def update_state(
         if v not in (None, [], "")
     }
 
-    exchange_text = (user_text or "") + " " + (bot_reply or "")
-
     if not meaningful:
-        # Even when the extractor sees no visible appearance change, a freed/escape
-        # turn must still re-promote suspended_accessories deterministically.
+        # Extractor returned all-null delta — still apply deterministic freed restoration
         if current.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
             before_snap = _copy.copy(current)
             before_snap.suspended_accessories = list(current.suspended_accessories)
@@ -617,10 +637,7 @@ async def update_state(
     before_snapshot.suspended_accessories = list(current.suspended_accessories)
     updated = _apply_delta(current, delta, turn)
 
-    # ── Suspension / restoration logic ────────────────────────────────────
-    # exchange_text was computed above (before the meaningful check) and is
-    # reused here — no LLM prompt changes required; fully deterministic.
-
+    # ── Suspension / restoration logic (post-delta) ────────────────────────
     # Captive transition → suspend portable items that were removed this turn
     removed_accessories = set(before_snapshot.accessories) - set(updated.accessories)
     if removed_accessories and _CAPTIVE_TRANSITION_RE.search(exchange_text):
@@ -636,7 +653,8 @@ async def update_state(
                     existing_lower.add(item.lower())
             print(f"[CharState] Suspended on capture: {portable_removed}")
 
-    # Freed / escaped transition → promote suspended items back to accessories
+    # Freed / escaped transition → promote any remaining suspended items
+    # (belt-and-suspenders: also catches items extractor may have readded to suspended)
     if updated.suspended_accessories and _FREED_TRANSITION_RE.search(exchange_text):
         existing_acc_lower = {x.lower() for x in updated.accessories}
         promoted: list[str] = []
