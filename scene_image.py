@@ -1499,8 +1499,25 @@ async def _generate_erotic_scene_prompt(
         prose_parts.append(filtered_prose.strip())
     if filtered_seed.strip():
         prose_parts.append(filtered_seed.strip())
-    # Fall back to the raw seed if filtering emptied everything.
-    prose_text = "\n\n".join(prose_parts) or seed or ""
+    prose_text = "\n\n".join(prose_parts)
+
+    # If filtering removed everything, there is nothing safe to send to the LLM.
+    # Never fall back to raw seed here — it would reintroduce weapon/clothing
+    # content that the filter was explicitly designed to suppress.
+    # Use _assemble_scene_prompt (rule-based, no LLM call) as the safe fallback.
+    if not prose_text.strip():
+        print(
+            "[SceneImage] erotic prompt: all prose/seed sentences filtered out "
+            "— falling back to _assemble_scene_prompt"
+        )
+        return _assemble_scene_prompt(
+            seed=seed,
+            prose_context=prose_context,
+            roster_names=roster_names,
+            roster_appearances=roster_appearances,
+            bot_name=bot_name,
+            player_display_name=player_display_name,
+        )
 
     system_prompt = (
         "You are an expert image-prompt writer for an explicit adult AI image generator.\n"
@@ -1533,9 +1550,11 @@ async def _generate_erotic_scene_prompt(
         "Dropping ownership is as wrong as using a pronoun.\n"
         "- If restraints appear in the prose, you MUST include them — they affect body position.\n"
         "- Clothing state: ONLY 'fully nude', 'topless', 'clothed', or 'partially clothed'. "
-        "NEVER name specific garments, accessories, fabrics, or props.\n"
-        "- NEVER mention weapons, props, held objects, or specific garments. "
+        "NEVER name specific garments or fabrics (e.g. no corset, stockings, boots).\n"
+        "- NEVER mention weapons, holsters, or held objects. "
         "Ignore any weapon or clothing description in the prose.\n"
+        "- Restraints (ropes, cuffs, chains, straps used as bindings) are NOT props — "
+        "they affect body position and must always be described.\n"
         "- Be anatomically precise about body positions and contact points; vague descriptions "
         "cause the image model to generate incorrect anatomy\n"
         "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks\n"
