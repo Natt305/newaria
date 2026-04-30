@@ -957,7 +957,10 @@ def _build_txt2img_workflow_qwen(
     carries the weapon-suppression terms even on the zero-reference (txt2img)
     fallback path — in which case the negative will be non-empty.
     """
-    enhanced_prompt = prompt + _ANATOMY_SUFFIX
+    # Prepend weapon-rejection when suppression is active — same logic as the
+    # multi-edit builder so both paths behave identically.
+    _weapon_prefix = "no gun, no weapon, no holster, empty hands, " if extra_negative else ""
+    enhanced_prompt = _weapon_prefix + prompt + _ANATOMY_SUFFIX
     negative_text = extra_negative if extra_negative else ""
     return {
         "1": {
@@ -1212,7 +1215,13 @@ def _build_multi_edit_workflow_qwen(
     if _text_only_suffix:
         print(f"[ComfyUI] Qwen: text-only subject differentiation — {_text_only_suffix!r}")
 
-    enhanced_prompt = _slot_prefix + _appearance_lock + _text_only_suffix + prompt + _ANATOMY_SUFFIX + _feminine_pos
+    # When weapon suppression is active (extra_negative non-empty, erotic scenes
+    # only), prepend the rejection directive at the very front of the positive
+    # prompt so it occupies the highest-attention token positions — countering
+    # the appearance lock, which also sits near the front and tells the model to
+    # replicate the reference photo (including any weapon it shows).
+    _weapon_prefix = "no gun, no weapon, no holster, empty hands, " if extra_negative else ""
+    enhanced_prompt = _weapon_prefix + _slot_prefix + _appearance_lock + _text_only_suffix + prompt + _ANATOMY_SUFFIX + _feminine_pos
 
     # Build the negative text. Order is taken directly from the user's
     # gold-standard reference workflow JSON node 11:
