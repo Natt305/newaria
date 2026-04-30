@@ -233,6 +233,7 @@ _OUTFIT_SENTENCE_RE: re.Pattern = re.compile(
         "gloves", "boots", "shoes", "heels", "sneakers",
         "scarf", "tie",
         "hat", "cap", "beret", "fedora", "bonnet", "helmet", "visor",
+        "trenchcoat", "windbreaker", "anorak", "cloak", "cape", "cardigan", "vest", "wrap", "knitwear",
     ], key=len, reverse=True))  # longer tokens first to avoid partial matches
     + r")\b",
     re.I,
@@ -259,7 +260,8 @@ _WEAPON_PERSISTENT_RE: re.Pattern = re.compile(
 # Only fires when _state_triggered is True; captive-only scenes leave these intact.
 _CLOTHING_ACCESSORY_PERSISTENT_RE: re.Pattern = re.compile(
     r"\b(?:hat|cap|beret|fedora|bonnet|visor|helmet|beanie|stetson|trilby|bowler|"
-    r"coat|overcoat|jacket|parka|blazer|"
+    r"coat|overcoat|trenchcoat|jacket|parka|windbreaker|anorak|blazer|"
+    r"hoodie|cardigan|vest|cloak|cape|wrap|knitwear|"
     r"gloves?|mittens?|"
     r"scarf|shawl)\b",
     re.I,

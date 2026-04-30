@@ -311,7 +311,7 @@ def test_captive_scene_yields_on_genuine_freedom():
 
 
 def test_headwear_matched_by_outfit_sentence_re():
-    """Headwear terms added in Task #14 must be caught by _OUTFIT_SENTENCE_RE."""
+    """Headwear and outerwear terms must be caught by _OUTFIT_SENTENCE_RE."""
     headwear_sentences = [
         "A black hat completes her look.",
         "Her signature cowboy hat sits atop her curly hair.",
@@ -321,6 +321,16 @@ def test_headwear_matched_by_outfit_sentence_re():
         "A white bonnet frames her face.",
         "She wears a motorcycle helmet.",
         "A tactical visor shades her eyes.",
+        # New outerwear terms (Task #17)
+        "A long trenchcoat falls to her knees.",
+        "Her windbreaker keeps off the chill.",
+        "A heavy anorak covers her shoulders.",
+        "A hooded cloak drapes her figure.",
+        "A velvet cape flows behind her.",
+        "A silk cardigan rests over her shoulders.",
+        "A fitted vest sits over her shirt.",
+        "A silk wrap covers her arms.",
+        "Her knitwear is soft and form-fitting.",
     ]
     for sent in headwear_sentences:
         check(
@@ -418,6 +428,22 @@ CLOTHING_ACCESSORY_ITEMS = [
     "scarf",
     "red scarf",
     "shawl",
+    "trenchcoat",
+    "long trenchcoat",
+    "windbreaker",
+    "anorak",
+    "hoodie",
+    "black hoodie",
+    "cardigan",
+    "vest",
+    "leather vest",
+    "cloak",
+    "hooded cloak",
+    "cape",
+    "velvet cape",
+    "wrap",
+    "silk wrap",
+    "knitwear",
 ]
 
 CLOTHING_ACCESSORY_SAFE_ITEMS = [
