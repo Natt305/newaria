@@ -542,6 +542,8 @@ async def understand_image(
     if not keys:
         print("[Groq Vision] No API key — skipping image analysis")
         return None
+    if len(keys) > 1:
+        print(f"[Groq Vision] understand_image(): key pool {len(keys)} key(s) available")
 
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{mime_type};base64,{b64}"
@@ -1353,6 +1355,8 @@ async def chat(
     keys = _get_key_pool()
     if not keys:
         return "Groq API key is not configured. Please set GROQ_API_KEY.", None, False, False
+    if len(keys) > 1:
+        print(f"[Groq] chat(): key pool {len(keys)} key(s) available")
 
     groq_messages = []
     if system_prompt:

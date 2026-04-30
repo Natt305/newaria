@@ -110,7 +110,7 @@ def main():
         _groq_ai_mod.log_key_pool_status()
         _groq_keys = _groq_ai_mod._get_key_pool()
         if not _groq_keys:
-            print("[Warning] GROQ_API_KEY is not set. Text chat will be unavailable.")
+            print("[Warning] No Groq API keys configured. Set GROQ_API_KEY (or GROQ_API_KEY_2…GROQ_API_KEY_20 for a pool). Text chat will be unavailable.")
         else:
             chat_model   = os.environ.get("GROQ_MODEL", "").strip() or "llama-3.3-70b-versatile"
             vision_model = os.environ.get("GROQ_VISION_MODEL", "").strip() or "meta-llama/llama-4-scout-17b-16e-instruct"
