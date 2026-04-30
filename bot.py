@@ -2336,6 +2336,28 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         print(f"[Bot] Failed to send error message: {e}")
 
 
+_prune_task: Optional[asyncio.Task] = None
+
+
+async def _prune_key_records_loop(interval: int = 300) -> None:
+    """Background task: prune stale Groq key records every *interval* seconds.
+
+    Keeps _key_rate_limited_until and _key_daily_exhausted bounded in memory
+    regardless of whether /diaggroq is ever called.
+
+    Runs one immediate prune on startup, then waits *interval* seconds between
+    subsequent pruning passes.
+    """
+    import groq_ai as _groq_ai_mod
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        try:
+            _groq_ai_mod.prune_stale_key_records()
+        except Exception as _prune_exc:
+            print(f"[Bot] prune_key_records_loop error: {_prune_exc}")
+        await asyncio.sleep(interval)
+
+
 @bot.event
 async def on_ready():
     bot_name, *_ = load_character()
@@ -2481,6 +2503,14 @@ async def on_ready():
         print(f"[Bot] 已同步 {len(synced)} 個斜線指令")
     except Exception as e:
         print(f"[Bot] 斜線指令同步失敗: {e}")
+    # Start background task to periodically prune stale Groq key records.
+    # Guarded by a module-level handle so reconnects (which re-fire on_ready)
+    # never spawn a second loop.
+    global _prune_task
+    if _prune_task is None or _prune_task.done():
+        _prune_task = asyncio.create_task(_prune_key_records_loop())
+        print("[Bot] Background pruner: Groq key records will be pruned every 300 s")
+
     # Clear any guild-specific commands that may have been registered previously
     # (guild commands duplicate global ones and must be removed)
     for guild in bot.guilds:
