@@ -250,6 +250,37 @@ _WEAPON_PERSISTENT_RE: re.Pattern = re.compile(
     re.I,
 )
 
+# Detects captive / restrained / dungeon scene context — used to suppress carried items
+# (weapons, tools) that are logically absent when the character is captive or bound,
+# even when the nudity/undressed clothing override has NOT fired.
+# A collar, restraints, or bandages are NOT suppressed by this — only portable items are.
+_CAPTIVE_SCENE_RE: re.Pattern = re.compile(
+    r"\b(?:dungeon|cell|cage|prison|imprisoned|captive|prisoner|captivity|"
+    r"captur(?:ed?|ing)|kidnapp(?:ed|ing)?|enslav(?:ed|ing)?|"
+    r"locked\s+(?:up|in|away|in\s+a\s+(?:cell|dungeon|cage))|"
+    r"taken\s+(?:prisoner|captive|to\s+(?:a\s+)?(?:dungeon|cell|prison))|"
+    r"chained\s+(?:up|to\s+the)|bound\s+(?:and|to)|"
+    r"disarm(?:ed|ing)?|confiscat(?:ed?|ing)|stripped?\s+of\s+(?:her|his|their)\s+"
+    r"(?:weapon|gun|pistol|equipment|belonging|belonging))\b",
+    re.I,
+)
+
+
+def _detect_captive_scene(text: str) -> tuple[bool, str]:
+    """Return (triggered, label) when the text implies a captive or restrained scene.
+
+    Fires independently of the clothing/nudity override — a character can be in a
+    dungeon engaging an erotic scene while still partially clothed (e.g. wearing only
+    a collar).  When triggered, weapons and portable carried items are removed from the
+    persistent-items string sent to the image model, since those items are logically
+    absent when the character is captive/disarmed.  Worn/attached items (collar,
+    restraints, bandages, marks) are NOT suppressed.
+    """
+    m = _CAPTIVE_SCENE_RE.search(text)
+    if m:
+        return True, m.group(0).lower()
+    return False, ""
+
 
 # Persistent accessories that must survive outfit-stripping.
 # Used in _strip_outfit_from_looks to rescue sub-phrases from sentences that
@@ -2107,6 +2138,8 @@ async def run_scene_image(
         _looks_appended = False
         _state_triggered = False
         _state_label = ""
+        _captive_triggered = False   # pre-init so player section can reference it
+        _captive_label = ""          # even when the character block doesn't execute
         _char_state_obj = character_state.get_state(
             str(getattr(channel, "id", channel_id))
         )
@@ -2139,6 +2172,50 @@ async def run_scene_image(
                 _state_triggered = True
                 _state_label = f"character state: {_char_state_obj.body_state}"
 
+            # ── Detect captive / restrained scene context ─────────────────────
+            # Separate from the clothing override: a captive scene (dungeon, cell,
+            # captured, disarmed, bound) suppresses weapons/portable items even
+            # when the character is still partially clothed (e.g. wearing a collar).
+            # Worn/attached items (collar, restraints, wounds, marks) are NEVER
+            # suppressed — only carried/portable items (weapons, tools, bags).
+            _captive_triggered, _captive_label = _detect_captive_scene(_combined_ctx)
+
+            # Pass 3: character has active restraints → she is bound and cannot
+            # have her weapons/carried items accessible even without an explicit
+            # captive keyword in the current message.
+            if not _captive_triggered and _char_state_obj.restraints:
+                _captive_triggered = True
+                _captive_label = f"character has restraints: {', '.join(_char_state_obj.restraints[:2])}"
+
+            # ── Filter weapons/portable items universally ─────────────────────
+            # Fire whenever ANY suppression trigger is active: nudity/undressed
+            # (existing), captive scene (new), or character has restraints (new).
+            # Collar, rope, bandages, marks — anything in restraints/wounds/marks —
+            # are NEVER filtered here; only accessories matching _WEAPON_PERSISTENT_RE.
+            _should_filter_weapons = _state_triggered or _captive_triggered
+            if _should_filter_weapons and _persistent_items:
+                _weapon_items = [
+                    item for item in _persistent_items
+                    if _WEAPON_PERSISTENT_RE.search(item)
+                ]
+                if _weapon_items:
+                    _filter_reason = (
+                        _state_label if _state_triggered else _captive_label
+                    )
+                    print(
+                        f"[SceneImage] Weapon/portable-item filter active "
+                        f"({_filter_reason!r}): removing {_weapon_items}"
+                    )
+                    _persistent_items = [
+                        item for item in _persistent_items
+                        if not _WEAPON_PERSISTENT_RE.search(item)
+                    ]
+                    _persistent_str = (
+                        "PERSISTENT STATE (always visible, even in this scene): "
+                        + "; ".join(_persistent_items)
+                        + ". "
+                    ) if _persistent_items else ""
+
             # ── Load static looks text ────────────────────────────────────────
             try:
                 _char = database.get_character() or {}
@@ -2150,32 +2227,9 @@ async def run_scene_image(
             if _state_triggered:
                 # SCENE STATE OVERRIDE: strip outfit sentences, keep physical
                 # identity traits only (hair / eyes / skin / build).
-
-                # Filter weapon/holster items from the persistent list — a gun
-                # should not appear in shower, nude, or intimate scenes even if
-                # it was previously extracted as a "persistent accessory".
-                # Uses _WEAPON_PERSISTENT_RE (narrower than _OUTFIT_SENTENCE_RE)
-                # so that non-weapon accessories (collar, cuffs, straps) are NOT
-                # filtered — only actual firearms, blades, and holsters are removed.
-                _weapon_items = [
-                    item for item in _persistent_items
-                    if _WEAPON_PERSISTENT_RE.search(item)
-                ]
-                if _weapon_items:
-                    print(
-                        f"[SceneImage] Scene-state override: filtered weapon "
-                        f"persistent items: {_weapon_items}"
-                    )
-                    _safe_persistent = [
-                        item for item in _persistent_items
-                        if not _WEAPON_PERSISTENT_RE.search(item)
-                    ]
-                    _persistent_str = (
-                        "PERSISTENT STATE (always visible, even in this scene): "
-                        + "; ".join(_safe_persistent)
-                        + ". "
-                    ) if _safe_persistent else ""
-
+                # Weapon/carried-item filtering was already applied above via the
+                # unified filter block — _persistent_items and _persistent_str
+                # are already clean (no weapons) at this point.
                 _state_prefix = (
                     f"SCENE STATE OVERRIDE — character is {_state_label}: "
                     f"do NOT render coat, holster, weapons, or any default outfit items; "
@@ -2206,28 +2260,36 @@ async def run_scene_image(
                     f"[SceneImage] Scene-state override active ({_state_label!r}): "
                     f"outfit stripped. "
                     f"{'Identity anchor included' if _identity_only else 'No identity anchor — photos only'}. "
-                    f"Persistent items: {[i for i in _persistent_items if not _WEAPON_PERSISTENT_RE.search(i)] or 'none'}."
+                    f"Persistent items: {_persistent_items or 'none'}."
                 )
 
             elif _char_state_obj.outfit:
                 # Runtime outfit override from the character state cache
                 # (e.g. she changed into a red dress earlier in the RP).
                 # Use physical-only identity from static looks + the cached outfit.
+                # _strip_outfit_from_looks already filters weapon sentences, so
+                # no extra weapon suppression is needed for identity_only.
                 _identity_only = (
                     _strip_outfit_from_looks(_looks_text, fallback_to_empty=True)
                     if _looks_text else ""
                 )
                 _outfit_anchor = f"Current outfit: {_char_state_obj.outfit}."
+                # Prepend captive note if scene implies she can't have her weapons
+                _captive_note = (
+                    f"CAPTIVE SCENE ({_captive_label}) — do NOT render weapons or "
+                    f"carried items; scene context removes them. "
+                ) if _captive_triggered and not _state_triggered else ""
                 if _identity_only:
                     enriched = (
-                        enriched
+                        _captive_note
+                        + enriched
                         + ". Character identity: "
                         + _identity_only
                         + " "
                         + _outfit_anchor
                     )
                 else:
-                    enriched = enriched + ". " + _outfit_anchor
+                    enriched = _captive_note + enriched + ". " + _outfit_anchor
 
                 if _persistent_str:
                     enriched = enriched + " " + _persistent_str
@@ -2235,6 +2297,7 @@ async def run_scene_image(
                 _looks_appended = True
                 print(
                     f"[SceneImage] Runtime outfit override: {_char_state_obj.outfit!r}. "
+                    f"Captive filter: {_captive_triggered}. "
                     f"Persistent items: {_persistent_items or 'none'}."
                 )
 
@@ -2248,17 +2311,33 @@ async def run_scene_image(
                 # runtime-state, and outfit-cache branches above remain active
                 # for multi-ref since they carry runtime info the photos can't
                 # convey.
+
+                # Strip weapon sentences from looks text when the scene is captive
+                # (she was disarmed / taken to a dungeon) but not fully undressed.
+                _display_looks = _looks_text
+                if _captive_triggered and not _state_triggered:
+                    _sents = re.split(r"(?<=[.!?])\s+", _display_looks.strip())
+                    _display_looks = " ".join(
+                        s for s in _sents if not _WEAPON_PERSISTENT_RE.search(s)
+                    ).strip() or _display_looks
+
+                _captive_note = (
+                    f"CAPTIVE SCENE ({_captive_label}) — do NOT render weapons or "
+                    f"carried items; scene context removes them. "
+                ) if _captive_triggered and not _state_triggered else ""
                 enriched = (
-                    enriched
+                    _captive_note
+                    + enriched
                     + ". Character identity (must be preserved from reference photos): "
-                    + _looks_text
+                    + _display_looks
                 )
                 if _persistent_str:
                     enriched = enriched + " " + _persistent_str
                 _looks_appended = True
                 print(
-                    f"[SceneImage] Appended {len(_looks_text)}-char looks identity suffix "
+                    f"[SceneImage] Appended {len(_display_looks)}-char looks identity suffix "
                     f"post-LLM (QWEN_APPEND_LOOKS=on, single-ref). "
+                    f"Captive filter: {_captive_triggered}. "
                     f"Persistent items: {_persistent_items or 'none'}."
                 )
 
@@ -2292,6 +2371,33 @@ async def run_scene_image(
                     + "; ".join(_ppersistent)
                     + "."
                 ) if _ppersistent else ""
+
+                # ── Player weapon filter (same logic as bot character) ────────
+                # Detect player-specific captive context using the same combined
+                # context string (seed + enriched_base from the outer scope).
+                _player_captive = _captive_triggered  # reuse bot-character result
+                if not _player_captive and _pstate.restraints:
+                    _player_captive = True
+                _player_undressed = _pstate.is_undressed()
+                if (_player_undressed or _player_captive) and _ppersistent:
+                    _pweapon_items = [
+                        item for item in _ppersistent
+                        if _WEAPON_PERSISTENT_RE.search(item)
+                    ]
+                    if _pweapon_items:
+                        print(
+                            f"[SceneImage] Player weapon filter: removing {_pweapon_items} "
+                            f"(captive={_player_captive}, undressed={_player_undressed})"
+                        )
+                        _ppersistent = [
+                            item for item in _ppersistent
+                            if not _WEAPON_PERSISTENT_RE.search(item)
+                        ]
+                        _ppersistent_str = (
+                            "PLAYER PERSISTENT STATE (always visible): "
+                            + "; ".join(_ppersistent)
+                            + "."
+                        ) if _ppersistent else ""
 
                 if _pin_seed:
                     if _pstate.is_undressed():

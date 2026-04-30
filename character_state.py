@@ -258,6 +258,12 @@ _NEEDS_UPDATE_RE = re.compile(
     |cut|gash|lacerat|black\s+eye|swollen|stitche?s?
     |heal(?:ed|ing|s)?|recover(?:ed|ing|y)?|rested?|treated?
     |cleaned?\s+up|patched?\s+up|tended?\s+to)\b
+
+    # Captive / disarmed transitions (may imply removal of carried items)
+    |\b(?:captur(?:ed?|ing)|imprison(?:ed|ing)?|dungeon|taken\s+(?:prisoner|captive)
+    |disarm(?:ed|ing)?|kidnapp(?:ed|ing)?|confiscat(?:ed?|ing)
+    |enslav(?:ed|ing)?|locked\s+(?:up|in|away)|seized?\s+(?:her|his|their)
+    |stripped?\s+of\s+(?:her|his|their)\s+(?:weapon|gun|pistol|equipment|belonging))\b
     """,
     re.I | re.VERBOSE,
 )
@@ -309,6 +315,23 @@ CRITICAL RULES:
 4. Only output changes. Use null for any category with no change.
 5. Do NOT invent changes not supported by the text.
 6. Keep descriptions concise (under 60 chars per item).
+7. CAPTIVE / DISARMED TRANSITIONS — implied removal of carried items:
+   When the text clearly implies the character has been CAPTURED, IMPRISONED, taken to
+   a DUNGEON or CELL, DISARMED, or had their belongings CONFISCATED/SEIZED, remove any
+   carried/portable accessories from the accessories list.
+   "Carried/portable" = weapons (gun, revolver, pistol, rifle, shotgun, knife, sword,
+   blade, dagger, holster, axe, taser, baton), bags, pouches, tools, and tech-devices.
+   DO NOT remove these items in a captive transition — they stay on the body:
+     collar, choker, cuffs, shackles, chains, rope, leash, bandages, piercings,
+     bracelets, anklets, tattoos, scars, marks.
+   Examples:
+   - "dragged into the dungeon" → remove revolver, holster from accessories_removed
+   - "they took her weapons" / "she was disarmed" → remove all weapon accessories
+   - "stripped of her equipment" → remove weapon/tool accessories
+   - "collared and led to a cell" → keep collar (worn); add restraint if newly applied
+   - "she surrendered her gun and was locked up" → remove gun from accessories_removed
+   Only apply this rule when captivity/disarming is CLEARLY described — do NOT remove
+   items for a passing mention of a dungeon as background scenery.
 
 Current state (for reference — do not repeat unless it changed):
 {current_state}

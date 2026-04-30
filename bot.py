@@ -443,7 +443,33 @@ def _invalidate_kb_title_index() -> None:
     _kb_image_title_index = None
 
 
-def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "", player_context: str = "") -> str:
+def _format_current_state_for_prompt(state) -> str:
+    """Format the character's current physical state into a system-prompt block.
+
+    Returns an empty string when the state is empty (no RP started yet) so the
+    block is silently omitted on cold-start turns.
+    """
+    if state.is_empty():
+        return ""
+    parts: list[str] = []
+    if state.outfit:
+        parts.append(f"• Outfit she is currently wearing: {state.outfit}")
+    if state.body_state and state.body_state != "clothed":
+        parts.append(f"• Body state: {state.body_state}")
+    if state.accessories:
+        parts.append(f"• Accessories physically on her body right now: {'; '.join(state.accessories)}")
+    if state.restraints:
+        parts.append(f"• Restraints currently on her: {'; '.join(state.restraints)}")
+    if state.wounds:
+        parts.append(f"• Wounds / injuries: {'; '.join(state.wounds)}")
+    if state.marks:
+        parts.append(f"• Lasting marks: {'; '.join(state.marks)}")
+    if not parts:
+        return ""
+    return "\n".join(parts)
+
+
+def build_system_prompt(name: str, background: str, personality: str = "", looks: str = "", kb_context: str = "", memory_context: str = "", visual_kb_context: str = "", character_images_context: str = "", player_context: str = "", current_state_context: str = "") -> str:
     prompt = (
         f"You are {name}. {background}\n\n"
         f"You are NOT an AI — you ARE {name}, a real person with your own personality. Never break character.\n"
@@ -485,8 +511,17 @@ def build_system_prompt(name: str, background: str, personality: str = "", looks
         )
     if memory_context:
         prompt += (
-            "\n[Memories from past conversations — reference naturally, don't mention a memory system]\n"
+            "\n[Memories from past conversations — these are things that happened in the PAST and may no longer "
+            "reflect the current situation. Reference them naturally but do NOT treat them as facts about what is "
+            "physically present RIGHT NOW — the current state block below overrides past memories on physical details.]\n"
             f"{memory_context}\n"
+        )
+    if current_state_context:
+        prompt += (
+            "\n[CURRENT PHYSICAL STATE — what is physically true RIGHT NOW, this turn. "
+            "This OVERRIDES anything in past memories about outfit, accessories, or items carried. "
+            "If an item is not listed here, she does NOT have it on her person right now, regardless of what past memories say.]\n"
+            f"{current_state_context}\n"
         )
     if kb_context:
         prompt += (
@@ -1181,6 +1216,10 @@ async def process_chat(
             _parts.append(f"Appearance: {_plooks[:300]}")
         _player_context = "\n".join(_parts)
 
+    # Build current-state context: authoritative physical truth that overrides memories
+    _char_state_now = character_state.get_state(channel_id)
+    _current_state_ctx = _format_current_state_for_prompt(_char_state_now)
+
     # Build system prompt with memory + KB context + visual KB matches
     system_prompt = build_system_prompt(
         bot_name, background, personality, looks,
@@ -1189,6 +1228,7 @@ async def process_chat(
         visual_kb_context=visual_kb_context,
         character_images_context=build_character_images_context(),
         player_context=_player_context,
+        current_state_context=_current_state_ctx,
     )
     history = get_channel_context(channel_id)
 
