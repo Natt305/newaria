@@ -99,6 +99,61 @@ _SCENE_CLOTHING_STATE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bhaving\s+sex\b", re.I), "intimate (unclothed)"),
 ]
 
+
+# ── Erotic scene detection ─────────────────────────────────────────────────────
+#
+# Patterns for unambiguous explicit sexual content.  Intentionally stricter
+# than _SCENE_CLOTHING_STATE_PATTERNS — undressing / bathing / sleeping are
+# handled by the standard rule-based path; only clear sexual activity triggers
+# the structured LLM prompt path.
+_EROTIC_SCENE_PATTERNS: list[re.Pattern] = [
+    # Explicit male genitalia (EN)
+    re.compile(r"\b(?:cock|dick|shaft|penis|phallus)\b", re.I),
+    # Explicit female genitalia (EN)
+    re.compile(r"\b(?:pussy|vagina|vulva|cunt)\b", re.I),
+    re.compile(r"\bclit(?:oris)?\b", re.I),
+    re.compile(r"\bnippl(?:e|es)\b", re.I),
+    # Direct sexual act verbs / nouns (EN)
+    re.compile(r"\bpenetrat(?:e|es|ed|ing|ion)\b", re.I),
+    re.compile(r"\bfuck(?:s|ed|ing|er)?\b", re.I),
+    re.compile(r"\b(?:sexual\s+)?intercourse\b", re.I),
+    re.compile(r"\bcopulat(?:e|es|ed|ing|ion)\b", re.I),
+    re.compile(r"\b(?:blow\s*job|oral\s+sex|cunnilingus|fellatio|handjob)\b", re.I),
+    # Sexual reactions / states (EN)
+    re.compile(r"\borgasm(?:s|ed|ing)?\b", re.I),
+    re.compile(r"\bcumm?(?:s|ed|ing)?\b", re.I),
+    re.compile(r"\berection\b", re.I),
+    # Unambiguous sexual positions / actions (EN)
+    re.compile(r"\bstraddle?(?:s|d|ing)?\b", re.I),
+    re.compile(r"\bspread(?:s|ing)?\s+(?:her|his|their)\s+legs\b", re.I),
+    re.compile(r"\bthrust(?:s|ed|ing)?\s+(?:into|inside|against|deep)\b", re.I),
+    # CJK explicit content
+    re.compile(r"插入|抽送|抽插"),
+    re.compile(r"高潮|射精|潮吹"),
+    re.compile(r"雞巴|鸡巴|陰莖|阴茎|肉棒"),
+    re.compile(r"陰道|阴道|陰部|阴部|私處|私处"),
+    re.compile(r"乳頭|乳头|乳尖"),
+    re.compile(r"性交|做愛|做爱|交合"),
+    re.compile(r"口交|舔逼|舔陰|舔阴"),
+]
+
+
+def _is_erotic_scene(text: str) -> bool:
+    """Return True when *text* contains unambiguous explicit sexual content.
+
+    Checked against the combined prose context + seed before calling
+    ``_generate_erotic_scene_prompt``.  Does NOT overlap with
+    ``_SCENE_CLOTHING_STATE_PATTERNS`` — undressed / bathing / sleeping scenes
+    use the standard rule-based path.
+    """
+    if not text:
+        return False
+    for pattern in _EROTIC_SCENE_PATTERNS:
+        if pattern.search(text):
+            return True
+    return False
+
+
 # Compiled word-boundary regex for outfit/weapon sentence detection.
 # Using a single combined regex (instead of substring membership) prevents
 # false matches from short tokens: e.g. "tied" won't match \btie\b,
@@ -1266,6 +1321,124 @@ def _assemble_scene_prompt(
     return assembled
 
 
+# ── Erotic scene structured prompt generator ──────────────────────────────────
+
+async def _generate_erotic_scene_prompt(
+    seed: str,
+    prose_context: Optional[str],
+    bot_name: str,
+    player_display_name: Optional[str],
+    roster_names: list,
+    roster_appearances: dict,
+) -> str:
+    """Generate a structured image prompt for explicit erotic scenes via a single
+    LLM call.
+
+    Unlike ``_assemble_scene_prompt`` (which cleans prose via rules), this
+    function sends the prose to the active AI backend with a tight system prompt
+    that demands a precise, structured output: location → scene action with
+    characters named explicitly and body positions described precisely →
+    body/clothing state → expressions → framing.
+
+    Reference photos of the named characters are sent to Qwen in a separate
+    channel, so this prompt must NEVER include appearance traits (hair colour,
+    eye colour, skin tone, clothing) — they would override the photo identity
+    baked into the Qwen encoder.
+
+    ``roster_names`` must be the same list used to label Qwen's reference image
+    slots (``llm_ref_labels`` at the call site) so character names in the
+    generated prompt map unambiguously to the correct per-subject encoder slot.
+
+    Falls back to ``_assemble_scene_prompt`` on any error or unusably short LLM
+    response.
+    """
+    # Resolve "self" tokens to the bot name and deduplicate.
+    resolved_names: list[str] = []
+    seen_lower: set[str] = set()
+    for n in roster_names:
+        name = (n or "").strip()
+        if name.lower() == "self":
+            name = bot_name or ""
+        if not name or name.lower() in seen_lower:
+            continue
+        seen_lower.add(name.lower())
+        resolved_names.append(name)
+    if player_display_name and player_display_name.strip():
+        pname = player_display_name.strip()
+        if pname.lower() not in seen_lower:
+            resolved_names.append(pname)
+
+    char_list = ", ".join(resolved_names) if resolved_names else (bot_name or "the character")
+
+    # Build the combined prose for the LLM user message.
+    prose_parts: list[str] = []
+    if prose_context and prose_context.strip():
+        prose_parts.append(prose_context.strip())
+    if seed and seed.strip():
+        prose_parts.append(seed.strip())
+    prose_text = "\n\n".join(prose_parts) or seed or ""
+
+    system_prompt = (
+        "You are an expert image-prompt writer for an explicit adult AI image generator.\n"
+        "\n"
+        f"CHARACTERS IN THIS SCENE (reference photos handled separately): {char_list}\n"
+        "These characters' reference photos are sent directly to the image model. "
+        "Your text prompt MUST NOT describe their appearance — no hair colour, eye colour, "
+        "skin tone, body shape, height, clothing, accessories, makeup, tattoos, or any "
+        "other visual trait. Refer to each character by their exact name only.\n"
+        "\n"
+        "YOUR TASK: Convert the roleplay prose below into one precise, explicit English "
+        "image prompt. Structure the output as a comma-separated sequence covering ALL "
+        "of these elements in order:\n"
+        "  1. Location / setting\n"
+        "  2. Exact scene action — name each character explicitly, describe body positions "
+        "and physical contact points precisely (e.g. 'Aria kneeling, mouth on Player's "
+        "cock', 'Aria riding Player, legs straddling Player's hips, hips pressed together')\n"
+        "  3. Body / clothing state for each character — fully nude, topless, etc.\n"
+        "  4. Facial expression for each named character\n"
+        "  5. Camera framing — close-up / medium shot / wide shot\n"
+        "\n"
+        "STRICT RULES:\n"
+        "- Always use the exact character names listed above — never substitute pronouns alone\n"
+        "- Be anatomically precise about body positions and contact points; vague descriptions "
+        "cause the image model to generate incorrect anatomy\n"
+        "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks\n"
+        "- Under 100 words; do not omit any of the five elements above\n"
+        "- Write in English regardless of the input language\n"
+    )
+
+    try:
+        result = await groq_ai.chat(
+            [{"role": "user", "content": prose_text}],
+            system_prompt=system_prompt,
+        )
+        response_text: str = (result[0] if result else "").strip()
+        if response_text and len(response_text) >= 20:
+            print(
+                f"[SceneImage] erotic prompt generated ({len(response_text)} chars): "
+                f"{response_text[:120]!r}"
+            )
+            return response_text
+        print(
+            f"[SceneImage] erotic prompt: LLM returned unusable response "
+            f"({len(response_text)} chars) — falling back to _assemble_scene_prompt"
+        )
+    except Exception as exc:
+        print(
+            f"[SceneImage] erotic prompt: LLM call failed: "
+            f"{type(exc).__name__}: {exc} — falling back to _assemble_scene_prompt"
+        )
+
+    return _assemble_scene_prompt(
+        seed=seed,
+        prose_context=prose_context,
+        roster_names=roster_names,
+        roster_appearances=roster_appearances,
+        bot_name=bot_name,
+        player_display_name=player_display_name,
+    )
+
+
 # ── Prompt derivation ─────────────────────────────────────────────────────────
 
 async def _derive_prompt(
@@ -1301,10 +1474,31 @@ async def _derive_prompt(
     never blocked by enhancement issues.
     """
     if scene_only:
-        print(
-            "[SceneImage] derive_prompt: scene-only mode — assembling from raw RP "
-            "prose (no LLM call). Reference photos go directly to Qwen."
-        )
+        combined_text = (prose_context or "") + " " + seed
+        if _is_erotic_scene(combined_text):
+            print(
+                "[SceneImage] derive_prompt: erotic scene detected (scene-only) — "
+                "using LLM-structured prompt for Qwen."
+            )
+            try:
+                return await _generate_erotic_scene_prompt(
+                    seed=seed,
+                    prose_context=prose_context,
+                    bot_name=bot_name,
+                    player_display_name=player_display_name,
+                    roster_names=roster_names or [],
+                    roster_appearances=roster_appearances or {},
+                )
+            except Exception as exc:
+                print(
+                    f"[SceneImage] _generate_erotic_scene_prompt raised unexpectedly: "
+                    f"{type(exc).__name__}: {exc} — falling back to _assemble_scene_prompt"
+                )
+        else:
+            print(
+                "[SceneImage] derive_prompt: scene-only mode — assembling from raw RP "
+                "prose (no LLM call). Reference photos go directly to Qwen."
+            )
         try:
             return _assemble_scene_prompt(
                 seed=seed,
