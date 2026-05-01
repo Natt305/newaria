@@ -1599,6 +1599,112 @@ def _sanitize_spatial_conflicts(prompt: str) -> str:
     return fixed
 
 
+_NAMELESS_TAG_WHITELIST: frozenset[str] = frozenset(
+    {
+        "dungeon",
+        "close-up",
+        "medium shot",
+        "wide shot",
+        "fully nude",
+        "topless",
+        "clothed",
+        "partially clothed",
+        "unarmed",
+        "no weapons",
+        "no holsters",
+    }
+)
+
+_FEMALE_MARKERS_RE = re.compile(
+    r"\b(?:she|her|hers|female|woman|girl|femme|lady)\b", re.I
+)
+_MALE_MARKERS_RE = re.compile(
+    r"\b(?:he|him|his|male|man|boy|dude|guy)\b", re.I
+)
+
+
+def _infer_scene_gender(roster_appearances: dict, prose_context: str = "") -> str:
+    """Return 'a woman', 'a man', or 'a person' based on appearance strings and prose.
+
+    Scans all values in ``roster_appearances`` first, then falls back to
+    ``prose_context`` (the filtered prose sent to the LLM) when the
+    appearances alone are inconclusive.
+    """
+    combined = " ".join(str(v) for v in roster_appearances.values())
+    female_hits = len(_FEMALE_MARKERS_RE.findall(combined))
+    male_hits = len(_MALE_MARKERS_RE.findall(combined))
+    if female_hits == male_hits and prose_context:
+        female_hits += len(_FEMALE_MARKERS_RE.findall(prose_context))
+        male_hits += len(_MALE_MARKERS_RE.findall(prose_context))
+    if female_hits > male_hits:
+        return "a woman"
+    if male_hits > female_hits:
+        return "a man"
+    return "a person"
+
+
+def _patch_nameless_tags(
+    prompt: str,
+    resolved_names: list[str],
+    roster_appearances: dict,
+    prose_context: str = "",
+) -> str:
+    """Prepend a generic noun to any comma-separated tag whose subject is unnamed.
+
+    A tag is considered "subject-named" only if it **begins** with a known
+    character name (optionally in possessive form, e.g. "Kelly Gray's …").
+    Tags where a name appears only as an object (e.g. "nose against Natt's
+    pelvis") are still patched because the grammatical subject is anonymous.
+
+    Word-boundary anchors are used so short names (e.g. "Bo") cannot
+    accidentally match mid-word (e.g. "body").
+
+    Tags that are whitelisted positional/scene keywords are left unchanged.
+    For every patched tag a log line is emitted so the substitution is
+    traceable without re-running the LLM.
+
+    Called after the final ``_enforce_prompt_brevity`` pass and before the
+    weapon-suppression suffix is appended.
+    """
+    if not resolved_names:
+        return prompt
+
+    name_subject_patterns: list[re.Pattern] = [
+        re.compile(r"(?i)" + re.escape(n) + r"(?:'s)?\b")
+        for n in resolved_names
+    ]
+
+    def _tag_subject_is_named(tag: str) -> bool:
+        return any(pat.match(tag) for pat in name_subject_patterns)
+
+    def _tag_is_whitelisted(tag: str) -> bool:
+        return tag.strip().lower() in _NAMELESS_TAG_WHITELIST
+
+    generic = _infer_scene_gender(roster_appearances, prose_context)
+    patched_tags: list[str] = []
+    any_patched = False
+    for raw_tag in prompt.split(","):
+        tag = raw_tag.strip()
+        if not tag:
+            continue
+        if _tag_is_whitelisted(tag) or _tag_subject_is_named(tag):
+            patched_tags.append(tag)
+        else:
+            replacement = f"{generic}'s {tag}"
+            print(
+                f"[SceneImage] nameless_tag: patched {tag!r} → {replacement!r}"
+            )
+            patched_tags.append(replacement)
+            any_patched = True
+
+    result = ", ".join(patched_tags)
+    if any_patched:
+        print(
+            f"[SceneImage] nameless_tag: prompt after patch: {result[:120]!r}"
+        )
+    return result
+
+
 async def _generate_erotic_scene_prompt(
     seed: str,
     prose_context: Optional[str],
@@ -1822,6 +1928,14 @@ async def _generate_erotic_scene_prompt(
             #    after any expansion from the spatial fix above.
             response_text = _enforce_prompt_brevity(
                 response_text, word_budget=_CONTENT_WORD_BUDGET
+            )
+            # 3b. Safety-net: replace any tag that contains no known character
+            #     name with a generic noun so garbage tags ("chest heaving",
+            #     "nose against pelvis") still convey meaning to Qwen rather
+            #     than being silently dropped or passed through unattributed.
+            response_text = _patch_nameless_tags(
+                response_text, resolved_names, roster_appearances,
+                prose_context=prose_text,
             )
             # 4. Append weapon-suppression tags. Uses _WEAPON_SUFFIX so word
             #    accounting stays consistent with _CONTENT_WORD_BUDGET, and the
