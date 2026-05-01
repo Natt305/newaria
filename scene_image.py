@@ -1603,6 +1603,8 @@ _NAMELESS_TAG_WHITELIST: frozenset[str] = frozenset(
     {
         "dungeon",
         "close-up",
+        "close up",
+        "close-up shot",
         "medium shot",
         "wide shot",
         "fully nude",
@@ -1614,6 +1616,48 @@ _NAMELESS_TAG_WHITELIST: frozenset[str] = frozenset(
         "no holsters",
     }
 )
+
+# Matches "close-up shot of …", "medium shot of …", "wide shot of …" so the
+# framing keyword and the action text can be split into two separate tags.
+# The LLM sometimes writes "Close-up shot of Kelly Gray gagging on cock"
+# as a single string instead of comma-separating the framing from the action.
+_SHOT_OF_RE = re.compile(
+    r"^(close[\s\-]+up(?:\s+shot)?|medium\s+shot|wide\s+shot)\s+of\s+(.+)$",
+    re.I,
+)
+
+# Matches a sexual-act preposition directly followed by a bare anatomy word
+# with NO possessive name in between.  Because the anatomy word must come
+# immediately after the preposition (plus whitespace), patterns like
+# "on Natt's cock" do NOT match — "Natt's" is between "on" and "cock".
+# Used by _patch_bare_objects to detect and fix unnamed object body parts,
+# e.g. "gagging on cock" → "gagging on Natt's cock".
+_BARE_OBJECT_ANATOMY_RE = re.compile(
+    r"\b(on|in|into|inside|around|over|across|against|with|deep\s+in|deep\s+into)\s+"
+    r"(cock|dick|shaft|penis|pussy|vagina|clit|clitoris|ass|arse|"
+    r"throat|mouth|lips|tongue|tits?|breasts?|nipples?|face)\b",
+    re.I,
+)
+
+
+def _patch_bare_objects(tag: str, other_name: str) -> tuple[str, bool]:
+    """Prepend *other_name*'s possessive to any bare anatomy object word in *tag*.
+
+    Only fires when the anatomy word follows a preposition directly (no
+    possessive name already between them).  Safe to call on correctly
+    attributed tags — the regex will not match.
+
+    Returns ``(patched_tag, changed)`` where *changed* is True when at
+    least one substitution was made.
+    """
+    changed: list[bool] = [False]
+
+    def _replace(m: re.Match) -> str:
+        changed[0] = True
+        return f"{m.group(1)} {other_name}'s {m.group(2)}"
+
+    result = _BARE_OBJECT_ANATOMY_RE.sub(_replace, tag)
+    return result, changed[0]
 
 _FEMALE_MARKERS_RE = re.compile(
     r"\b(?:she|her|hers|female|woman|girl|femme|lady)\b", re.I
@@ -1649,19 +1693,30 @@ def _patch_nameless_tags(
     roster_appearances: dict,
     prose_context: str = "",
 ) -> str:
-    """Prepend a generic noun to any comma-separated tag whose subject is unnamed.
+    """Fix attribution problems in a comma-separated erotic scene prompt.
 
-    A tag is considered "subject-named" only if it **begins** with a known
-    character name (optionally in possessive form, e.g. "Kelly Gray's …").
-    Tags where a name appears only as an object (e.g. "nose against Natt's
-    pelvis") are still patched because the grammatical subject is anonymous.
+    Three passes in order:
 
-    Word-boundary anchors are used so short names (e.g. "Bo") cannot
-    accidentally match mid-word (e.g. "body").
+    **Pass A — shot-of split**: "Close-up shot of Kelly Gray gagging on cock"
+    is a single string the LLM produced using prose-style 'of' linkage.
+    Split it into two tokens ("close-up shot" + "Kelly Gray gagging on cock")
+    before any further processing.
 
-    Tags that are whitelisted positional/scene keywords are left unchanged.
-    For every patched tag a log line is emitted so the substitution is
-    traceable without re-running the LLM.
+    **Pass B — nameless subject**: A tag is "subject-named" only if it
+    *begins* with a known character name (optionally possessive).  Tags where
+    a name appears only as an object (e.g. "nose against Natt's pelvis") are
+    still nameless-subject tags and get a generic noun prepended.
+
+    **Pass C — bare anatomy object**: For tags whose subject IS named, scan
+    for anatomy words that follow a preposition directly (no possessive name
+    between them), e.g. "gagging on cock".  Replace with the other
+    character's possessive: "gagging on Natt's cock".  Skipped when the
+    roster has only one known character (no second name to attribute to).
+
+    Word-boundary start-anchors prevent short names (e.g. "Bo") from
+    accidentally matching mid-word (e.g. "body").  Whitelisted
+    scene/framing keywords are never modified.  A log line is emitted for
+    every substitution so changes are traceable without re-running the LLM.
 
     Called after the final ``_enforce_prompt_brevity`` pass and before the
     weapon-suppression suffix is appended.
@@ -1669,39 +1724,76 @@ def _patch_nameless_tags(
     if not resolved_names:
         return prompt
 
-    name_subject_patterns: list[re.Pattern] = [
-        re.compile(r"(?i)" + re.escape(n) + r"(?:'s)?\b")
+    name_subject_patterns: list[tuple[str, re.Pattern]] = [
+        (n, re.compile(r"(?i)" + re.escape(n) + r"(?:'s)?\b"))
         for n in resolved_names
     ]
 
-    def _tag_subject_is_named(tag: str) -> bool:
-        return any(pat.match(tag) for pat in name_subject_patterns)
+    def _tag_subject_name(tag: str) -> Optional[str]:
+        for name, pat in name_subject_patterns:
+            if pat.match(tag):
+                return name
+        return None
 
     def _tag_is_whitelisted(tag: str) -> bool:
         return tag.strip().lower() in _NAMELESS_TAG_WHITELIST
 
-    generic = _infer_scene_gender(roster_appearances, prose_context)
-    patched_tags: list[str] = []
-    any_patched = False
+    # Pass A: split "X shot of Y" into two tokens
+    raw_tokens: list[str] = []
     for raw_tag in prompt.split(","):
         tag = raw_tag.strip()
         if not tag:
             continue
-        if _tag_is_whitelisted(tag) or _tag_subject_is_named(tag):
-            patched_tags.append(tag)
-        else:
-            replacement = f"{generic}'s {tag}"
+        shot_m = _SHOT_OF_RE.match(tag)
+        if shot_m:
+            framing = shot_m.group(1).strip()
+            action = shot_m.group(2).strip()
             print(
-                f"[SceneImage] nameless_tag: patched {tag!r} → {replacement!r}"
+                f"[SceneImage] nameless_tag: split shot-of {tag!r} → "
+                f"{framing!r} + {action!r}"
             )
+            raw_tokens.append(framing)
+            raw_tokens.append(action)
+        else:
+            raw_tokens.append(tag)
+
+    generic = _infer_scene_gender(roster_appearances, prose_context)
+    patched_tags: list[str] = []
+    any_patched = False
+
+    for tag in raw_tokens:
+        if not tag:
+            continue
+        if _tag_is_whitelisted(tag):
+            patched_tags.append(tag)
+            continue
+
+        subject = _tag_subject_name(tag)
+
+        if subject is None:
+            # Pass B: subject is nameless — prepend generic noun
+            replacement = f"{generic}'s {tag}"
+            print(f"[SceneImage] nameless_tag: patched subject {tag!r} → {replacement!r}")
             patched_tags.append(replacement)
             any_patched = True
+        else:
+            # Pass C: subject is named — fix bare anatomy objects if possible
+            other_name = next(
+                (n for n in resolved_names if n.lower() != subject.lower()), None
+            )
+            if other_name:
+                fixed, changed = _patch_bare_objects(tag, other_name)
+                if changed:
+                    print(
+                        f"[SceneImage] nameless_tag: patched object {tag!r} → {fixed!r}"
+                    )
+                    tag = fixed
+                    any_patched = True
+            patched_tags.append(tag)
 
     result = ", ".join(patched_tags)
     if any_patched:
-        print(
-            f"[SceneImage] nameless_tag: prompt after patch: {result[:120]!r}"
-        )
+        print(f"[SceneImage] nameless_tag: prompt after patch: {result[:120]!r}")
     return result
 
 
@@ -1876,13 +1968,18 @@ async def _generate_erotic_scene_prompt(
         "NEVER use relative clauses or subordinate phrases — "
         "no 'who is', 'who was', 'as he', 'as she', 'forcing', 'slamming', 'while X does Y', "
         "no 'on top of X who is…', no 'pressed against X as he…'. "
-        "If a description needs a subordinate clause to make sense, split it into two flat tags instead.\n"
+        "If a description needs a subordinate clause to make sense, split it into two flat tags instead. "
+        "NEVER connect camera framing to the action with 'of' — "
+        "BAD: 'Close-up shot of Kelly Gray gagging on cock'; "
+        "GOOD: 'close-up, Kelly Gray gagging on Natt's cock'\n"
         "- OUTPUT FORMAT: ONE single line, comma-separated only. "
         "NO newlines, NO semicolons, NO asterisks, NO markdown, NO section headers, NO parentheses.\n"
         "- ONE MOMENT: Describe only the single frozen frame — do NOT summarise "
         "multiple events, before/after states, or sequential actions.\n"
-        "- When one character's body part acts on another character's body part, BOTH must be named: "
-        "write 'Kelly Gray's mouth on Natt's cock', NEVER 'Kelly Gray's mouth on cock' or 'mouth on cock'.\n"
+        "- When one character's body part acts on another character's body part, BOTH must be named. "
+        "This applies to the OBJECT just as much as the subject — the owner of every anatomy word must be named. "
+        "BAD: 'Kelly Gray's mouth on cock', 'Kelly Gray gagging on cock', 'mouth on cock'. "
+        "GOOD: 'Kelly Gray's mouth on Natt's cock', 'Kelly Gray gagging on Natt's cock'.\n"
         "- Restraints belong ONLY to the explicitly bound character — never on anyone else.\n"
         "- Clothing state: ONLY 'fully nude', 'topless', 'clothed', or 'partially clothed'. "
         "NEVER name specific garments.\n"
