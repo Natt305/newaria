@@ -1784,7 +1784,7 @@ async def _generate_erotic_scene_prompt(
         "- SPATIAL LOGIC: Oral sex requires face-to-face positioning — never 'standing behind' "
         "when describing oral sex.\n"
         "- HARD LIMIT: Under 50 words total. To save words, drop an entire optional tag — "
-        "NEVER drop a character name. A nameless tag is always wrong; a slightly longer output is not.\n"
+        "NEVER strip a character name to save a word. A nameless tag is always wrong; dropping it entirely is correct.\n"
         "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks.\n"
         "- Write in English regardless of the input language.\n"
     )
