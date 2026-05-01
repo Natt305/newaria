@@ -1605,6 +1605,7 @@ _NAMELESS_TAG_WHITELIST: frozenset[str] = frozenset(
         "close-up",
         "close up",
         "close-up shot",
+        "close up shot",
         "medium shot",
         "wide shot",
         "fully nude",
