@@ -1518,14 +1518,14 @@ _RELATIVE_CLAUSE_RE = re.compile(
     re.I,
 )
 
-_WORD_LIMIT = 40
+_WORD_LIMIT = 50
 # Weapon-suppression suffix always appended after cleanup; reserve its word count
 # so the final prompt (content + suffix) stays at or under _WORD_LIMIT total.
 # Word count is measured from the suffix text itself, excluding the leading ", "
 # connector so it accurately reflects the words that will appear in the output.
 _WEAPON_SUFFIX = ", unarmed, no weapons, no holsters"
 _WEAPON_SUFFIX_WORDS = len(_WEAPON_SUFFIX.lstrip(", ").split())  # 5 words: unarmed no weapons no holsters
-_CONTENT_WORD_BUDGET = _WORD_LIMIT - _WEAPON_SUFFIX_WORDS  # 35 words for scene content
+_CONTENT_WORD_BUDGET = _WORD_LIMIT - _WEAPON_SUFFIX_WORDS  # 45 words for scene content
 
 
 def _enforce_prompt_brevity(prompt: str, word_budget: int = _WORD_LIMIT) -> str:
@@ -1744,9 +1744,10 @@ async def _generate_erotic_scene_prompt(
         "GOOD: 'Kelly Gray kneeling, Kelly Gray's mouth on Natt's cock' "
         "BAD: 'Kelly Gray kneeling on all fours on top of Natt who is standing'\n"
         "  3. Clothing state per character — ONLY: fully nude / topless / clothed / partially clothed\n"
-        "  4. Sensory/reaction detail per character — expressive multi-word tags are encouraged here: "
-        "tears streaming, drool on chin, eyes wide shock, cheeks flushed, gagging, "
-        "but still tag-style not prose sentences\n"
+        "  4. Sensory/reaction detail per character — every reaction tag MUST name the character. "
+        "GOOD: 'Kelly Gray gagging', 'Kelly Gray's tears streaming', 'drool on Kelly Gray's chin', "
+        "'Kelly Gray's chest heaving', 'Kelly Gray's eyes wide' "
+        "BAD: 'gagging', 'tears streaming', 'drool on chin', 'chest heaving', 'eyes wide shock'\n"
         "  5. Camera framing — close-up / medium shot / wide shot\n"
         "  6. Restraints (if present) — name the bound character and their bound limbs "
         "(e.g. 'Kelly Gray's wrists tied behind back'). "
@@ -1754,6 +1755,17 @@ async def _generate_erotic_scene_prompt(
         "Omit if no restraints appear.\n"
         "\n"
         "STRICT RULES:\n"
+        "- FULL ATTRIBUTION ON EVERY TAG: Every single tag — pose, contact, reaction, state, "
+        "sensory detail — must carry the character's exact name. "
+        "NEVER produce a nameless body-part or action tag. "
+        "BAD: 'nose against pelvis' (whose nose? whose pelvis?), 'choking', 'cumming deep throat', "
+        "'swallowing reflexively', 'chest heaving', 'drool on chin', 'ropes binding arms/legs'. "
+        "GOOD: 'Kelly Gray's nose against Natt's pelvis', 'Kelly Gray choking', "
+        "'Natt cumming in Kelly Gray's throat', 'Kelly Gray swallowing', "
+        "'Kelly Gray's chest heaving', 'drool on Kelly Gray's chin', "
+        "'Kelly Gray's arms and legs bound with rope'.\n"
+        "- NO SLASH-SEPARATED ALTERNATIVES: NEVER write 'arms/legs', 'gagging/saliva', "
+        "'drool/cum', or any slash-joined phrase. Write each as its own comma-separated tag.\n"
         "- FLAT TAGS ONLY: Every comma-separated item must be a short, self-contained tag. "
         "NEVER use relative clauses or subordinate phrases — "
         "no 'who is', 'who was', 'as he', 'as she', 'forcing', 'slamming', 'while X does Y', "
@@ -1763,18 +1775,16 @@ async def _generate_erotic_scene_prompt(
         "NO newlines, NO semicolons, NO asterisks, NO markdown, NO section headers, NO parentheses.\n"
         "- ONE MOMENT: Describe only the single frozen frame — do NOT summarise "
         "multiple events, before/after states, or sequential actions.\n"
-        "- Every body part must carry the character's exact name in possessive form — "
-        "write 'Kelly Gray's mouth' not 'her mouth'. "
-        "When one character's body part acts on another character's body part, BOTH must be named: "
-        "write 'Kelly Gray's mouth on Natt's cock', NEVER 'Kelly Gray's mouth on cock'.\n"
+        "- When one character's body part acts on another character's body part, BOTH must be named: "
+        "write 'Kelly Gray's mouth on Natt's cock', NEVER 'Kelly Gray's mouth on cock' or 'mouth on cock'.\n"
         "- Restraints belong ONLY to the explicitly bound character — never on anyone else.\n"
         "- Clothing state: ONLY 'fully nude', 'topless', 'clothed', or 'partially clothed'. "
         "NEVER name specific garments.\n"
         "- NEVER mention weapons, holsters, or held objects.\n"
         "- SPATIAL LOGIC: Oral sex requires face-to-face positioning — never 'standing behind' "
         "when describing oral sex.\n"
-        "- HARD LIMIT: Under 40 words total. If in doubt, omit pose context — "
-        "Qwen reads better with fewer, cleaner tags.\n"
+        "- HARD LIMIT: Under 50 words total. To save words, drop an entire optional tag — "
+        "NEVER drop a character name. A nameless tag is always wrong; a slightly longer output is not.\n"
         "- Output ONLY the prompt text — no preamble, no explanation, no quotation marks.\n"
         "- Write in English regardless of the input language.\n"
     )
