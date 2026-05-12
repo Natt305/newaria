@@ -189,14 +189,38 @@ rem to any variable-expanded absolute path in that position.
 rem All searches below use either direct  if exist  or  pushd + for /r .
 rem -----------------------------------------------------------------------
 
-rem --- S1: .venv in COMFYUI_PATH -- ComfyUI Desktop creates this on first run via uv
+rem --- S1: ComfyUI Desktop stores its fully-installed venv in the Windows user
+rem     AppData folder (Electron userData), NOT inside the ComfyUI source tree.
+rem     Try every known variant of that path.
+for %%A in (
+    "%APPDATA%\ComfyUI Desktop\venv\Scripts\python.exe"
+    "%APPDATA%\ComfyUI\venv\Scripts\python.exe"
+    "%LOCALAPPDATA%\ComfyUI Desktop\venv\Scripts\python.exe"
+    "%LOCALAPPDATA%\ComfyUI\venv\Scripts\python.exe"
+    "%APPDATA%\ComfyUI Desktop\.venv\Scripts\python.exe"
+    "%LOCALAPPDATA%\Programs\comfyui\resources\venv\Scripts\python.exe"
+    "%LOCALAPPDATA%\comfyui\resources\venv\Scripts\python.exe"
+) do (
+    if not defined _COMFY_EXE if exist %%A (
+        set "_COMFY_EXE=%%~A"
+        echo [ComfyUI] Desktop AppData venv: %%~A
+    )
+)
+if defined _COMFY_EXE goto :py_resolved
+
+rem --- S2: .venv inside COMFYUI_PATH (only valid if it actually has packages --
+rem     check for sqlalchemy as a proxy for a fully-installed env)
 if exist "!COMFYUI_PATH!\.venv\Scripts\python.exe" (
-    set "_COMFY_EXE=!COMFYUI_PATH!\.venv\Scripts\python.exe"
-    echo [ComfyUI] venv Python: !_COMFY_EXE!
-    goto :py_resolved
+    if exist "!COMFYUI_PATH!\.venv\Lib\site-packages\sqlalchemy" (
+        set "_COMFY_EXE=!COMFYUI_PATH!\.venv\Scripts\python.exe"
+        echo [ComfyUI] venv Python ^(packages verified^): !_COMFY_EXE!
+        goto :py_resolved
+    ) else (
+        echo [ComfyUI] Found .venv but it has no packages -- skipping ^(run ComfyUI Desktop once to install them^)
+    )
 )
 
-rem --- S2: python_embeded / python_embedded siblings (older portable installs)
+rem --- S3: python_embeded / python_embedded siblings (older portable installs)
 for %%N in (python_embeded python_embedded) do (
     if not defined _COMFY_EXE if exist "!_COMFY_PARENT!\%%N\python.exe" (
         set "_COMFY_EXE=!_COMFY_PARENT!\%%N\python.exe"
@@ -205,40 +229,28 @@ for %%N in (python_embeded python_embedded) do (
 )
 if defined _COMFY_EXE goto :py_resolved
 
-rem --- S3: uv.exe at well-known locations inside the resources sibling folder.
-rem     No for /r needed -- ComfyUI Desktop always puts uv.exe in uv\win\uv.exe.
+rem --- S4: uv.exe at well-known Desktop locations (last resort -- uv sync
+rem     only works if pyproject.toml lists all ComfyUI deps, which it may not)
 for %%U in (
     "!_COMFY_PARENT!\uv\win\uv.exe"
     "!_COMFY_PARENT!\uv\bin\uv.exe"
     "!_COMFY_PARENT!\uv\uv.exe"
-    "!_COMFY_PARENT!\app.asar.unpacked\resources\uv\win\uv.exe"
-    "!_COMFY_PARENT!\app.asar.unpacked\uv.exe"
 ) do (
     if not defined _COMFY_EXE if exist %%U (
         set "_COMFY_EXE=%%~U"
         set "_COMFY_EXTRA=run python"
-        echo [ComfyUI] uv runtime: %%~U
+        echo [ComfyUI] uv runtime ^(NOTE: run ComfyUI Desktop once first to install packages^): %%~U
     )
 )
-if defined _COMFY_EXE goto :py_resolved
-
-rem --- S4: deep search under COMFYUI_PATH using pushd so for /r . is safe
-pushd "!COMFYUI_PATH!" 2>nul
-for /r . %%F in (python.exe) do (
-    if not defined _COMFY_EXE if exist "%%F" (
-        set "_COMFY_EXE=%%F"
-        echo [ComfyUI] Found Python in tree: %%F
-    )
-)
-popd 2>nul
 if defined _COMFY_EXE goto :py_resolved
 
 rem --- Nothing found
-echo [ComfyUI] ERROR: No Python runtime found. Open a Command Prompt and run:
-echo [ComfyUI]   where /r "!_COMFY_PARENT!" python.exe
-echo [ComfyUI]   where /r "!_COMFY_PARENT!" uv.exe
-echo [ComfyUI] Then add to tokens.txt:  COMFYUI_PYTHON=^<full path^>
-echo [ComfyUI] ComfyUI Desktop must be launched at least once before the bot can start it.
+echo [ComfyUI] ERROR: No Python runtime found.
+echo [ComfyUI]   Open ComfyUI Desktop, let it fully load, then run this in a Command Prompt:
+echo [ComfyUI]     where /r "%APPDATA%" python.exe
+echo [ComfyUI]     where /r "%LOCALAPPDATA%" python.exe
+echo [ComfyUI]   Find the python.exe that has ComfyUI packages, then set in tokens.txt:
+echo [ComfyUI]     COMFYUI_PYTHON=^<full path to that python.exe^>
 set "_COMFY_EXE=python"
 :py_resolved
 
