@@ -239,9 +239,19 @@ echo [ComfyUI]   Trying system Python as a last resort ^(will likely fail^).
 set "_COMFY_EXE=python"
 :py_resolved
 
+rem --- Write a tiny temp launcher so the start command never has to deal with
+rem     nested-quote / absolute-path confusion. The temp bat cd's into COMFYUI_PATH
+rem     (so uv finds the project venv) then runs the resolved exe.
+set "_COMFY_TMPBAT=%TEMP%\ariabot_comfy_launch.bat"
+(
+    echo @echo off
+    echo cd /d "!COMFYUI_PATH!"
+    echo "!_COMFY_EXE!" !_COMFY_EXTRA! main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
+) > "!_COMFY_TMPBAT!"
+
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
 echo [ComfyUI] *** Check the new "ComfyUI" window for startup errors if the bot hangs here ***
-start "ComfyUI" /d "!COMFYUI_PATH!" "!_COMFY_EXE!" !_COMFY_EXTRA! main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
+start "ComfyUI" cmd /k "!_COMFY_TMPBAT!"
 
 rem --- Wait up to 5 minutes (150 x 2s) for ComfyUI to bind port 8188.
 rem     If it never comes up, print a diagnostic and skip to the bot.
