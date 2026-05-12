@@ -175,74 +175,73 @@ for %%P in ("!COMFYUI_PATH!") do set "_COMFY_PARENT=%%~dpP"
 rem %%~dpP ends with \; strip it
 if "!_COMFY_PARENT:~-1!"=="\" set "_COMFY_PARENT=!_COMFY_PARENT:~0,-1!"
 
-rem _COMFY_PY   = the python executable (for direct invocations)
-rem _COMFY_CMD  = the full launch command prefix (e.g. "uv.exe" run python, or just python.exe path)
-rem               used verbatim in the `start` line instead of "!_COMFY_PY!" main.py
-set "_COMFY_PY="
-set "_COMFY_CMD="
+rem _COMFY_EXE       = full path to the launcher executable (no quotes -- quoted at call site)
+rem _COMFY_EXTRA     = extra arguments inserted between the exe and main.py
+rem                    ("run python" for uv, empty for a direct python.exe)
+set "_COMFY_EXE="
+set "_COMFY_EXTRA="
 
-rem --- Strategy 1: uv data-dir python -- the uv\ sibling is uv's managed-python store.
-rem     Python lives at:  uv\python\cpython-X.Y.Z-windows-x86_64-none\python.exe
-rem     Search recursively; take the first python.exe found (newest uv puts only one).
+rem --- Strategy 1: ComfyUI Desktop (recent) bundles uv.exe inside resources\uv\<platform>\
+rem     Search recursively so we handle any subfolder depth (win\, bin\, 0.x.x\, etc.)
 if exist "!_COMFY_PARENT!\uv\" (
-    for /r "!_COMFY_PARENT!\uv" %%F in (python.exe) do (
-        if not defined _COMFY_PY (
-            set "_COMFY_PY=%%F"
-            set "_COMFY_CMD="%%F""
-            echo [ComfyUI] Auto-detected uv-managed Python: %%F
+    for /r "!_COMFY_PARENT!\uv" %%F in (uv.exe) do (
+        if not defined _COMFY_EXE (
+            set "_COMFY_EXE=%%F"
+            set "_COMFY_EXTRA=run python"
+            echo [ComfyUI] Auto-detected uv runtime: %%F
         )
     )
 )
-if defined _COMFY_PY goto :py_resolved
+if defined _COMFY_EXE goto :py_resolved
 
-rem --- Strategy 2: uv.exe binary -- may live in app.asar.unpacked or a bin\ subfolder
-for /r "!_COMFY_PARENT!\app.asar.unpacked" %%F in (uv.exe) do (
-    if not defined _COMFY_PY (
-        set "_COMFY_PY=%%F"
-        set "_COMFY_CMD="%%F" run python"
-        echo [ComfyUI] Auto-detected uv binary: %%F
+rem --- Strategy 2: uv.exe inside app.asar.unpacked (Electron bundle location)
+if exist "!_COMFY_PARENT!\app.asar.unpacked\" (
+    for /r "!_COMFY_PARENT!\app.asar.unpacked" %%F in (uv.exe) do (
+        if not defined _COMFY_EXE (
+            set "_COMFY_EXE=%%F"
+            set "_COMFY_EXTRA=run python"
+            echo [ComfyUI] Auto-detected uv binary: %%F
+        )
     )
 )
-if defined _COMFY_PY goto :py_resolved
+if defined _COMFY_EXE goto :py_resolved
 
-rem --- Strategy 3: .venv created by uv inside COMFYUI_PATH or its parent
+rem --- Strategy 3: .venv created by uv/pip inside COMFYUI_PATH or its parent
 for %%D in ("!COMFYUI_PATH!" "!_COMFY_PARENT!") do (
-    if not defined _COMFY_PY (
+    if not defined _COMFY_EXE (
         if exist "%%~D\.venv\Scripts\python.exe" (
-            set "_COMFY_PY=%%~D\.venv\Scripts\python.exe"
-            set "_COMFY_CMD="%%~D\.venv\Scripts\python.exe""
+            set "_COMFY_EXE=%%~D\.venv\Scripts\python.exe"
             echo [ComfyUI] Auto-detected venv Python: %%~D\.venv\Scripts\python.exe
         )
     )
 )
-if defined _COMFY_PY goto :py_resolved
+if defined _COMFY_EXE goto :py_resolved
 
 rem --- Strategy 4: older portable -- python_embeded sibling folder
 for %%F in (python_embeded python_embedded python3.12 python312 python3.11 python311 python3.10 python310) do (
-    if not defined _COMFY_PY (
+    if not defined _COMFY_EXE (
         if exist "!_COMFY_PARENT!\%%F\python.exe" (
-            set "_COMFY_PY=!_COMFY_PARENT!\%%F\python.exe"
-            set "_COMFY_CMD="!_COMFY_PARENT!\%%F\python.exe""
-            echo [ComfyUI] Auto-detected embedded Python ^(%%F^): !_COMFY_PY!
+            set "_COMFY_EXE=!_COMFY_PARENT!\%%F\python.exe"
+            echo [ComfyUI] Auto-detected embedded Python ^(%%F^): !_COMFY_EXE!
         )
     )
 )
-if defined _COMFY_PY goto :py_resolved
+if defined _COMFY_EXE goto :py_resolved
 
-rem --- Nothing found -- give the user the exact command to diagnose it themselves
+rem --- Nothing found -- give the user the exact command to diagnose it
 echo [ComfyUI] WARN: Could not auto-detect ComfyUI's Python runtime.
-echo [ComfyUI]   Run this in a Command Prompt window to find python.exe:
+echo [ComfyUI]   Run this in a Command Prompt window to locate uv.exe or python.exe:
+echo [ComfyUI]     where /r "!_COMFY_PARENT!" uv.exe
 echo [ComfyUI]     where /r "!_COMFY_PARENT!" python.exe
-echo [ComfyUI]   Then set the full path in tokens.txt:
-echo [ComfyUI]     COMFYUI_PYTHON=^<path shown above^>
+echo [ComfyUI]   Then set the path in tokens.txt:
+echo [ComfyUI]     COMFYUI_PYTHON=^<full path to python.exe^>
 echo [ComfyUI]   Trying system Python as a last resort ^(will likely fail^).
-set "_COMFY_PY=python"
-set "_COMFY_CMD=python"
+set "_COMFY_EXE=python"
 :py_resolved
 
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
 echo [ComfyUI] *** Check the new "ComfyUI" window for startup errors if the bot hangs here ***
-start "ComfyUI" /d "!COMFYUI_PATH!" !_COMFY_CMD! main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
+start "ComfyUI" /d "!COMFYUI_PATH!" "!_COMFY_EXE!" !_COMFY_EXTRA! main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
 
 rem --- Wait up to 5 minutes (150 x 2s) for ComfyUI to bind port 8188.
 rem     If it never comes up, print a diagnostic and skip to the bot.
