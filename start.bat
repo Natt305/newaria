@@ -65,7 +65,12 @@ rem --- Engine-scoped custom-node toggling (frees VRAM by keeping the inactive
 rem     engine's heavy packs from auto-loading their models at boot). ---
 echo [ComfyUI] Engine = !COMFYUI_ENGINE! -- applying engine-scoped pack manifest...
 python scripts\scope_comfy_packs.py
-if errorlevel 1 echo [ComfyUI] WARN: scope_comfy_packs.py exited non-zero, continuing anyway.
+if errorlevel 1 (
+    echo [ComfyUI] WARN: scope_comfy_packs.py exited non-zero.
+    echo [ComfyUI]   This usually means 'python' on your PATH is wrong, or the script
+    echo [ComfyUI]   hit a permissions error renaming a custom_nodes folder.
+    echo [ComfyUI]   Continuing anyway -- pack state may not be optimal for this engine.
+)
 
 rem --- Optional model-path scoping: pass --extra-model-paths-config when the
 rem     engine-matching yaml exists at the repo root. Cosmetic only (cleans
@@ -96,11 +101,28 @@ rem        12 GB cards -> --normalvram
 rem         8 GB cards -> --normalvram
 rem         6 GB cards -> --lowvram
 rem     If nvidia-smi is missing or fails (non-NVIDIA card, weird driver
-rem     state), pass no flag and let ComfyUI fall back to its built-in auto. ---
+rem     state), pass no flag and let ComfyUI fall back to its built-in auto.
+rem
+rem     nvidia-smi search: try the well-known install path if it is not on PATH.
 set "COMFY_VRAM_ARG="
 set "COMFY_VRAM_MB="
-for /f "usebackq tokens=1" %%V in (`nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2^>nul`) do (
-    if not defined COMFY_VRAM_MB set "COMFY_VRAM_MB=%%V"
+where nvidia-smi >nul 2>nul
+if errorlevel 1 (
+    rem nvidia-smi not on PATH -- try the default NVIDIA driver install location
+    if exist "%SystemRoot%\System32\nvidia-smi.exe" (
+        set "_NSMI=%SystemRoot%\System32\nvidia-smi.exe"
+    ) else if exist "C:\Windows\System32\nvidia-smi.exe" (
+        set "_NSMI=C:\Windows\System32\nvidia-smi.exe"
+    ) else (
+        set "_NSMI="
+    )
+) else (
+    set "_NSMI=nvidia-smi"
+)
+if defined _NSMI (
+    for /f "usebackq tokens=1" %%V in (`"!_NSMI!" --query-gpu=memory.total --format=csv,noheader,nounits 2^>nul`) do (
+        if not defined COMFY_VRAM_MB set "COMFY_VRAM_MB=%%V"
+    )
 )
 set "_COMFY_VRAM_GB=0"
 if defined COMFY_VRAM_MB set /a "_COMFY_VRAM_GB=COMFY_VRAM_MB/1024" 2>nul
@@ -114,21 +136,45 @@ if !_COMFY_VRAM_GB! GEQ 23 (
 if defined COMFY_VRAM_ARG (
     echo [ComfyUI] Detected GPU VRAM: !COMFY_VRAM_MB! MB ^(bucket=!_COMFY_VRAM_GB! GiB^) -^> !COMFY_VRAM_ARG!
 ) else (
-    echo [ComfyUI] Could not detect GPU VRAM ^(nvidia-smi missing/failed^), ComfyUI will use its built-in auto memory mode.
+    echo [ComfyUI] Could not detect GPU VRAM ^(nvidia-smi not found^), ComfyUI will use its built-in auto memory mode.
 )
 
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
+echo [ComfyUI] *** Check the new "ComfyUI" window for startup errors if the bot hangs here ***
 start "ComfyUI" /d "!COMFYUI_PATH!" python main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
 
-echo [ComfyUI] Waiting for ComfyUI to be ready on port 8188...
+rem --- Wait up to 5 minutes (150 x 2s) for ComfyUI to bind port 8188.
+rem     If it never comes up, print a diagnostic and skip to the bot.
+rem     Large models (Qwen GGUF) can take 60-90 s to load on first run.
+echo [ComfyUI] Waiting for ComfyUI to be ready on port 8188 ^(up to 5 min^)...
+set "_COMFY_WAIT=0"
 :waitloop
 python -c "import socket,sys; s=socket.socket(); s.settimeout(2); r=s.connect_ex(('127.0.0.1',8188)); s.close(); sys.exit(0 if r==0 else 1)" 2>nul
-if errorlevel 1 (
-    timeout /t 2 /nobreak >nul
-    goto waitloop
+if not errorlevel 1 (
+    echo [ComfyUI] Ready!
+    echo.
+    goto skipcomfy
 )
-echo [ComfyUI] Ready!
-echo.
+set /a "_COMFY_WAIT+=1"
+if !_COMFY_WAIT! GEQ 150 (
+    echo.
+    echo [ComfyUI] ERROR: ComfyUI did not bind port 8188 within 5 minutes.
+    echo [ComfyUI] Most likely causes:
+    echo [ComfyUI]   1. ComfyUI crashed -- look at the "ComfyUI" window for the error message.
+    echo [ComfyUI]   2. A required custom node or model file is missing/mis-named.
+    echo [ComfyUI]   3. ComfyUI's Python environment is broken -- try running it manually:
+    echo [ComfyUI]      cd "!COMFYUI_PATH!" ^& python main.py --listen 127.0.0.1 --port 8188
+    echo [ComfyUI] Continuing to start the bot anyway ^(image generation will fail^).
+    echo.
+    goto skipcomfy
+)
+if !_COMFY_WAIT! EQU 15 echo [ComfyUI]   Still waiting... ^(!_COMFY_WAIT! / 150^) -- large models take 60-90s to load.
+if !_COMFY_WAIT! EQU 30 echo [ComfyUI]   Still waiting... ^(!_COMFY_WAIT! / 150^)
+if !_COMFY_WAIT! EQU 60 echo [ComfyUI]   Still waiting... ^(!_COMFY_WAIT! / 150^) -- check the ComfyUI window for errors.
+if !_COMFY_WAIT! EQU 90 echo [ComfyUI]   Still waiting... ^(!_COMFY_WAIT! / 150^)
+if !_COMFY_WAIT! EQU 120 echo [ComfyUI]   Still waiting... ^(!_COMFY_WAIT! / 150^) -- nearly at timeout.
+timeout /t 2 /nobreak >nul
+goto waitloop
 
 :skipcomfy
 echo [Setup] Installing / updating dependencies...
