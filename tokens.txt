@@ -468,6 +468,16 @@ LOCAL_DIFFUSER_STRENGTH=0.75
 # COMFYUI_PATH=C:\ComfyUI
 COMFYUI_PATH=E:\comfyui\resources\ComfyUI
 
+# ComfyUI 使用的 Python 執行檔路徑（留空讓 start.bat 自動偵測）
+# Path to the Python executable ComfyUI should use.
+# Leave blank and start.bat will auto-detect:
+#   1. <parent of COMFYUI_PATH>\python_embeded\python.exe  (ComfyUI Desktop installer)
+#   2. <COMFYUI_PATH>\.venv\Scripts\python.exe             (venv install)
+#   3. Falls back to system "python" if neither is found.
+# Set this explicitly if auto-detection picks the wrong one, e.g.:
+# COMFYUI_PYTHON=E:\comfyui\resources\python_embeded\python.exe
+COMFYUI_PYTHON=
+
 # ComfyUI 伺服器位址（預設 http://127.0.0.1:8188）
 # ComfyUI server address (default: http://127.0.0.1:8188)
 COMFYUI_URL=http://127.0.0.1:8188

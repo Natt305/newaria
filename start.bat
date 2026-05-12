@@ -19,10 +19,12 @@ rem so the bot's own Chinese console output still renders correctly.
 set "IMAGE_BACKEND="
 set "COMFYUI_PATH="
 set "COMFYUI_ENGINE="
+set "COMFYUI_PYTHON="
 for /f "usebackq tokens=1,* delims==" %%A in ("tokens.txt") do (
     if /i "%%A"=="IMAGE_BACKEND"   set "IMAGE_BACKEND=%%B"
     if /i "%%A"=="COMFYUI_PATH"    set "COMFYUI_PATH=%%B"
     if /i "%%A"=="COMFYUI_ENGINE"  set "COMFYUI_ENGINE=%%B"
+    if /i "%%A"=="COMFYUI_PYTHON"  set "COMFYUI_PYTHON=%%B"
 )
 if not defined COMFYUI_ENGINE set "COMFYUI_ENGINE=qwen"
 
@@ -60,6 +62,20 @@ if not errorlevel 1 (
     goto skipcomfy
 )
 echo [ComfyUI] Port 8188 is free -- proceeding with auto-launch.
+
+rem --- Validate COMFYUI_PATH actually exists before trying to launch ---
+if not exist "!COMFYUI_PATH!\" (
+    echo [ComfyUI] ERROR: COMFYUI_PATH does not exist: !COMFYUI_PATH!
+    echo [ComfyUI]   Check the COMFYUI_PATH value in tokens.txt and make sure the folder exists.
+    echo.
+    goto skipcomfy
+)
+if not exist "!COMFYUI_PATH!\main.py" (
+    echo [ComfyUI] ERROR: main.py not found inside COMFYUI_PATH: !COMFYUI_PATH!
+    echo [ComfyUI]   Make sure COMFYUI_PATH points to the ComfyUI folder that contains main.py.
+    echo.
+    goto skipcomfy
+)
 
 rem --- Engine-scoped custom-node toggling (frees VRAM by keeping the inactive
 rem     engine's heavy packs from auto-loading their models at boot). ---
@@ -139,9 +155,44 @@ if defined COMFY_VRAM_ARG (
     echo [ComfyUI] Could not detect GPU VRAM ^(nvidia-smi not found^), ComfyUI will use its built-in auto memory mode.
 )
 
+rem --- Resolve which Python executable to use for ComfyUI.
+rem     Priority: explicit COMFYUI_PYTHON in tokens.txt > auto-detect > system python.
+rem
+rem     ComfyUI Desktop installer layout:
+rem       <drive>:\comfyui\resources\ComfyUI\      <- COMFYUI_PATH
+rem       <drive>:\comfyui\resources\python_embeded\python.exe  <- embedded Python
+rem     Venv layout:
+rem       <COMFYUI_PATH>\.venv\Scripts\python.exe
+if defined COMFYUI_PYTHON (
+    if not "!COMFYUI_PYTHON!"=="" (
+        set "_COMFY_PY=!COMFYUI_PYTHON!"
+        echo [ComfyUI] Using Python from tokens.txt: !_COMFY_PY!
+        goto :py_resolved
+    )
+)
+rem Auto-detect: ComfyUI Desktop -- python_embeded is a sibling of COMFYUI_PATH's parent
+for %%P in ("!COMFYUI_PATH!") do set "_COMFY_PARENT=%%~dpP"
+rem _COMFY_PARENT ends with \, so strip the trailing backslash
+if "!_COMFY_PARENT:~-1!"=="\" set "_COMFY_PARENT=!_COMFY_PARENT:~0,-1!"
+if exist "!_COMFY_PARENT!\python_embeded\python.exe" (
+    set "_COMFY_PY=!_COMFY_PARENT!\python_embeded\python.exe"
+    echo [ComfyUI] Auto-detected ComfyUI Desktop embedded Python: !_COMFY_PY!
+    goto :py_resolved
+)
+rem Auto-detect: venv inside COMFYUI_PATH
+if exist "!COMFYUI_PATH!\.venv\Scripts\python.exe" (
+    set "_COMFY_PY=!COMFYUI_PATH!\.venv\Scripts\python.exe"
+    echo [ComfyUI] Auto-detected venv Python: !_COMFY_PY!
+    goto :py_resolved
+)
+rem Fallback: system python (works for manual git-clone installs)
+set "_COMFY_PY=python"
+echo [ComfyUI] Using system Python ^(no embedded/venv detected^). Set COMFYUI_PYTHON in tokens.txt if this is wrong.
+:py_resolved
+
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
 echo [ComfyUI] *** Check the new "ComfyUI" window for startup errors if the bot hangs here ***
-start "ComfyUI" /d "!COMFYUI_PATH!" python main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
+start "ComfyUI" /d "!COMFYUI_PATH!" "!_COMFY_PY!" main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
 
 rem --- Wait up to 5 minutes (150 x 2s) for ComfyUI to bind port 8188.
 rem     If it never comes up, print a diagnostic and skip to the bot.
