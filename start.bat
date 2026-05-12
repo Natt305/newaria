@@ -181,25 +181,43 @@ rem               used verbatim in the `start` line instead of "!_COMFY_PY!" mai
 set "_COMFY_PY="
 set "_COMFY_CMD="
 
-rem --- Strategy 1: ComfyUI Desktop (recent) uses uv to manage the venv.
-rem     uv.exe lives in a sibling "uv\" folder next to ComfyUI\.
-rem     Call: uv.exe run python main.py  (uv resolves the project venv automatically)
-if exist "!_COMFY_PARENT!\uv\uv.exe" (
-    set "_COMFY_PY=!_COMFY_PARENT!\uv\uv.exe"
-    set "_COMFY_CMD="!_COMFY_PARENT!\uv\uv.exe" run python"
-    echo [ComfyUI] Auto-detected ComfyUI Desktop uv runtime: !_COMFY_PY!
-    goto :py_resolved
+rem --- Strategy 1: uv data-dir python -- the uv\ sibling is uv's managed-python store.
+rem     Python lives at:  uv\python\cpython-X.Y.Z-windows-x86_64-none\python.exe
+rem     Search recursively; take the first python.exe found (newest uv puts only one).
+if exist "!_COMFY_PARENT!\uv\" (
+    for /r "!_COMFY_PARENT!\uv" %%F in (python.exe) do (
+        if not defined _COMFY_PY (
+            set "_COMFY_PY=%%F"
+            set "_COMFY_CMD="%%F""
+            echo [ComfyUI] Auto-detected uv-managed Python: %%F
+        )
+    )
 )
+if defined _COMFY_PY goto :py_resolved
 
-rem --- Strategy 2: venv created by uv / pip inside COMFYUI_PATH itself
-if exist "!COMFYUI_PATH!\.venv\Scripts\python.exe" (
-    set "_COMFY_PY=!COMFYUI_PATH!\.venv\Scripts\python.exe"
-    set "_COMFY_CMD="!COMFYUI_PATH!\.venv\Scripts\python.exe""
-    echo [ComfyUI] Auto-detected venv Python: !_COMFY_PY!
-    goto :py_resolved
+rem --- Strategy 2: uv.exe binary -- may live in app.asar.unpacked or a bin\ subfolder
+for /r "!_COMFY_PARENT!\app.asar.unpacked" %%F in (uv.exe) do (
+    if not defined _COMFY_PY (
+        set "_COMFY_PY=%%F"
+        set "_COMFY_CMD="%%F" run python"
+        echo [ComfyUI] Auto-detected uv binary: %%F
+    )
 )
+if defined _COMFY_PY goto :py_resolved
 
-rem --- Strategy 3: older ComfyUI Desktop portable -- python_embeded / python_embedded sibling folder
+rem --- Strategy 3: .venv created by uv inside COMFYUI_PATH or its parent
+for %%D in ("!COMFYUI_PATH!" "!_COMFY_PARENT!") do (
+    if not defined _COMFY_PY (
+        if exist "%%~D\.venv\Scripts\python.exe" (
+            set "_COMFY_PY=%%~D\.venv\Scripts\python.exe"
+            set "_COMFY_CMD="%%~D\.venv\Scripts\python.exe""
+            echo [ComfyUI] Auto-detected venv Python: %%~D\.venv\Scripts\python.exe
+        )
+    )
+)
+if defined _COMFY_PY goto :py_resolved
+
+rem --- Strategy 4: older portable -- python_embeded sibling folder
 for %%F in (python_embeded python_embedded python3.12 python312 python3.11 python311 python3.10 python310) do (
     if not defined _COMFY_PY (
         if exist "!_COMFY_PARENT!\%%F\python.exe" (
@@ -211,13 +229,12 @@ for %%F in (python_embeded python_embedded python3.12 python312 python3.11 pytho
 )
 if defined _COMFY_PY goto :py_resolved
 
-rem --- Nothing found -- tell the user exactly what to do
+rem --- Nothing found -- give the user the exact command to diagnose it themselves
 echo [ComfyUI] WARN: Could not auto-detect ComfyUI's Python runtime.
-echo [ComfyUI]   Subfolders found in !_COMFY_PARENT!:
-dir "!_COMFY_PARENT!" /b /ad 2^>nul
-echo [ComfyUI]   Open that folder in Explorer, find the folder with python.exe or uv.exe,
-echo [ComfyUI]   then set COMFYUI_PYTHON in tokens.txt, e.g.:
-echo [ComfyUI]     COMFYUI_PYTHON=!_COMFY_PARENT!\python_embeded\python.exe
+echo [ComfyUI]   Run this in a Command Prompt window to find python.exe:
+echo [ComfyUI]     where /r "!_COMFY_PARENT!" python.exe
+echo [ComfyUI]   Then set the full path in tokens.txt:
+echo [ComfyUI]     COMFYUI_PYTHON=^<path shown above^>
 echo [ComfyUI]   Trying system Python as a last resort ^(will likely fail^).
 set "_COMFY_PY=python"
 set "_COMFY_CMD=python"
