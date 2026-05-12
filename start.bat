@@ -257,32 +257,45 @@ set "_COMFY_EXE=python"
 rem --- Write a tiny temp launcher using >> per line to avoid parenthesised-block
 rem     quote-corruption. The file cd's into COMFYUI_PATH then runs the exe.
 set "_COMFY_TMPBAT=%TEMP%\ariabot_comfy_launch.bat"
+rem --- Find uv.exe (used for pip install, independent of which Python strategy won)
+set "_COMFY_UV_EXE="
+for %%U in (
+    "!_COMFY_PARENT!\uv\win\uv.exe"
+    "!_COMFY_PARENT!\uv\bin\uv.exe"
+    "!_COMFY_PARENT!\uv\uv.exe"
+) do (
+    if not defined _COMFY_UV_EXE if exist %%U set "_COMFY_UV_EXE=%%~U"
+)
+
+rem --- When using uv run python, the .venv was just created empty.
+rem     Switch to running .venv\python.exe directly; uv pip install will fill it.
+if "!_COMFY_EXTRA!"=="run python" (
+    set "_COMFY_EXE=!COMFYUI_PATH!\.venv\Scripts\python.exe"
+    set "_COMFY_EXTRA="
+)
+
+rem --- Build the temp launcher
 echo @echo off> "!_COMFY_TMPBAT!"
 echo cd /d "!COMFYUI_PATH!">> "!_COMFY_TMPBAT!"
 
-rem --- Run uv sync whenever pyproject.toml + uv.exe are present, regardless of
-rem     which strategy found Python. This ensures the .venv always has all packages
-rem     (it is a no-op after the first successful sync and takes ~1 s steady-state).
-set "_COMFY_SYNC_EXE="
-if exist "!COMFYUI_PATH!\pyproject.toml" (
-    for %%U in (
-        "!_COMFY_PARENT!\uv\win\uv.exe"
-        "!_COMFY_PARENT!\uv\bin\uv.exe"
-        "!_COMFY_PARENT!\uv\uv.exe"
-        "!_COMFY_PARENT!\app.asar.unpacked\resources\uv\win\uv.exe"
-    ) do (
-        if not defined _COMFY_SYNC_EXE if exist %%U set "_COMFY_SYNC_EXE=%%~U"
-    )
+rem Activate the .venv so uv pip install targets the right environment
+if exist "!COMFYUI_PATH!\.venv\Scripts\activate.bat" (
+    echo call ".venv\Scripts\activate.bat">> "!_COMFY_TMPBAT!"
 )
-if defined _COMFY_SYNC_EXE (
-    echo echo [ComfyUI] Syncing dependencies ^(first run installs packages -- may take a minute^)...>> "!_COMFY_TMPBAT!"
-    echo "!_COMFY_SYNC_EXE!" sync>> "!_COMFY_TMPBAT!"
+
+rem Install all ComfyUI packages from requirements.txt via uv pip.
+rem uv pip is ~10x faster than pip and skips already-installed packages instantly.
+if defined _COMFY_UV_EXE (
+    if exist "!COMFYUI_PATH!\requirements.txt" (
+        echo echo [ComfyUI] Installing^/checking packages from requirements.txt...>> "!_COMFY_TMPBAT!"
+        echo "!_COMFY_UV_EXE!" pip install -r requirements.txt>> "!_COMFY_TMPBAT!"
+    )
 )
 
 if defined COMFY_EXTRA_PATHS_FILE (
-    echo "!_COMFY_EXE!" !_COMFY_EXTRA! main.py --listen 127.0.0.1 --port 8188 --extra-model-paths-config "!COMFY_EXTRA_PATHS_FILE!" !COMFY_VRAM_ARG!>> "!_COMFY_TMPBAT!"
+    echo "!_COMFY_EXE!" main.py --listen 127.0.0.1 --port 8188 --extra-model-paths-config "!COMFY_EXTRA_PATHS_FILE!" !COMFY_VRAM_ARG!>> "!_COMFY_TMPBAT!"
 ) else (
-    echo "!_COMFY_EXE!" !_COMFY_EXTRA! main.py --listen 127.0.0.1 --port 8188 !COMFY_VRAM_ARG!>> "!_COMFY_TMPBAT!"
+    echo "!_COMFY_EXE!" main.py --listen 127.0.0.1 --port 8188 !COMFY_VRAM_ARG!>> "!_COMFY_TMPBAT!"
 )
 
 echo [ComfyUI] Launch command:
