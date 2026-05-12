@@ -175,39 +175,57 @@ for %%P in ("!COMFYUI_PATH!") do set "_COMFY_PARENT=%%~dpP"
 rem %%~dpP ends with \; strip it
 if "!_COMFY_PARENT:~-1!"=="\" set "_COMFY_PARENT=!_COMFY_PARENT:~0,-1!"
 
-rem Try every common embedded-Python folder name used by ComfyUI Desktop / portable releases.
-rem The Desktop app has used several names across versions -- scan them all.
+rem _COMFY_PY   = the python executable (for direct invocations)
+rem _COMFY_CMD  = the full launch command prefix (e.g. "uv.exe" run python, or just python.exe path)
+rem               used verbatim in the `start` line instead of "!_COMFY_PY!" main.py
 set "_COMFY_PY="
-for %%F in (python_embeded python_embedded python3.12 python312 python3.11 python311 python3.10 python310 python3.9 python309 python) do (
+set "_COMFY_CMD="
+
+rem --- Strategy 1: ComfyUI Desktop (recent) uses uv to manage the venv.
+rem     uv.exe lives in a sibling "uv\" folder next to ComfyUI\.
+rem     Call: uv.exe run python main.py  (uv resolves the project venv automatically)
+if exist "!_COMFY_PARENT!\uv\uv.exe" (
+    set "_COMFY_PY=!_COMFY_PARENT!\uv\uv.exe"
+    set "_COMFY_CMD="!_COMFY_PARENT!\uv\uv.exe" run python"
+    echo [ComfyUI] Auto-detected ComfyUI Desktop uv runtime: !_COMFY_PY!
+    goto :py_resolved
+)
+
+rem --- Strategy 2: venv created by uv / pip inside COMFYUI_PATH itself
+if exist "!COMFYUI_PATH!\.venv\Scripts\python.exe" (
+    set "_COMFY_PY=!COMFYUI_PATH!\.venv\Scripts\python.exe"
+    set "_COMFY_CMD="!COMFYUI_PATH!\.venv\Scripts\python.exe""
+    echo [ComfyUI] Auto-detected venv Python: !_COMFY_PY!
+    goto :py_resolved
+)
+
+rem --- Strategy 3: older ComfyUI Desktop portable -- python_embeded / python_embedded sibling folder
+for %%F in (python_embeded python_embedded python3.12 python312 python3.11 python311 python3.10 python310) do (
     if not defined _COMFY_PY (
         if exist "!_COMFY_PARENT!\%%F\python.exe" (
             set "_COMFY_PY=!_COMFY_PARENT!\%%F\python.exe"
-            echo [ComfyUI] Auto-detected ComfyUI Desktop embedded Python ^(%%F^): !_COMFY_PY!
+            set "_COMFY_CMD="!_COMFY_PARENT!\%%F\python.exe""
+            echo [ComfyUI] Auto-detected embedded Python ^(%%F^): !_COMFY_PY!
         )
     )
 )
-rem Also try venv inside COMFYUI_PATH itself
-if not defined _COMFY_PY (
-    if exist "!COMFYUI_PATH!\.venv\Scripts\python.exe" (
-        set "_COMFY_PY=!COMFYUI_PATH!\.venv\Scripts\python.exe"
-        echo [ComfyUI] Auto-detected venv Python: !_COMFY_PY!
-    )
-)
-rem Nothing found -- fall back and warn clearly
-if not defined _COMFY_PY (
-    set "_COMFY_PY=python"
-    echo [ComfyUI] WARN: Could not find embedded Python in !_COMFY_PARENT!
-    echo [ComfyUI]   Folders checked: python_embeded, python_embedded, python3.12, python312, python3.11, ...
-    echo [ComfyUI]   Open !_COMFY_PARENT! in Explorer, find the folder with python.exe, then set:
-    echo [ComfyUI]     COMFYUI_PYTHON=!_COMFY_PARENT!\^<that-folder^>\python.exe
-    echo [ComfyUI]   in tokens.txt and re-run start.bat.
-    echo [ComfyUI]   Trying system Python as a last resort ^(will likely fail^).
-)
+if defined _COMFY_PY goto :py_resolved
+
+rem --- Nothing found -- tell the user exactly what to do
+echo [ComfyUI] WARN: Could not auto-detect ComfyUI's Python runtime.
+echo [ComfyUI]   Subfolders found in !_COMFY_PARENT!:
+dir "!_COMFY_PARENT!" /b /ad 2^>nul
+echo [ComfyUI]   Open that folder in Explorer, find the folder with python.exe or uv.exe,
+echo [ComfyUI]   then set COMFYUI_PYTHON in tokens.txt, e.g.:
+echo [ComfyUI]     COMFYUI_PYTHON=!_COMFY_PARENT!\python_embeded\python.exe
+echo [ComfyUI]   Trying system Python as a last resort ^(will likely fail^).
+set "_COMFY_PY=python"
+set "_COMFY_CMD=python"
 :py_resolved
 
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
 echo [ComfyUI] *** Check the new "ComfyUI" window for startup errors if the bot hangs here ***
-start "ComfyUI" /d "!COMFYUI_PATH!" "!_COMFY_PY!" main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
+start "ComfyUI" /d "!COMFYUI_PATH!" !_COMFY_CMD! main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
 
 rem --- Wait up to 5 minutes (150 x 2s) for ComfyUI to bind port 8188.
 rem     If it never comes up, print a diagnostic and skip to the bot.
