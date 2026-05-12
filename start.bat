@@ -170,24 +170,39 @@ if defined COMFYUI_PYTHON (
         goto :py_resolved
     )
 )
-rem Auto-detect: ComfyUI Desktop -- python_embeded is a sibling of COMFYUI_PATH's parent
+rem Auto-detect: get the parent directory of COMFYUI_PATH (e.g. E:\comfyui\resources)
 for %%P in ("!COMFYUI_PATH!") do set "_COMFY_PARENT=%%~dpP"
-rem _COMFY_PARENT ends with \, so strip the trailing backslash
+rem %%~dpP ends with \; strip it
 if "!_COMFY_PARENT:~-1!"=="\" set "_COMFY_PARENT=!_COMFY_PARENT:~0,-1!"
-if exist "!_COMFY_PARENT!\python_embeded\python.exe" (
-    set "_COMFY_PY=!_COMFY_PARENT!\python_embeded\python.exe"
-    echo [ComfyUI] Auto-detected ComfyUI Desktop embedded Python: !_COMFY_PY!
-    goto :py_resolved
+
+rem Try every common embedded-Python folder name used by ComfyUI Desktop / portable releases.
+rem The Desktop app has used several names across versions -- scan them all.
+set "_COMFY_PY="
+for %%F in (python_embeded python_embedded python3.12 python312 python3.11 python311 python3.10 python310 python3.9 python309 python) do (
+    if not defined _COMFY_PY (
+        if exist "!_COMFY_PARENT!\%%F\python.exe" (
+            set "_COMFY_PY=!_COMFY_PARENT!\%%F\python.exe"
+            echo [ComfyUI] Auto-detected ComfyUI Desktop embedded Python ^(%%F^): !_COMFY_PY!
+        )
+    )
 )
-rem Auto-detect: venv inside COMFYUI_PATH
-if exist "!COMFYUI_PATH!\.venv\Scripts\python.exe" (
-    set "_COMFY_PY=!COMFYUI_PATH!\.venv\Scripts\python.exe"
-    echo [ComfyUI] Auto-detected venv Python: !_COMFY_PY!
-    goto :py_resolved
+rem Also try venv inside COMFYUI_PATH itself
+if not defined _COMFY_PY (
+    if exist "!COMFYUI_PATH!\.venv\Scripts\python.exe" (
+        set "_COMFY_PY=!COMFYUI_PATH!\.venv\Scripts\python.exe"
+        echo [ComfyUI] Auto-detected venv Python: !_COMFY_PY!
+    )
 )
-rem Fallback: system python (works for manual git-clone installs)
-set "_COMFY_PY=python"
-echo [ComfyUI] Using system Python ^(no embedded/venv detected^). Set COMFYUI_PYTHON in tokens.txt if this is wrong.
+rem Nothing found -- fall back and warn clearly
+if not defined _COMFY_PY (
+    set "_COMFY_PY=python"
+    echo [ComfyUI] WARN: Could not find embedded Python in !_COMFY_PARENT!
+    echo [ComfyUI]   Folders checked: python_embeded, python_embedded, python3.12, python312, python3.11, ...
+    echo [ComfyUI]   Open !_COMFY_PARENT! in Explorer, find the folder with python.exe, then set:
+    echo [ComfyUI]     COMFYUI_PYTHON=!_COMFY_PARENT!\^<that-folder^>\python.exe
+    echo [ComfyUI]   in tokens.txt and re-run start.bat.
+    echo [ComfyUI]   Trying system Python as a last resort ^(will likely fail^).
+)
 :py_resolved
 
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
