@@ -91,11 +91,11 @@ if errorlevel 1 (
 rem --- Optional model-path scoping: pass --extra-model-paths-config when the
 rem     engine-matching yaml exists at the repo root. Cosmetic only (cleans
 rem     Manager dropdowns); does NOT affect VRAM. ---
-set "COMFY_EXTRA_PATHS_ARG="
-set "COMFY_EXTRA_PATHS_FILE=%CD%\comfyui_extra_paths.!COMFYUI_ENGINE!.yaml"
-if exist "!COMFY_EXTRA_PATHS_FILE!" (
-    set "COMFY_EXTRA_PATHS_ARG=--extra-model-paths-config "!COMFY_EXTRA_PATHS_FILE!""
-    echo [ComfyUI] Using engine-scoped model paths: !COMFY_EXTRA_PATHS_FILE!
+set "COMFY_EXTRA_PATHS_FILE="
+set "_COMFY_YAML_CANDIDATE=%CD%\comfyui_extra_paths.!COMFYUI_ENGINE!.yaml"
+if exist "!_COMFY_YAML_CANDIDATE!" (
+    set "COMFY_EXTRA_PATHS_FILE=!_COMFY_YAML_CANDIDATE!"
+    echo [ComfyUI] Using engine-scoped model paths: !_COMFY_YAML_CANDIDATE!
 )
 
 rem --- Auto-detect GPU VRAM via nvidia-smi to pick the right ComfyUI memory
@@ -229,16 +229,19 @@ echo [ComfyUI]   Trying system Python as a last resort ^(will likely fail^).
 set "_COMFY_EXE=python"
 :py_resolved
 
-rem --- Write a tiny temp launcher so the start command never has to deal with
-rem     nested-quote / absolute-path confusion. The temp bat cd's into COMFYUI_PATH
-rem     (so uv finds the project venv) then runs the resolved exe.
+rem --- Write a tiny temp launcher using >> per line to avoid parenthesised-block
+rem     quote-corruption. The file cd's into COMFYUI_PATH then runs the exe.
 set "_COMFY_TMPBAT=%TEMP%\ariabot_comfy_launch.bat"
-(
-    echo @echo off
-    echo cd /d "!COMFYUI_PATH!"
-    echo "!_COMFY_EXE!" !_COMFY_EXTRA! main.py --listen 127.0.0.1 --port 8188 !COMFY_EXTRA_PATHS_ARG! !COMFY_VRAM_ARG!
-) > "!_COMFY_TMPBAT!"
+echo @echo off> "!_COMFY_TMPBAT!"
+echo cd /d "!COMFYUI_PATH!">> "!_COMFY_TMPBAT!"
+if defined COMFY_EXTRA_PATHS_FILE (
+    echo "!_COMFY_EXE!" !_COMFY_EXTRA! main.py --listen 127.0.0.1 --port 8188 --extra-model-paths-config "!COMFY_EXTRA_PATHS_FILE!" !COMFY_VRAM_ARG!>> "!_COMFY_TMPBAT!"
+) else (
+    echo "!_COMFY_EXE!" !_COMFY_EXTRA! main.py --listen 127.0.0.1 --port 8188 !COMFY_VRAM_ARG!>> "!_COMFY_TMPBAT!"
+)
 
+echo [ComfyUI] Launch command:
+type "!_COMFY_TMPBAT!"
 echo [ComfyUI] Starting ComfyUI from: !COMFYUI_PATH!
 echo [ComfyUI] *** Check the new "ComfyUI" window for startup errors if the bot hangs here ***
 start "ComfyUI" cmd /k "!_COMFY_TMPBAT!"
