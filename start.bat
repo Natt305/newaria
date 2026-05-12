@@ -170,10 +170,13 @@ if defined COMFYUI_PYTHON (
         goto :py_resolved
     )
 )
-rem Auto-detect: get the parent directory of COMFYUI_PATH (e.g. E:\comfyui\resources)
-for %%P in ("!COMFYUI_PATH!") do set "_COMFY_PARENT=%%~dpP"
-rem %%~dpP ends with \; strip it
-if "!_COMFY_PARENT:~-1!"=="\" set "_COMFY_PARENT=!_COMFY_PARENT:~0,-1!"
+rem Auto-detect: get the parent directory of COMFYUI_PATH (e.g. E:\comfyui\resources).
+rem %%~dpP is unreliable on directory paths -- use pushd/cd .. instead.
+pushd "!COMFYUI_PATH!" 2>nul
+cd ..
+set "_COMFY_PARENT=!CD!"
+popd
+echo [ComfyUI] Parent dir: !_COMFY_PARENT!
 
 rem _COMFY_EXE       = full path to the launcher executable (no quotes -- quoted at call site)
 rem _COMFY_EXTRA     = extra arguments inserted between the exe and main.py
