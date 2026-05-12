@@ -208,27 +208,41 @@ for %%F in (python_embeded python_embedded python3.12 python312 python3.11 pytho
 )
 if defined _COMFY_EXE goto :py_resolved
 
-rem --- Strategy 3 (last resort): uv run python -- works only if uv can find the project env.
-rem     ComfyUI Desktop bundles uv.exe in resources\uv\<platform>\ (e.g. uv\win\uv.exe).
-if exist "!_COMFY_PARENT!\uv\" (
-    for /r "!_COMFY_PARENT!\uv" %%F in (uv.exe) do (
-        if not defined _COMFY_EXE (
-            set "_COMFY_EXE=%%F"
-            set "_COMFY_EXTRA=run python"
-            echo [ComfyUI] Using uv runtime ^(no .venv found -- uv will locate Python^): %%F
-        )
+rem --- Strategy 3: search entire COMFYUI_PATH tree for any python.exe that is NOT
+rem     a uv shim (shims live directly inside the uv\ data folder, not in a venv).
+rem     Covers: .venv anywhere under COMFYUI_PATH, portable python_embeded, etc.
+for /r "!COMFYUI_PATH!" %%F in (python.exe) do (
+    if not defined _COMFY_EXE (
+        echo [ComfyUI] Found Python candidate: %%F
+        set "_COMFY_EXE=%%F"
     )
 )
 if defined _COMFY_EXE goto :py_resolved
 
-rem --- Nothing found
-echo [ComfyUI] WARN: Could not auto-detect ComfyUI's Python runtime.
-echo [ComfyUI]   Has ComfyUI Desktop been launched at least once?
-echo [ComfyUI]   It must run once to create the Python environment before the bot can start it.
-echo [ComfyUI]   If it has, run this to find the Python exe:
-echo [ComfyUI]     where /r "!COMFYUI_PATH!" python.exe
-echo [ComfyUI]   Then set it in tokens.txt:  COMFYUI_PYTHON=^<that path^>
-echo [ComfyUI]   Trying system Python as a last resort ^(will likely fail^).
+rem --- Strategy 4 (last resort): uv run python.
+rem     ComfyUI Desktop bundles uv.exe in resources\uv\<platform>\ (e.g. uv\win\uv.exe).
+rem     Works only when uv can locate the project venv from COMFYUI_PATH.
+for /r "!_COMFY_PARENT!" %%F in (uv.exe) do (
+    if not defined _COMFY_EXE (
+        set "_COMFY_EXE=%%F"
+        set "_COMFY_EXTRA=run python"
+        echo [ComfyUI] No python.exe found -- trying uv runtime: %%F
+    )
+)
+if defined _COMFY_EXE goto :py_resolved
+
+rem --- Nothing found: print diagnostics
+echo [ComfyUI] ERROR: Could not find python.exe or uv.exe anywhere under:
+echo [ComfyUI]   !COMFYUI_PATH!
+echo [ComfyUI]   !_COMFY_PARENT!
+echo [ComfyUI] Run this in a Command Prompt to search manually:
+echo [ComfyUI]   where /r "!_COMFY_PARENT!" python.exe
+echo [ComfyUI]   where /r "!_COMFY_PARENT!" uv.exe
+echo [ComfyUI] Then set the result in tokens.txt:
+echo [ComfyUI]   COMFYUI_PYTHON=^<full path to python.exe^>
+echo [ComfyUI] Has ComfyUI Desktop been launched at least once? It creates the
+echo [ComfyUI] Python environment on first run -- the bot cannot start it cold.
+echo [ComfyUI] Trying system Python as a last resort.
 set "_COMFY_EXE=python"
 :py_resolved
 
